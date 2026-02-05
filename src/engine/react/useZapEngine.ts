@@ -128,10 +128,12 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       );
       workerRef.current = worker;
 
-      // Sound manager (lazy init on first user interaction)
+      // Sound manager — pre-initialize so audio buffers are decoded before first interaction.
+      // AudioContext starts suspended; resume() on pointerdown handles unsuspension.
       if (soundConfig) {
         const sm = new SoundManager(soundConfig);
         soundManagerRef.current = sm;
+        sm.init().catch(err => console.warn('[useZapEngine] Sound init failed:', err));
       }
 
       worker.onmessage = async (e: MessageEvent) => {

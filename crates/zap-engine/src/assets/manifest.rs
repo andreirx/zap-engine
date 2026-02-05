@@ -68,6 +68,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_manifest_with_sounds() {
+        let json = r#"{
+            "atlases": [],
+            "sounds": {
+                "click": { "path": "click.mp3", "event_id": 1 },
+                "bg_music": { "path": "music.ogg" }
+            }
+        }"#;
+        let manifest = AssetManifest::from_json(json).unwrap();
+        assert_eq!(manifest.sounds.len(), 2);
+
+        let click = &manifest.sounds["click"];
+        assert_eq!(click.path, "click.mp3");
+        assert_eq!(click.event_id, Some(1));
+
+        let music = &manifest.sounds["bg_music"];
+        assert_eq!(music.path, "music.ogg");
+        assert_eq!(music.event_id, None);
+    }
+
+    #[test]
     fn parse_minimal_manifest() {
         let json = r#"{
             "atlases": [

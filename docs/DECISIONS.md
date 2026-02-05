@@ -50,7 +50,7 @@ See ADR-006 for the current header layout (16 floats, self-describing with capac
   Per event: kind, a, b, c
 
 [SDF Instances: max_sdf_instances × 12 floats]
-  Per instance: x, y, radius, rotation, r, g, b, shininess, emissive, pad×3
+  Per instance: x, y, radius, rotation, r, g, b, shininess, emissive, shape_type, half_height, extra
 ```
 
 ### Consequences
@@ -380,3 +380,67 @@ Introduce a `RenderTier` type and per-tier shader constants:
 - **Pro:** `RenderTier` exposed to consumers for adaptive UI
 - **Pro:** Uses existing WebGPU pipeline override constants — zero runtime overhead
 - **Con:** Adds a lookup table for per-tier values (6 numbers total)
+
+---
+
+## ADR-014: Audio System Completion
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+The engine had a working `SoundManager` (Web Audio API, play by event ID, background music), but the manifest-to-config bridge was missing. Games had to manually construct `SoundConfig` despite the manifest already declaring sounds with `event_id` fields. Per-sound volume control was also absent.
+
+### Decision
+Complete the audio pipeline with three additions:
+
+1. **Per-sound volume via `SoundEntry`**: `SoundConfig.sounds` accepts `string | SoundEntry` where `SoundEntry = { path, volume? }`. Playback routes through a `GainNode` when `volume < 1.0`. Backward compatible — plain strings still work (volume defaults to 1.0).
+
+2. **`buildSoundConfigFromManifest()` helper**: Bridges `AssetManifest.sounds` (which has `path` + optional `event_id`) to `SoundConfig`. Iterates manifest entries, maps those with `event_id` to the sounds record. Zero-config audio for manifest-driven games.
+
+3. **Eager `init()` in React hook**: `SoundManager.init()` is called immediately after construction (before user interaction). AudioContext starts suspended; existing `resume()` on `pointerdown` handles unsuspension. This pre-decodes audio buffers so first-play latency is eliminated.
+
+### Consequences
+- **Pro:** Manifest-driven games get audio with zero manual config
+- **Pro:** Per-sound volume enables mix control (quiet UI clicks, loud explosions)
+- **Pro:** Eager init eliminates first-play latency
+- **Pro:** Fully backward compatible — no breaking changes to SoundConfig
+- **Con:** Audio buffers are decoded even if never played (acceptable — they're typically small)
+
+---
+
+## ADR-015: Extended SDF Shapes for Chemistry Visualization
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+The SDF molecule pipeline (ADR-009) only supported spheres. For chemistry/educational apps, we need capsule shapes (bonds between atoms) and rounded boxes (labels, indicators). The `SDFInstance` struct had 3 padding fields (`_pad0`, `_pad1`, `_pad2`) occupying 12 bytes of the 48-byte wire format.
+
+### Decision
+Repurpose the padding fields to encode shape parameters — **no protocol or buffer size changes**:
+
+1. **`_pad0` → `shape_type`**: 0.0 = Sphere, 1.0 = Capsule, 2.0 = RoundedBox. Float thresholds in the shader (< 0.5 sphere, < 1.5 capsule, else box) avoid integer comparison issues.
+
+2. **`_pad1` → `half_height`**: Cylinder half-length for Capsule, box half-height for RoundedBox. 0.0 for Sphere.
+
+3. **`_pad2` → `extra`**: Corner radius for RoundedBox. 0.0 for Sphere/Capsule.
+
+**Backward compatible**: Existing zeroed padding encodes shape_type = 0.0 = Sphere.
+
+**Shader changes (`molecule.wgsl`)**:
+- SDF primitive functions: `sdf_sphere()`, `sdf_capsule()`, `sdf_rounded_box()`
+- Normal estimation: Sphere uses analytic normals (fast), Capsule/RoundedBox use central-difference gradient
+- Vertex shader applies entity rotation and elongates quads for non-sphere shapes
+- Same Phong + Fresnel + HDR shading pipeline for all shapes
+
+**Canvas 2D fallback**: Capsule/RoundedBox drawn as rotated rounded rectangles with linear gradients.
+
+### Consequences
+- **Pro:** No protocol change — 48 bytes / 12 floats preserved
+- **Pro:** Fully backward compatible — zeroed fields = Sphere
+- **Pro:** Capsules model bonds between atoms naturally
+- **Pro:** RoundedBox enables labels and periodic-table-style indicators
+- **Pro:** Same Phong + Fresnel + HDR shading for all shapes — visual consistency
+- **Con:** Capsule/RoundedBox normals use central-difference (4 extra SDF evaluations per fragment)
+- **Con:** Two more shape types to maintain in both WebGPU and Canvas 2D code paths

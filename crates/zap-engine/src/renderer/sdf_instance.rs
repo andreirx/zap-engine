@@ -15,9 +15,12 @@ pub struct SDFInstance {
     pub b: f32,
     pub shininess: f32,
     pub emissive: f32,
-    pub _pad0: f32,
-    pub _pad1: f32,
-    pub _pad2: f32,
+    /// SDF shape type: 0.0 = Sphere, 1.0 = Capsule, 2.0 = RoundedBox.
+    pub shape_type: f32,
+    /// Cylinder half-length (Capsule) or box half-height (RoundedBox). 0.0 for Sphere.
+    pub half_height: f32,
+    /// Corner radius (RoundedBox only). 0.0 for Sphere/Capsule.
+    pub extra: f32,
 }
 
 impl SDFInstance {
@@ -80,5 +83,49 @@ mod tests {
         buf.push(SDFInstance::default());
         buf.push(SDFInstance::default());
         assert_eq!(buf.instance_count(), 2);
+    }
+
+    #[test]
+    fn sdf_instance_capsule_encoding() {
+        let inst = SDFInstance {
+            x: 10.0,
+            y: 20.0,
+            radius: 5.0,
+            rotation: 1.57,
+            r: 0.0,
+            g: 1.0,
+            b: 0.0,
+            shininess: 32.0,
+            emissive: 0.0,
+            shape_type: 1.0,
+            half_height: 15.0,
+            extra: 0.0,
+        };
+        let floats: &[f32; 12] = bytemuck::cast_ref(&inst);
+        assert_eq!(floats[9], 1.0);  // shape_type at offset 9
+        assert_eq!(floats[10], 15.0); // half_height at offset 10
+        assert_eq!(floats[11], 0.0);  // extra at offset 11
+    }
+
+    #[test]
+    fn sdf_instance_rounded_box_encoding() {
+        let inst = SDFInstance {
+            x: 0.0,
+            y: 0.0,
+            radius: 20.0,
+            rotation: 0.0,
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            shininess: 16.0,
+            emissive: 0.5,
+            shape_type: 2.0,
+            half_height: 10.0,
+            extra: 3.0,
+        };
+        let floats: &[f32; 12] = bytemuck::cast_ref(&inst);
+        assert_eq!(floats[9], 2.0);  // shape_type
+        assert_eq!(floats[10], 10.0); // half_height
+        assert_eq!(floats[11], 3.0);  // extra (corner_radius)
     }
 }

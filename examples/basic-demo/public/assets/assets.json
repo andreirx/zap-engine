@@ -12,5 +12,6 @@
     "green": { "atlas": 0, "col": 1, "row": 0 },
     "blue": { "atlas": 0, "col": 2, "row": 0 },
     "yellow": { "atlas": 0, "col": 3, "row": 0 }
-  }
+  },
+  "sounds": {}
 }

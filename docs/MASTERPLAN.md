@@ -113,3 +113,25 @@ where are we on the grand plan?
 * Renders a spinning sprite with the minimum boilerplate: `Game` trait impl, wasm-bindgen exports, TypeScript entry, HTML shell.
 * Copy the directory, rename, and start building. See its `README.md` for quick-start instructions.
 
+---
+
+### **Phase 5: Audio Completion + Extended SDF Shapes** DONE
+
+**Goal:** Complete the manifest-driven audio pipeline and add Capsule/RoundedBox SDF shapes for chemistry molecule rendering.
+
+### Task 5.1: Audio System Completion ✓
+
+* **Per-sound volume**: `SoundEntry` interface (`{ path, volume? }`) on `SoundConfig.sounds`. Playback routes through `GainNode` when `volume < 1.0`. Backward compatible — plain strings still work.
+* **Manifest bridge**: `buildSoundConfigFromManifest(manifest, basePath)` utility converts `AssetManifest.sounds` entries (with `event_id`) to `SoundConfig`. Exported from `@zap/engine`.
+* **Eager init**: `SoundManager.init()` called immediately in `useZapEngine` hook. AudioContext starts suspended; `resume()` on pointerdown handles unsuspension. Pre-decodes buffers for zero first-play latency.
+* **Manifest sounds section**: Added `"sounds": {}` to basic-demo and template `assets.json` manifests.
+
+### Task 5.2: Extended SDF Shapes ✓
+
+* **New shapes**: `SDFShape::Capsule { radius, half_height }` (bonds) and `SDFShape::RoundedBox { radius, half_height, corner_radius }` (labels).
+* **Zero protocol change**: Repurposed 3 padding fields in `SDFInstance` — `_pad0 → shape_type`, `_pad1 → half_height`, `_pad2 → extra`. 48 bytes / 12 floats preserved. Zeroed padding = Sphere (backward compatible).
+* **Convenience builders**: `MeshComponent::sphere()`, `::capsule()`, `::rounded_box()`.
+* **Shader dispatch** (`molecule.wgsl`): SDF primitives (`sdf_sphere`, `sdf_capsule`, `sdf_rounded_box`), float-threshold shape dispatch, entity rotation applied to quads, central-difference normals for non-sphere shapes, same Phong + Fresnel + HDR pipeline for all shapes.
+* **Canvas 2D fallback**: Capsule/RoundedBox drawn as rotated rounded rectangles with linear gradients.
+* **8 new tests** (62 total): mesh builders (3), SDFInstance encoding (2), build_sdf_buffer multi-shape (2), manifest sound parsing (1).
+

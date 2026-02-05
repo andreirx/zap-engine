@@ -9,5 +9,6 @@
   ],
   "sprites": {
     "default": { "atlas": 0, "col": 0, "row": 0 }
-  }
+  },
+  "sounds": {}
 }

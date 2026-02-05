@@ -16,8 +16,10 @@ pub fn build_sdf_buffer<'a>(
             Some(m) => m,
             None => continue,
         };
-        let radius = match mesh.shape {
-            SDFShape::Sphere { radius } => radius,
+        let (radius, shape_type, half_height, extra) = match mesh.shape {
+            SDFShape::Sphere { radius } => (radius, 0.0, 0.0, 0.0),
+            SDFShape::Capsule { radius, half_height } => (radius, 1.0, half_height, 0.0),
+            SDFShape::RoundedBox { radius, half_height, corner_radius } => (radius, 2.0, half_height, corner_radius),
         };
         buffer.push(SDFInstance {
             x: entity.pos.x,
@@ -29,9 +31,9 @@ pub fn build_sdf_buffer<'a>(
             b: mesh.color.b,
             shininess: mesh.shininess,
             emissive: mesh.emissive,
-            _pad0: 0.0,
-            _pad1: 0.0,
-            _pad2: 0.0,
+            shape_type,
+            half_height,
+            extra,
         });
     }
 }
@@ -77,6 +79,52 @@ mod tests {
             assert_eq!(r, 1.0);
             assert_eq!(shininess, 64.0);
             assert_eq!(emissive, 0.5);
+        }
+    }
+
+    #[test]
+    fn build_sdf_buffer_capsule() {
+        let entity = Entity::new(EntityId(1))
+            .with_pos(Vec2::new(100.0, 200.0))
+            .with_rotation(1.57)
+            .with_mesh(
+                MeshComponent::capsule(5.0, 20.0, SDFColor::new(0.0, 1.0, 0.0)),
+            );
+
+        let entities = vec![entity];
+        let mut buffer = SDFBuffer::new();
+        build_sdf_buffer(entities.iter(), &mut buffer);
+        assert_eq!(buffer.instance_count(), 1);
+
+        let ptr = buffer.instances_ptr();
+        unsafe {
+            assert_eq!(*ptr.add(2), 5.0);   // radius
+            assert_eq!(*ptr.add(3), 1.57);  // rotation
+            assert_eq!(*ptr.add(9), 1.0);   // shape_type = Capsule
+            assert_eq!(*ptr.add(10), 20.0); // half_height
+            assert_eq!(*ptr.add(11), 0.0);  // extra
+        }
+    }
+
+    #[test]
+    fn build_sdf_buffer_rounded_box() {
+        let entity = Entity::new(EntityId(1))
+            .with_pos(Vec2::ZERO)
+            .with_mesh(
+                MeshComponent::rounded_box(15.0, 10.0, 3.0, SDFColor::new(1.0, 1.0, 1.0)),
+            );
+
+        let entities = vec![entity];
+        let mut buffer = SDFBuffer::new();
+        build_sdf_buffer(entities.iter(), &mut buffer);
+        assert_eq!(buffer.instance_count(), 1);
+
+        let ptr = buffer.instances_ptr();
+        unsafe {
+            assert_eq!(*ptr.add(2), 15.0);  // radius
+            assert_eq!(*ptr.add(9), 2.0);   // shape_type = RoundedBox
+            assert_eq!(*ptr.add(10), 10.0); // half_height
+            assert_eq!(*ptr.add(11), 3.0);  // extra = corner_radius
         }
     }
 

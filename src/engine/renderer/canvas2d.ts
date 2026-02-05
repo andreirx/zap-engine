@@ -124,6 +124,29 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     c.fill();
   }
 
+  function drawRoundedRect(
+    c: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    halfW: number,
+    halfH: number,
+    cornerR: number,
+    rotation: number,
+  ) {
+    const cr = Math.min(cornerR, halfW, halfH);
+    c.save();
+    c.translate(cx, cy);
+    if (rotation !== 0) c.rotate(rotation);
+    c.beginPath();
+    c.moveTo(-halfW + cr, -halfH);
+    c.arcTo(halfW, -halfH, halfW, halfH, cr);
+    c.arcTo(halfW, halfH, -halfW, halfH, cr);
+    c.arcTo(-halfW, halfH, -halfW, -halfH, cr);
+    c.arcTo(-halfW, -halfH, halfW, -halfH, cr);
+    c.closePath();
+    c.restore();
+  }
+
   function drawSdfInstance(
     c: CanvasRenderingContext2D,
     data: Float32Array,
@@ -132,28 +155,90 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     const x = data[off];
     const y = data[off + 1];
     const radius = data[off + 2];
+    const rotation = data[off + 3];
     const r = Math.round(data[off + 4] * 255);
     const g = Math.round(data[off + 5] * 255);
     const b = Math.round(data[off + 6] * 255);
+    const shapeType = data[off + 9];
+    const halfHeight = data[off + 10];
+    const cornerRadius = data[off + 11];
 
     if (radius <= 0) return;
 
-    // Radial gradient: white highlight center → base color → darkened edge
-    const grad = c.createRadialGradient(
-      x - radius * 0.3, y - radius * 0.3, radius * 0.1,
-      x, y, radius,
-    );
-    grad.addColorStop(0, `rgba(255, 255, 255, 0.6)`);
-    grad.addColorStop(0.4, `rgb(${r}, ${g}, ${b})`);
     const darkR = Math.round(r * 0.3);
     const darkG = Math.round(g * 0.3);
     const darkB = Math.round(b * 0.3);
-    grad.addColorStop(1, `rgb(${darkR}, ${darkG}, ${darkB})`);
 
-    c.beginPath();
-    c.arc(x, y, radius, 0, Math.PI * 2);
-    c.fillStyle = grad;
-    c.fill();
+    if (shapeType < 0.5) {
+      // ---- Sphere: radial gradient circle ----
+      const grad = c.createRadialGradient(
+        x - radius * 0.3, y - radius * 0.3, radius * 0.1,
+        x, y, radius,
+      );
+      grad.addColorStop(0, `rgba(255, 255, 255, 0.6)`);
+      grad.addColorStop(0.4, `rgb(${r}, ${g}, ${b})`);
+      grad.addColorStop(1, `rgb(${darkR}, ${darkG}, ${darkB})`);
+
+      c.beginPath();
+      c.arc(x, y, radius, 0, Math.PI * 2);
+      c.fillStyle = grad;
+      c.fill();
+    } else if (shapeType < 1.5) {
+      // ---- Capsule: rounded rect with linear gradient ----
+      const halfW = radius;
+      const halfH = radius + halfHeight;
+
+      // Linear gradient perpendicular to the capsule axis (left-to-right in local space)
+      c.save();
+      c.translate(x, y);
+      if (rotation !== 0) c.rotate(rotation);
+
+      const grad = c.createLinearGradient(-halfW, 0, halfW, 0);
+      grad.addColorStop(0, `rgb(${darkR}, ${darkG}, ${darkB})`);
+      grad.addColorStop(0.3, `rgb(${r}, ${g}, ${b})`);
+      grad.addColorStop(0.5, `rgba(255, 255, 255, 0.4)`);
+      grad.addColorStop(0.7, `rgb(${r}, ${g}, ${b})`);
+      grad.addColorStop(1, `rgb(${darkR}, ${darkG}, ${darkB})`);
+
+      // Draw rounded rect at origin (already translated)
+      const cr = Math.min(radius, halfW, halfH);
+      c.beginPath();
+      c.moveTo(-halfW + cr, -halfH);
+      c.arcTo(halfW, -halfH, halfW, halfH, cr);
+      c.arcTo(halfW, halfH, -halfW, halfH, cr);
+      c.arcTo(-halfW, halfH, -halfW, -halfH, cr);
+      c.arcTo(-halfW, -halfH, halfW, -halfH, cr);
+      c.closePath();
+      c.fillStyle = grad;
+      c.fill();
+      c.restore();
+    } else {
+      // ---- RoundedBox: rounded rect with gradient ----
+      const halfW = radius;
+      const halfH = radius + halfHeight;
+      const cr = cornerRadius;
+
+      c.save();
+      c.translate(x, y);
+      if (rotation !== 0) c.rotate(rotation);
+
+      const grad = c.createLinearGradient(-halfW, -halfH, halfW, halfH);
+      grad.addColorStop(0, `rgba(255, 255, 255, 0.4)`);
+      grad.addColorStop(0.3, `rgb(${r}, ${g}, ${b})`);
+      grad.addColorStop(1, `rgb(${darkR}, ${darkG}, ${darkB})`);
+
+      const clamped = Math.min(cr, halfW, halfH);
+      c.beginPath();
+      c.moveTo(-halfW + clamped, -halfH);
+      c.arcTo(halfW, -halfH, halfW, halfH, clamped);
+      c.arcTo(halfW, halfH, -halfW, halfH, clamped);
+      c.arcTo(-halfW, halfH, -halfW, -halfH, clamped);
+      c.arcTo(-halfW, -halfH, halfW, -halfH, clamped);
+      c.closePath();
+      c.fillStyle = grad;
+      c.fill();
+      c.restore();
+    }
   }
 
   function draw(

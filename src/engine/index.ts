@@ -11,7 +11,8 @@ export type { AssetManifest, AtlasDescriptor, SpriteDescriptor } from './assets/
 export { loadAssetBlobs, createGPUTextureFromBlob, createImageFromBlob } from './assets/loader';
 
 export { SoundManager } from './audio/sound-manager';
-export type { SoundConfig } from './audio/sound-manager';
+export type { SoundConfig, SoundEntry } from './audio/sound-manager';
+export { buildSoundConfigFromManifest } from './audio/helpers';
 
 export {
   HEADER_FLOATS,
