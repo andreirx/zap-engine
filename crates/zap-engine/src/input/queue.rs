@@ -12,6 +12,9 @@ pub enum InputEvent {
     KeyDown { key_code: u32 },
     /// A key was released.
     KeyUp { key_code: u32 },
+    /// A custom event from the UI layer (React buttons, etc.).
+    /// `kind` identifies the event type; `a`, `b`, `c` carry arbitrary data.
+    Custom { kind: u32, a: f32, b: f32, c: f32 },
 }
 
 /// A queue of input events.
@@ -72,5 +75,22 @@ mod tests {
         let events = q.drain();
         assert_eq!(events.len(), 2);
         assert!(q.is_empty());
+    }
+
+    #[test]
+    fn custom_event() {
+        let mut q = InputQueue::new();
+        q.push(InputEvent::Custom { kind: 7, a: 1.5, b: 2.5, c: 3.5 });
+        let events = q.drain();
+        assert_eq!(events.len(), 1);
+        match events[0] {
+            InputEvent::Custom { kind, a, b, c } => {
+                assert_eq!(kind, 7);
+                assert_eq!(a, 1.5);
+                assert_eq!(b, 2.5);
+                assert_eq!(c, 3.5);
+            }
+            _ => panic!("Expected Custom event"),
+        }
     }
 }

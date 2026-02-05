@@ -166,6 +166,27 @@ pub struct PhysicsBody {
     pub collider_handle: ColliderHandle,
 }
 
+/// Handle to a joint in the physics simulation.
+#[derive(Debug, Clone, Copy)]
+pub struct JointHandle(pub(crate) ImpulseJointHandle);
+
+/// Description of a joint to create between two bodies.
+#[derive(Debug, Clone, Copy)]
+pub enum JointDesc {
+    /// Rigidly locks two bodies together at the given local anchors.
+    Fixed { anchor_a: Vec2, anchor_b: Vec2 },
+    /// Spring/distance joint that applies forces to maintain rest length.
+    Spring {
+        anchor_a: Vec2,
+        anchor_b: Vec2,
+        rest_length: f32,
+        stiffness: f32,
+        damping: f32,
+    },
+    /// Allows free rotation around the anchor points (hinge joint in 2D).
+    Revolute { anchor_a: Vec2, anchor_b: Vec2 },
+}
+
 /// A collision event between two entities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CollisionPair {
@@ -434,6 +455,51 @@ impl PhysicsWorld {
         }
     }
 
+    // -- Joint methods --
+
+    /// Create a joint between two bodies. Returns a handle for later removal.
+    pub fn create_joint(
+        &mut self,
+        body_a: &PhysicsBody,
+        body_b: &PhysicsBody,
+        desc: &JointDesc,
+    ) -> JointHandle {
+        let handle = match desc {
+            JointDesc::Fixed { anchor_a, anchor_b } => {
+                let joint = FixedJointBuilder::new()
+                    .local_anchor1(nalgebra::Point2::new(anchor_a.x, anchor_a.y))
+                    .local_anchor2(nalgebra::Point2::new(anchor_b.x, anchor_b.y))
+                    .build();
+                self.impulse_joints.insert(body_a.body_handle, body_b.body_handle, joint, true)
+            }
+            JointDesc::Spring { anchor_a, anchor_b, rest_length, stiffness, damping } => {
+                let joint = SpringJointBuilder::new(*rest_length, *stiffness, *damping)
+                    .local_anchor1(nalgebra::Point2::new(anchor_a.x, anchor_a.y))
+                    .local_anchor2(nalgebra::Point2::new(anchor_b.x, anchor_b.y))
+                    .build();
+                self.impulse_joints.insert(body_a.body_handle, body_b.body_handle, joint, true)
+            }
+            JointDesc::Revolute { anchor_a, anchor_b } => {
+                let joint = RevoluteJointBuilder::new()
+                    .local_anchor1(nalgebra::Point2::new(anchor_a.x, anchor_a.y))
+                    .local_anchor2(nalgebra::Point2::new(anchor_b.x, anchor_b.y))
+                    .build();
+                self.impulse_joints.insert(body_a.body_handle, body_b.body_handle, joint, true)
+            }
+        };
+        JointHandle(handle)
+    }
+
+    /// Remove a joint from the simulation.
+    pub fn remove_joint(&mut self, handle: JointHandle) {
+        self.impulse_joints.remove(handle.0, true);
+    }
+
+    /// Number of joints in the simulation.
+    pub fn joint_count(&self) -> usize {
+        self.impulse_joints.len()
+    }
+
     // -- private helpers --
 
     fn collider_to_entity(&self, collider_handle: ColliderHandle) -> Option<EntityId> {
@@ -669,6 +735,155 @@ mod tests {
             }
             _ => panic!("expected Cuboid, got {:?}", cuboid_shape),
         }
+    }
+
+    #[test]
+    fn create_and_remove_joint() {
+        let mut world = PhysicsWorld::new(Vec2::ZERO);
+        let body_a = world.create_body(
+            EntityId(1),
+            &BodyDesc::dynamic(ColliderDesc::Ball { radius: 5.0 })
+                .with_position(Vec2::new(0.0, 0.0)),
+            ColliderMaterial::default(),
+        );
+        let body_b = world.create_body(
+            EntityId(2),
+            &BodyDesc::dynamic(ColliderDesc::Ball { radius: 5.0 })
+                .with_position(Vec2::new(50.0, 0.0)),
+            ColliderMaterial::default(),
+        );
+
+        assert_eq!(world.joint_count(), 0);
+        let handle = world.create_joint(&body_a, &body_b, &JointDesc::Fixed {
+            anchor_a: Vec2::ZERO,
+            anchor_b: Vec2::ZERO,
+        });
+        assert_eq!(world.joint_count(), 1);
+        world.remove_joint(handle);
+        assert_eq!(world.joint_count(), 0);
+    }
+
+    #[test]
+    fn fixed_joint_constrains_bodies() {
+        let mut world = PhysicsWorld::new(Vec2::ZERO);
+        world.set_dt(1.0 / 60.0);
+
+        // Start both at same position so fixed joint is in rest configuration
+        let body_a = world.create_body(
+            EntityId(1),
+            &BodyDesc::dynamic(ColliderDesc::Ball { radius: 5.0 })
+                .with_position(Vec2::new(0.0, 0.0)),
+            ColliderMaterial::default(),
+        );
+        let body_b = world.create_body(
+            EntityId(2),
+            &BodyDesc::dynamic(ColliderDesc::Ball { radius: 5.0 })
+                .with_position(Vec2::new(0.0, 0.0)),
+            ColliderMaterial::default(),
+        );
+
+        world.create_joint(&body_a, &body_b, &JointDesc::Fixed {
+            anchor_a: Vec2::ZERO,
+            anchor_b: Vec2::ZERO,
+        });
+
+        // Apply a strong impulse to body A only
+        world.apply_impulse(&body_a, Vec2::new(5000.0, 0.0));
+
+        let mut events = Vec::new();
+        for _ in 0..60 {
+            world.step_into(&mut events);
+        }
+
+        // Both bodies should have moved right together
+        let (pos_a, _) = world.body_position(&body_a);
+        let (pos_b, _) = world.body_position(&body_b);
+        assert!(pos_a.x > 1.0, "Body A should have moved right: x={}", pos_a.x);
+        assert!(pos_b.x > 1.0, "Body B should be dragged along: x={}", pos_b.x);
+        // They should stay close together (within a few units)
+        assert!((pos_a.x - pos_b.x).abs() < 5.0,
+            "Bodies should stay together: A.x={}, B.x={}", pos_a.x, pos_b.x);
+    }
+
+    #[test]
+    fn spring_joint_applies_force() {
+        let mut world = PhysicsWorld::new(Vec2::ZERO);
+        world.set_dt(1.0 / 60.0);
+
+        let body_a = world.create_body(
+            EntityId(1),
+            &BodyDesc::dynamic(ColliderDesc::Ball { radius: 5.0 })
+                .with_position(Vec2::new(0.0, 0.0)),
+            ColliderMaterial::default(),
+        );
+        let body_b = world.create_body(
+            EntityId(2),
+            &BodyDesc::dynamic(ColliderDesc::Ball { radius: 5.0 })
+                .with_position(Vec2::new(100.0, 0.0)),
+            ColliderMaterial::default(),
+        );
+
+        // Spring with rest_length=30, so the bodies are way beyond rest → spring pulls them
+        world.create_joint(&body_a, &body_b, &JointDesc::Spring {
+            anchor_a: Vec2::ZERO,
+            anchor_b: Vec2::ZERO,
+            rest_length: 30.0,
+            stiffness: 500.0,
+            damping: 5.0,
+        });
+
+        let mut events = Vec::new();
+        for _ in 0..60 {
+            world.step_into(&mut events);
+        }
+
+        // Bodies should have moved toward each other
+        let (pos_a, _) = world.body_position(&body_a);
+        let (pos_b, _) = world.body_position(&body_b);
+        let distance = (pos_b.x - pos_a.x).abs();
+        assert!(
+            distance < 100.0,
+            "Spring should pull bodies closer: distance={}",
+            distance
+        );
+    }
+
+    #[test]
+    fn revolute_joint_allows_rotation() {
+        let mut world = PhysicsWorld::new(Vec2::new(0.0, 500.0));
+        world.set_dt(1.0 / 60.0);
+
+        // Fixed pivot at (100, 100)
+        let body_a = world.create_body(
+            EntityId(1),
+            &BodyDesc::fixed(ColliderDesc::Ball { radius: 5.0 })
+                .with_position(Vec2::new(100.0, 100.0)),
+            ColliderMaterial::default(),
+        );
+        // Pendulum bob at (150, 100) — 50 units right of pivot
+        let body_b = world.create_body(
+            EntityId(2),
+            &BodyDesc::dynamic(ColliderDesc::Ball { radius: 5.0 })
+                .with_position(Vec2::new(150.0, 100.0)),
+            ColliderMaterial::default(),
+        );
+
+        // Pivot in A's local space = (0,0), rod attachment in B's local space = (-50, 0)
+        // World: A_anchor = (100,100) + (0,0) = (100,100)
+        //        B_anchor = (150,100) + (-50,0) = (100,100) ✓ — matches
+        world.create_joint(&body_a, &body_b, &JointDesc::Revolute {
+            anchor_a: Vec2::ZERO,
+            anchor_b: Vec2::new(-50.0, 0.0),
+        });
+
+        let mut events = Vec::new();
+        for _ in 0..60 {
+            world.step_into(&mut events);
+        }
+
+        // Gravity should swing body B downward (Y increases in Y-down coords)
+        let (pos_b, _) = world.body_position(&body_b);
+        assert!(pos_b.y > 105.0, "Body B should swing down: y={}", pos_b.y);
     }
 
     #[test]

@@ -26,6 +26,7 @@ import {
   SDF_INSTANCE_FLOATS,
   ProtocolLayout,
 } from './protocol';
+import { computeProjection } from '../renderer/camera';
 
 // Standard WASM export names expected from any game module
 interface GameWasmExports {
@@ -55,6 +56,8 @@ interface GameWasmExports {
   get_sdf_instances_ptr: () => number;
   get_sdf_instance_count: () => number;
   get_max_sdf_instances: () => number;
+  game_custom_event?: (kind: number, a: number, b: number, c: number) => void;
+  game_load_manifest?: (json: string) => void;
 }
 
 const HAS_SAB = typeof SharedArrayBuffer !== 'undefined';
@@ -67,7 +70,25 @@ let wasmMemory: WebAssembly.Memory | null = null;
 let wasm: GameWasmExports | null = null;
 let layout: ProtocolLayout | null = null;
 
-async function initialize(wasmUrl: string) {
+// Canvas CSS dimensions for coordinate conversion (set via 'resize' message)
+let canvasWidth = 0;
+let canvasHeight = 0;
+let worldWidth = 0;
+let worldHeight = 0;
+
+/** Convert canvas CSS pixel coordinates to world coordinates. */
+function screenToWorld(cssX: number, cssY: number): { x: number; y: number } {
+  if (canvasWidth <= 0 || canvasHeight <= 0) {
+    return { x: cssX, y: cssY };
+  }
+  const { projWidth, projHeight } = computeProjection(canvasWidth, canvasHeight, worldWidth, worldHeight);
+  return {
+    x: cssX * projWidth / canvasWidth,
+    y: cssY * projHeight / canvasHeight,
+  };
+}
+
+async function initialize(wasmUrl: string, manifestJson?: string) {
   // Dynamic import of the WASM module
   const mod = await import(/* @vite-ignore */ wasmUrl);
   const initResult = await mod.default();
@@ -101,9 +122,20 @@ async function initialize(wasmUrl: string) {
     get_sdf_instances_ptr: mod.get_sdf_instances_ptr,
     get_sdf_instance_count: mod.get_sdf_instance_count,
     get_max_sdf_instances: mod.get_max_sdf_instances,
+    game_custom_event: mod.game_custom_event,
+    game_load_manifest: mod.game_load_manifest,
   };
 
   wasm.game_init();
+
+  // Load manifest into WASM sprite registry (if available)
+  if (manifestJson && wasm.game_load_manifest) {
+    wasm.game_load_manifest(manifestJson);
+  }
+
+  // Capture world dimensions for coordinate conversion
+  worldWidth = wasm.get_world_width();
+  worldHeight = wasm.get_world_height();
 
   // Build layout from WASM-reported capacities
   layout = ProtocolLayout.fromWasm(wasm);
@@ -241,22 +273,33 @@ self.onmessage = (e: MessageEvent) => {
 
   switch (type) {
     case 'init':
-      initialize(e.data.wasmUrl).then(() => {
+      initialize(e.data.wasmUrl, e.data.manifestJson).then(() => {
         running = true;
         gameLoop();
       });
       break;
 
-    case 'pointer_down':
-      wasm?.game_pointer_down(e.data.x, e.data.y);
+    case 'pointer_down': {
+      const w = screenToWorld(e.data.x, e.data.y);
+      wasm?.game_pointer_down(w.x, w.y);
       break;
+    }
 
-    case 'pointer_up':
-      wasm?.game_pointer_up(e.data.x, e.data.y);
+    case 'pointer_up': {
+      const w = screenToWorld(e.data.x, e.data.y);
+      wasm?.game_pointer_up(w.x, w.y);
       break;
+    }
 
-    case 'pointer_move':
-      wasm?.game_pointer_move(e.data.x, e.data.y);
+    case 'pointer_move': {
+      const w = screenToWorld(e.data.x, e.data.y);
+      wasm?.game_pointer_move(w.x, w.y);
+      break;
+    }
+
+    case 'resize':
+      canvasWidth = e.data.width;
+      canvasHeight = e.data.height;
       break;
 
     case 'key_down':
@@ -265,6 +308,10 @@ self.onmessage = (e: MessageEvent) => {
 
     case 'key_up':
       wasm?.game_key_up(e.data.keyCode);
+      break;
+
+    case 'custom':
+      wasm?.game_custom_event?.(e.data.kind ?? 0, e.data.a ?? 0, e.data.b ?? 0, e.data.c ?? 0);
       break;
 
     case 'stop':

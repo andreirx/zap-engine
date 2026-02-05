@@ -18,6 +18,7 @@ pub use renderer::instance::{RenderInstance, RenderBuffer};
 pub use renderer::camera::Camera2D;
 pub use input::queue::{InputEvent, InputQueue};
 pub use assets::manifest::AssetManifest;
+pub use assets::registry::SpriteRegistry;
 pub use bridge::protocol::ProtocolLayout;
 pub use systems::effects::{EffectsState, ElectricArc, Particle, SegmentColor, DebugLine};
 #[cfg(feature = "physics")]
@@ -30,4 +31,5 @@ pub use renderer::sdf_instance::{SDFInstance, SDFBuffer};
 pub use core::physics::{
     PhysicsWorld, PhysicsBody, BodyDesc, BodyType,
     ColliderDesc, ColliderMaterial, CollisionPair,
+    JointHandle, JointDesc,
 };

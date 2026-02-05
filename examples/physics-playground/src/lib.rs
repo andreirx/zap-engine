@@ -4,13 +4,13 @@ use zap_engine::*;
 use zap_web::GameRunner;
 
 mod game;
-use game::HelloGame;
+use game::PhysicsPlayground;
 
 thread_local! {
-    static RUNNER: RefCell<Option<GameRunner<HelloGame>>> = RefCell::new(None);
+    static RUNNER: RefCell<Option<GameRunner<PhysicsPlayground>>> = RefCell::new(None);
 }
 
-fn with_runner<R>(f: impl FnOnce(&mut GameRunner<HelloGame>) -> R) -> R {
+fn with_runner<R>(f: impl FnOnce(&mut GameRunner<PhysicsPlayground>) -> R) -> R {
     RUNNER.with(|cell| {
         let mut borrow = cell.borrow_mut();
         let runner = borrow.as_mut().expect("Game not initialized. Call game_init() first.");
@@ -23,7 +23,7 @@ pub fn game_init() {
     console_error_panic_hook::set_once();
     let _ = console_log::init_with_level(log::Level::Info);
 
-    let game = HelloGame::new();
+    let game = PhysicsPlayground::new();
     let runner = GameRunner::new(game);
 
     RUNNER.with(|cell| {
@@ -31,7 +31,7 @@ pub fn game_init() {
     });
 
     with_runner(|r| r.init());
-    log::info!("zap-engine-template: initialized");
+    log::info!("physics-playground: initialized");
 }
 
 #[wasm_bindgen]

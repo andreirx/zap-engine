@@ -4,5 +4,7 @@ members = [
     "crates/zap-web",
     "examples/basic-demo",
     "examples/zap-engine-template",
+    "examples/physics-playground",
+    "examples/chemistry-lab",
 ]
 resolver = "2"

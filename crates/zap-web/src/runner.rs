@@ -66,6 +66,13 @@ impl<G: Game> GameRunner<G> {
         self.initialized = true;
     }
 
+    /// Load an asset manifest JSON string, populating the sprite registry.
+    pub fn load_manifest(&mut self, json: &str) {
+        if let Err(e) = self.ctx.load_manifest(json) {
+            log::warn!("Failed to load manifest: {}", e);
+        }
+    }
+
     /// Push an input event into the queue.
     pub fn push_input(&mut self, event: InputEvent) {
         self.input.push(event);

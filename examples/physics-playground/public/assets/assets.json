@@ -1,0 +1,12 @@
+{
+  "atlases": [
+    { "name": "blocks", "cols": 4, "rows": 1, "path": "blocks.png" }
+  ],
+  "sprites": {
+    "block_red":    { "atlas": 0, "col": 0, "row": 0 },
+    "block_blue":   { "atlas": 0, "col": 1, "row": 0 },
+    "block_green":  { "atlas": 0, "col": 2, "row": 0 },
+    "block_yellow": { "atlas": 0, "col": 3, "row": 0 }
+  },
+  "sounds": {}
+}

@@ -1,0 +1,21 @@
+[package]
+name = "physics-playground"
+version = "0.1.0"
+edition = "2021"
+description = "Angry Birds-style physics sandbox showcasing ZapEngine"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["physics"]
+physics = ["zap-engine/physics", "zap-web/physics"]
+
+[dependencies]
+zap-engine = { path = "../../crates/zap-engine", default-features = false }
+zap-web = { path = "../../crates/zap-web", default-features = false }
+wasm-bindgen = "0.2"
+log = "0.4"
+glam = "0.30"
+console_log = { version = "1", features = ["color"] }
+console_error_panic_hook = "0.1"

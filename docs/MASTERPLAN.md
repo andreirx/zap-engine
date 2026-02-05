@@ -135,3 +135,57 @@ where are we on the grand plan?
 * **Canvas 2D fallback**: Capsule/RoundedBox drawn as rotated rounded rectangles with linear gradients.
 * **8 new tests** (62 total): mesh builders (3), SDFInstance encoding (2), build_sdf_buffer multi-shape (2), manifest sound parsing (1).
 
+---
+
+### **Phase 6: Gameplay Quality of Life + Example Games** DONE
+
+**Goal:** Make the engine usable for real games by adding missing engine features, then prove it works with 2 complete example games.
+
+#### Part A: Engine Enhancements
+
+### Task 6.A1: Sprite Name Lookup from Manifest ✓
+
+* `SpriteRegistry` in `crates/zap-engine/src/assets/registry.rs` — converts manifest sprite descriptors to `SpriteComponent` for name-based lookup.
+* `EngineContext::load_manifest(json)` populates the registry; `ctx.sprite("hero")` returns a ready-to-use `SpriteComponent`.
+* Manifest JSON passed from TypeScript → Worker → WASM during init via `game_load_manifest` export.
+* 3 new tests: registry load, unknown returns None, EngineContext sprite lookup.
+
+### Task 6.A2: World Coordinate Conversion ✓
+
+* Worker-side `screenToWorld()` converts canvas CSS pixel coordinates to world coordinates using `computeProjection()`.
+* React hook sends canvas CSS dimensions via `resize` message on every ResizeObserver callback.
+* All pointer events (down, up, move) now arrive in world coordinates — games no longer need manual conversion.
+
+### Task 6.A3: Joints API ✓
+
+* `JointDesc` enum: `Fixed`, `Spring { rest_length, stiffness, damping }`, `Revolute` — all with local anchors.
+* `JointHandle` wraps Rapier's `ImpulseJointHandle`.
+* `PhysicsWorld::create_joint()`, `remove_joint()`, `joint_count()`.
+* `EngineContext::create_joint(entity_a, entity_b, desc)` convenience (looks up physics bodies).
+* 4 new tests: create/remove, fixed constraint, spring force, revolute pendulum.
+
+### Task 6.A4: Custom Events (React → Rust) ✓
+
+* `InputEvent::Custom { kind: u32, a: f32, b: f32, c: f32 }` variant for UI-driven game events.
+* Worker `'custom'` message handler forwards to `game_custom_event` WASM export.
+* All game crates export `game_custom_event(kind, a, b, c)`.
+* 1 new test: custom event push and drain.
+
+#### Part B: Example Games
+
+### Task 6.B1: Chemistry Lab ✓
+
+* Interactive molecule builder — click to place atoms (SDF spheres), drag between atoms to create bonds (SDF capsules + spring joints).
+* Elements: H (white, 1 bond), O (red, 2), C (gray, 4), N (blue, 3).
+* React UI: element selector buttons, clear, atom/bond count display.
+* Demonstrates: SDF rendering, physics joints, custom events, world coordinates.
+
+### Task 6.B2: Physics Playground ✓
+
+* Angry Birds-style sandbox — drag sling to launch projectile at block tower.
+* 5×3 tower of cuboid blocks, sling at left, collision sparks via particle effects.
+* Game states: Aiming → Flying → Settled. Score = knocked blocks.
+* React UI: score display, reset button, FPS counter.
+* Demonstrates: sprites + physics, collision events, custom events, world coordinates.
+
+**8 new tests** (70 total): registry (2), sprite lookup (1), custom event (1), joints (4).

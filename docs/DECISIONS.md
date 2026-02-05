@@ -444,3 +444,57 @@ Repurpose the padding fields to encode shape parameters — **no protocol or buf
 - **Pro:** Same Phong + Fresnel + HDR shading for all shapes — visual consistency
 - **Con:** Capsule/RoundedBox normals use central-difference (4 extra SDF evaluations per fragment)
 - **Con:** Two more shape types to maintain in both WebGPU and Canvas 2D code paths
+
+---
+
+## ADR-016: Sprite Registry (Manifest → EngineContext Bridge)
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+The `AssetManifest` contains a `sprites: HashMap<String, SpriteDescriptor>` with named sprite definitions, but this data never reached Rust game code. Games had to hardcode atlas indices, column/row numbers.
+
+### Decision
+Add `SpriteRegistry` to the engine that converts manifest sprite descriptors into ready-to-use `SpriteComponent` objects. The manifest JSON is passed from TypeScript → Worker → WASM during initialization.
+
+**Data flow:** React hook captures manifest JSON → Worker receives `manifestJson` in init message → calls `game_load_manifest(json)` → `GameRunner::load_manifest()` → `EngineContext::load_manifest()` → `SpriteRegistry::from_manifest()`.
+
+**API:** `ctx.sprite("hero")` returns `Option<SpriteComponent>` — a clone ready to attach to an entity.
+
+### Consequences
+- **Pro:** Games reference sprites by name ("hero", "block_red") instead of magic numbers
+- **Pro:** Zero runtime cost after init — HashMap lookup only during `sprite()` calls
+- **Pro:** Backward compatible — `load_manifest` is optional (game_load_manifest export is optional)
+- **Con:** Manifest JSON is serialized, sent over postMessage, then re-parsed in WASM (one-time cost)
+
+---
+
+## ADR-017: Joints API (Fixed, Spring, Revolute)
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+Rapier 0.22 includes `ImpulseJointSet` with `FixedJointBuilder`, `SpringJointBuilder`, and `RevoluteJointBuilder`, but `PhysicsWorld` only exposed body creation and forces. The Chemistry Lab example needs spring joints for molecular bonds.
+
+### Decision
+Expose joints through a clean `JointDesc` enum + `JointHandle` wrapper, hiding Rapier internals.
+
+```rust
+pub enum JointDesc {
+    Fixed { anchor_a: Vec2, anchor_b: Vec2 },
+    Spring { anchor_a: Vec2, anchor_b: Vec2, rest_length: f32, stiffness: f32, damping: f32 },
+    Revolute { anchor_a: Vec2, anchor_b: Vec2 },
+}
+```
+
+**PhysicsWorld methods:** `create_joint()`, `remove_joint()`, `joint_count()`.
+**EngineContext convenience:** `create_joint(entity_a, entity_b, desc)` looks up both entities' physics bodies.
+
+### Consequences
+- **Pro:** Clean API using `glam::Vec2` — no nalgebra exposure
+- **Pro:** Three most common 2D joint types covered
+- **Pro:** Games can extend with more joint types by accessing `physics.impulse_joints` directly
+- **Con:** Rope and Prismatic joints not wrapped yet (can be added when needed)
+- **Con:** No motor/limit API exposed — would need builder pattern extension

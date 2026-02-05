@@ -203,8 +203,8 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         }
       };
 
-      // Send init to worker
-      worker.postMessage({ type: 'init', wasmUrl });
+      // Send init to worker (include manifest JSON for sprite registry)
+      worker.postMessage({ type: 'init', wasmUrl, manifestJson: JSON.stringify(manifest) });
 
       // --- Input forwarding ---
       function onPointerDown(e: PointerEvent) {
@@ -255,6 +255,12 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         c.width = c.clientWidth * devicePixelRatio;
         c.height = c.clientHeight * devicePixelRatio;
         rendererRef.current?.resize(c.width, c.height);
+        // Send CSS dimensions to worker for coordinate conversion
+        workerRef.current?.postMessage({
+          type: 'resize',
+          width: c.clientWidth,
+          height: c.clientHeight,
+        });
       }
 
       const resizeObserver = new ResizeObserver(handleResize);

@@ -65,6 +65,16 @@ pub fn game_key_up(key_code: u32) {
 }
 
 #[wasm_bindgen]
+pub fn game_custom_event(kind: u32, a: f32, b: f32, c: f32) {
+    with_runner(|r| r.push_input(InputEvent::Custom { kind, a, b, c }));
+}
+
+#[wasm_bindgen]
+pub fn game_load_manifest(json: &str) {
+    with_runner(|r| r.load_manifest(json));
+}
+
+#[wasm_bindgen]
 pub fn get_instances_ptr() -> *const f32 {
     with_runner(|r| r.instances_ptr())
 }

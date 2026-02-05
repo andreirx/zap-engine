@@ -3,9 +3,13 @@ use crate::api::types::{EntityId, SoundEvent, GameEvent};
 use crate::input::queue::InputQueue;
 use crate::renderer::instance::RenderBuffer;
 use crate::systems::effects::EffectsState;
+use crate::assets::manifest::AssetManifest;
+use crate::assets::registry::SpriteRegistry;
+use crate::components::sprite::SpriteComponent;
 #[cfg(feature = "physics")]
 use crate::core::physics::{
     PhysicsWorld, BodyDesc, ColliderMaterial, CollisionPair,
+    JointHandle, JointDesc,
 };
 #[cfg(feature = "physics")]
 use crate::components::entity::Entity;
@@ -78,6 +82,7 @@ pub struct EngineContext {
     pub sounds: Vec<SoundEvent>,
     pub events: Vec<GameEvent>,
     next_id: u32,
+    sprite_registry: SpriteRegistry,
     #[cfg(feature = "physics")]
     pub physics: PhysicsWorld,
     #[cfg(feature = "physics")]
@@ -92,6 +97,7 @@ impl EngineContext {
             sounds: Vec::new(),
             events: Vec::new(),
             next_id: 1,
+            sprite_registry: SpriteRegistry::new(),
             #[cfg(feature = "physics")]
             physics: PhysicsWorld::new(Vec2::ZERO),
             #[cfg(feature = "physics")]
@@ -108,6 +114,7 @@ impl EngineContext {
             sounds: Vec::new(),
             events: Vec::new(),
             next_id: 1,
+            sprite_registry: SpriteRegistry::new(),
             physics: PhysicsWorld::new(gravity),
             collision_events: Vec::new(),
         }
@@ -118,6 +125,20 @@ impl EngineContext {
         let id = EntityId(self.next_id);
         self.next_id += 1;
         id
+    }
+
+    /// Load an asset manifest (JSON) and populate the sprite registry.
+    /// Can be called multiple times — each call replaces the registry.
+    pub fn load_manifest(&mut self, json: &str) -> Result<(), String> {
+        let manifest = AssetManifest::from_json(json).map_err(|e| e.to_string())?;
+        self.sprite_registry = SpriteRegistry::from_manifest(&manifest);
+        Ok(())
+    }
+
+    /// Look up a named sprite from the asset manifest.
+    /// Returns a clone of the SpriteComponent, or None if not found.
+    pub fn sprite(&self, name: &str) -> Option<SpriteComponent> {
+        self.sprite_registry.get(name).cloned()
     }
 
     /// Emit a sound event to be forwarded to TypeScript.
@@ -206,6 +227,26 @@ impl EngineContext {
             .unwrap_or(Vec2::ZERO)
     }
 
+    /// Create a joint between two entities' physics bodies.
+    /// Returns None if either entity lacks a physics body.
+    #[cfg(feature = "physics")]
+    pub fn create_joint(
+        &mut self,
+        entity_a: EntityId,
+        entity_b: EntityId,
+        desc: &JointDesc,
+    ) -> Option<JointHandle> {
+        let body_a = self.scene.get(entity_a)?.body.as_ref()?.clone();
+        let body_b = self.scene.get(entity_b)?.body.as_ref()?.clone();
+        Some(self.physics.create_joint(&body_a, &body_b, desc))
+    }
+
+    /// Remove a joint from the simulation.
+    #[cfg(feature = "physics")]
+    pub fn remove_joint(&mut self, handle: JointHandle) {
+        self.physics.remove_joint(handle);
+    }
+
     /// Get collision events from the most recent physics step.
     #[cfg(feature = "physics")]
     pub fn collisions(&self) -> &[CollisionPair] {
@@ -239,6 +280,33 @@ impl Default for EngineContext {
 /// Render context for optional custom render commands.
 pub struct RenderContext<'a> {
     pub render_buffer: &'a mut RenderBuffer,
+}
+
+#[cfg(test)]
+mod sprite_registry_tests {
+    use super::*;
+    use crate::components::sprite::AtlasId;
+
+    #[test]
+    fn sprite_after_load_manifest() {
+        let mut ctx = EngineContext::new();
+        let json = r#"{
+            "atlases": [
+                { "name": "tiles", "cols": 16, "rows": 8, "path": "tiles.png" }
+            ],
+            "sprites": {
+                "hero": { "atlas": 0, "col": 3, "row": 5, "span": 2 }
+            }
+        }"#;
+
+        ctx.load_manifest(json).unwrap();
+        let hero = ctx.sprite("hero").expect("hero should exist");
+        assert_eq!(hero.atlas, AtlasId(0));
+        assert_eq!(hero.col, 3.0);
+        assert_eq!(hero.row, 5.0);
+        assert_eq!(hero.cell_span, 2.0);
+        assert!(ctx.sprite("nonexistent").is_none());
+    }
 }
 
 #[cfg(test)]
