@@ -17,10 +17,13 @@ import {
   HEADER_MAX_EVENTS,
   HEADER_EVENT_COUNT,
   HEADER_PROTOCOL_VERSION,
+  HEADER_MAX_SDF_INSTANCES,
+  HEADER_SDF_INSTANCE_COUNT,
   PROTOCOL_VERSION,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
   EVENT_FLOATS,
+  SDF_INSTANCE_FLOATS,
   ProtocolLayout,
 } from './protocol';
 
@@ -49,6 +52,9 @@ interface GameWasmExports {
   get_max_sounds: () => number;
   get_max_events: () => number;
   get_buffer_total_floats: () => number;
+  get_sdf_instances_ptr: () => number;
+  get_sdf_instance_count: () => number;
+  get_max_sdf_instances: () => number;
 }
 
 const HAS_SAB = typeof SharedArrayBuffer !== 'undefined';
@@ -92,6 +98,9 @@ async function initialize(wasmUrl: string) {
     get_max_sounds: mod.get_max_sounds,
     get_max_events: mod.get_max_events,
     get_buffer_total_floats: mod.get_buffer_total_floats,
+    get_sdf_instances_ptr: mod.get_sdf_instances_ptr,
+    get_sdf_instance_count: mod.get_sdf_instance_count,
+    get_max_sdf_instances: mod.get_max_sdf_instances,
   };
 
   wasm.game_init();
@@ -110,6 +119,7 @@ async function initialize(wasmUrl: string) {
     sharedF32[HEADER_MAX_SOUNDS] = layout.maxSounds;
     sharedF32[HEADER_MAX_EVENTS] = layout.maxEvents;
     sharedF32[HEADER_PROTOCOL_VERSION] = PROTOCOL_VERSION;
+    sharedF32[HEADER_MAX_SDF_INSTANCES] = layout.maxSdfInstances;
 
     self.postMessage({ type: 'ready', sharedBuffer });
   } else {
@@ -124,6 +134,7 @@ async function initialize(wasmUrl: string) {
     sharedF32[HEADER_MAX_SOUNDS] = layout.maxSounds;
     sharedF32[HEADER_MAX_EVENTS] = layout.maxEvents;
     sharedF32[HEADER_PROTOCOL_VERSION] = PROTOCOL_VERSION;
+    sharedF32[HEADER_MAX_SDF_INSTANCES] = layout.maxSdfInstances;
 
     self.postMessage({
       type: 'ready',
@@ -131,6 +142,7 @@ async function initialize(wasmUrl: string) {
       maxEffectsVertices: layout.maxEffectsVertices,
       maxSounds: layout.maxSounds,
       maxEvents: layout.maxEvents,
+      maxSdfInstances: layout.maxSdfInstances,
     });
   }
 }
@@ -146,6 +158,7 @@ function gameLoop() {
     const effectsVertexCount = Math.min(wasm.get_effects_vertex_count(), layout.maxEffectsVertices);
     const soundLen = Math.min(wasm.get_sound_events_len(), layout.maxSounds);
     const eventLen = Math.min(wasm.get_game_events_len(), layout.maxEvents);
+    const sdfCount = Math.min(wasm.get_sdf_instance_count(), layout.maxSdfInstances);
 
     // Write header
     sharedF32[HEADER_FRAME_COUNTER] += 1;
@@ -156,6 +169,7 @@ function gameLoop() {
     sharedF32[HEADER_WORLD_HEIGHT] = wasm.get_world_height();
     sharedF32[HEADER_SOUND_COUNT] = soundLen;
     sharedF32[HEADER_EVENT_COUNT] = eventLen;
+    sharedF32[HEADER_SDF_INSTANCE_COUNT] = sdfCount;
 
     // Copy instance data
     if (instanceCount > 0) {
@@ -169,6 +183,13 @@ function gameLoop() {
       const ptr = wasm.get_effects_ptr();
       const effectsData = new Float32Array(wasmMemory.buffer, ptr, effectsVertexCount * EFFECTS_VERTEX_FLOATS);
       sharedF32.set(effectsData, layout.effectsDataOffset);
+    }
+
+    // Copy SDF instance data
+    if (sdfCount > 0) {
+      const ptr = wasm.get_sdf_instances_ptr();
+      const sdfData = new Float32Array(wasmMemory.buffer, ptr, sdfCount * SDF_INSTANCE_FLOATS);
+      sharedF32.set(sdfData, layout.sdfDataOffset);
     }
 
     // Forward sound events

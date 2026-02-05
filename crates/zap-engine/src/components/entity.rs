@@ -1,6 +1,8 @@
 use glam::Vec2;
 use crate::api::types::EntityId;
 use crate::components::sprite::SpriteComponent;
+use crate::components::emitter::EmitterComponent;
+use crate::components::mesh::MeshComponent;
 #[cfg(feature = "physics")]
 use crate::core::physics::PhysicsBody;
 
@@ -25,10 +27,10 @@ pub struct Entity {
     /// Physics body (optional — requires "physics" feature).
     #[cfg(feature = "physics")]
     pub body: Option<PhysicsBody>,
-    // Future: particle emitter
-    // pub emitter: Option<EmitterComponent>,
-    // Future: SDF mesh
-    // pub mesh: Option<MeshComponent>,
+    /// Particle emitter (optional — auto-spawns particles at entity position).
+    pub emitter: Option<EmitterComponent>,
+    /// SDF mesh (optional — rendered via the molecule pipeline).
+    pub mesh: Option<MeshComponent>,
 }
 
 impl Entity {
@@ -44,6 +46,8 @@ impl Entity {
             sprite: None,
             #[cfg(feature = "physics")]
             body: None,
+            emitter: None,
+            mesh: None,
         }
     }
 
@@ -77,6 +81,16 @@ impl Entity {
     #[cfg(feature = "physics")]
     pub fn with_body(mut self, body: PhysicsBody) -> Self {
         self.body = Some(body);
+        self
+    }
+
+    pub fn with_emitter(mut self, emitter: EmitterComponent) -> Self {
+        self.emitter = Some(emitter);
+        self
+    }
+
+    pub fn with_mesh(mut self, mesh: MeshComponent) -> Self {
+        self.mesh = Some(mesh);
         self
     }
 }

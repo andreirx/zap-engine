@@ -292,15 +292,23 @@ pub struct Particle {
     pub width: f32,
     pub color: SegmentColor,
     pub lifetime: f32,
+    pub drag: f32,
+    pub attract_strength: f32,
+    pub speed_factor: f32,
 }
 
 impl Particle {
-    const FRICTION: f32 = 0.02;
-    const ATTRACT_STRENGTH: f32 = 0.3;
-    const SPEED_FACTOR: f32 = 0.8;
+    pub const DEFAULT_DRAG: f32 = 0.02;
+    pub const DEFAULT_ATTRACT_STRENGTH: f32 = 0.3;
+    pub const DEFAULT_SPEED_FACTOR: f32 = 0.8;
 
     pub fn new(position: [f32; 2], speed: [f32; 2], width: f32, color: SegmentColor, lifetime: f32) -> Self {
-        Particle { position, speed, width, color, lifetime }
+        Particle {
+            position, speed, width, color, lifetime,
+            drag: Self::DEFAULT_DRAG,
+            attract_strength: Self::DEFAULT_ATTRACT_STRENGTH,
+            speed_factor: Self::DEFAULT_SPEED_FACTOR,
+        }
     }
 
     /// Advance particle physics. Returns false when expired.
@@ -315,12 +323,12 @@ impl Particle {
         let len = (dx * dx + dy * dy).sqrt().max(0.001);
         let to_attr = [dx / len, dy / len];
 
-        self.speed[0] += to_attr[0] * Self::ATTRACT_STRENGTH;
-        self.speed[1] += to_attr[1] * Self::ATTRACT_STRENGTH;
-        self.speed[0] *= 1.0 - Self::FRICTION;
-        self.speed[1] *= 1.0 - Self::FRICTION;
-        self.position[0] += self.speed[0] * Self::SPEED_FACTOR;
-        self.position[1] += self.speed[1] * Self::SPEED_FACTOR;
+        self.speed[0] += to_attr[0] * self.attract_strength;
+        self.speed[1] += to_attr[1] * self.attract_strength;
+        self.speed[0] *= 1.0 - self.drag;
+        self.speed[1] *= 1.0 - self.drag;
+        self.position[0] += self.speed[0] * self.speed_factor;
+        self.position[1] += self.speed[1] * self.speed_factor;
 
         true
     }
@@ -388,6 +396,47 @@ impl EffectsState {
                 color,
                 lifetime,
             ));
+        }
+    }
+
+    /// Spawn particles with custom physics parameters (used by emitters).
+    pub fn spawn_particles_with_config(
+        &mut self,
+        center: [f32; 2],
+        count: usize,
+        speed_range: (f32, f32),
+        width: f32,
+        lifetime: f32,
+        color_mode: &crate::components::emitter::ParticleColorMode,
+        drag: f32,
+        attract_strength: f32,
+        speed_factor: f32,
+    ) {
+        use crate::components::emitter::ParticleColorMode;
+        for _ in 0..count {
+            let angle = (self.rng.next_int(10000) as f32 / 10000.0) * std::f32::consts::TAU;
+            let t = self.rng.next_int(10000) as f32 / 10000.0;
+            let speed_mag = speed_range.0 + t * (speed_range.1 - speed_range.0);
+            let sx = angle.cos() * speed_mag;
+            let sy = angle.sin() * speed_mag;
+            let color = match color_mode {
+                ParticleColorMode::Random => SegmentColor::random(&mut self.rng),
+                ParticleColorMode::Fixed(c) => *c,
+                ParticleColorMode::Palette(colors) => {
+                    let idx = self.rng.next_int(colors.len() as u32) as usize;
+                    colors[idx]
+                }
+            };
+            self.particles.push(Particle {
+                position: center,
+                speed: [sx, sy],
+                width,
+                color,
+                lifetime,
+                drag,
+                attract_strength,
+                speed_factor,
+            });
         }
     }
 

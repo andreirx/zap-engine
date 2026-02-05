@@ -4,6 +4,8 @@ use zap_engine::{
     FixedTimestep, ProtocolLayout,
 };
 use zap_engine::systems::render::build_render_buffer;
+use zap_engine::systems::emitter::tick_emitters;
+use zap_engine::renderer::sdf_instance::SDFBuffer;
 /// Generic game runner that wires up the engine loop.
 ///
 /// Each concrete game (e.g., `basic-demo`) creates a `thread_local!` GameRunner
@@ -14,6 +16,7 @@ pub struct GameRunner<G: Game> {
     ctx: EngineContext,
     input: InputQueue,
     render_buffer: RenderBuffer,
+    sdf_buffer: SDFBuffer,
     timestep: FixedTimestep,
     config: GameConfig,
     layout: ProtocolLayout,
@@ -29,6 +32,7 @@ impl<G: Game> GameRunner<G> {
         let layout = ProtocolLayout::from_config(&config);
 
         let render_buffer = RenderBuffer::with_capacity(config.max_instances);
+        let sdf_buffer = SDFBuffer::with_capacity(config.max_sdf_instances);
         let sound_buffer = Vec::with_capacity(config.max_sounds);
 
         #[cfg(feature = "physics")]
@@ -45,6 +49,7 @@ impl<G: Game> GameRunner<G> {
             ctx,
             input: InputQueue::new(),
             render_buffer,
+            sdf_buffer,
             timestep,
             layout,
             config,
@@ -81,6 +86,7 @@ impl<G: Game> GameRunner<G> {
             self.game.update(&mut self.ctx, &self.input);
             #[cfg(feature = "physics")]
             self.ctx.step_physics();
+            tick_emitters(&mut self.ctx.scene, &mut self.ctx.effects, self.timestep.dt());
             self.ctx.effects.tick(self.timestep.dt());
         }
 
@@ -89,6 +95,9 @@ impl<G: Game> GameRunner<G> {
 
         // Build render buffer from entities
         build_render_buffer(self.ctx.scene.iter(), &mut self.render_buffer);
+
+        // Build SDF buffer from entities with mesh components
+        zap_engine::systems::sdf_render::build_sdf_buffer(self.ctx.scene.iter(), &mut self.sdf_buffer);
 
         // Allow game to add custom render commands
         {
@@ -174,5 +183,19 @@ impl<G: Game> GameRunner<G> {
 
     pub fn buffer_total_floats(&self) -> u32 {
         self.layout.buffer_total_floats as u32
+    }
+
+    // ---- SDF accessors ----
+
+    pub fn sdf_instances_ptr(&self) -> *const f32 {
+        self.sdf_buffer.instances_ptr()
+    }
+
+    pub fn sdf_instance_count(&self) -> u32 {
+        self.sdf_buffer.instance_count() as u32
+    }
+
+    pub fn max_sdf_instances(&self) -> u32 {
+        self.layout.max_sdf_instances as u32
     }
 }

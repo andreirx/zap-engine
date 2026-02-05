@@ -48,6 +48,9 @@ See ADR-006 for the current header layout (16 floats, self-describing with capac
 
 [Game Events: max_events × 4 floats]
   Per event: kind, a, b, c
+
+[SDF Instances: max_sdf_instances × 12 floats]
+  Per instance: x, y, radius, rotation, r, g, b, shininess, emissive, pad×3
 ```
 
 ### Consequences
@@ -143,7 +146,8 @@ Each capacity is interleaved with its per-frame count for locality:
 11: max_events                (once — capacity)
 12: event_count               (per-frame)
 13: protocol_version (1.0)    (once)
-14-15: reserved
+14: max_sdf_instances          (once — capacity)
+15: sdf_instance_count          (per-frame)
 ```
 
 **Wire-format constants remain fixed:**
@@ -197,3 +201,66 @@ Integrate `rapier2d` v0.22 as a feature-gated (`physics`, default on) dependency
 - **Pro:** WASM-compatible — custom event handler avoids crossbeam dependency
 - **Con:** rapier2d adds ~500KB to WASM binary (acceptable for physics-enabled games)
 - **Con:** One-frame collision event delay (events from step N visible in step N+1)
+
+---
+
+## ADR-008: Entity-Attached Emitter System
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+Games need particle effects tied to entities (trails, auras, exhausts). The existing `EffectsState` provides manual `spawn_particles()` but requires explicit calls from game code each frame.
+
+### Decision
+Add an `EmitterComponent` that attaches to entities and auto-spawns particles:
+
+1. **`EmitterComponent`** with configurable emission mode (continuous/burst), rate, speed range, lifetime, color mode, and per-particle physics (drag, attract_strength, speed_factor).
+2. **`Particle` extended** with per-instance physics fields (previously hardcoded constants), backward-compatible defaults.
+3. **`tick_emitters()` free function** iterates entities, ticks their emitters, and spawns particles into `EffectsState`. Free function pattern avoids borrow conflicts between `Scene` and `EffectsState`.
+4. **Game loop position:** After physics step, before `effects.tick()`.
+
+**Emission modes:**
+- `Continuous`: accumulator-based, spawns `rate × dt` particles per frame.
+- `Burst`: one-shot (interval=0) or repeating (interval>0).
+
+### Consequences
+- **Pro:** Declarative particle effects — attach once, auto-spawns
+- **Pro:** Configurable per-particle physics — games can tune drag, attraction, speed
+- **Pro:** Backward compatible — existing `spawn_particles()` uses default physics values
+- **Pro:** Builder pattern for ergonomic configuration
+- **Con:** Adds one `Option<EmitterComponent>` to the fat entity struct
+
+---
+
+## ADR-009: SDF Molecule Rendering Pipeline
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+The chemistry visualization layer needs 3D-looking spheres (atoms/molecules) rendered efficiently in a 2D game engine. Traditional sprite-based circles lack depth cues (lighting, specular, Fresnel rim).
+
+### Decision
+Implement a raymarched sphere SDF pipeline:
+
+1. **`MeshComponent`** on entities: shape (Sphere{radius}), color (RGB), shininess (Phong exponent), emissive (HDR glow multiplier).
+2. **`SDFInstance`** buffer: 12 floats / 48 bytes per instance (x, y, radius, rotation, r, g, b, shininess, emissive, pad×3). `#[repr(C)]` + Pod/Zeroable for safe SharedArrayBuffer transfer.
+3. **`molecule.wgsl` shader**: Instanced quads with per-fragment sphere raymarching, Phong shading (ambient + diffuse + specular), Fresnel rim glow, HDR emissive multiplier, edge anti-aliasing via smoothstep, discard outside sphere.
+4. **WebGPU pipeline**: Separate shader module, storage buffer, bind group. Draw order: sprites → SDF → effects (SDF before additive effects so glows appear on top).
+5. **Canvas2D fallback**: Filled circles with radial gradient (white highlight → base color → dark edge).
+6. **Protocol extension**: Uses former reserved header slots (14, 15) for `max_sdf_instances` and `sdf_instance_count`. SDF data section appended after events in the SharedArrayBuffer layout.
+
+**Draw order (final):**
+```
+sprites → SDF molecules → effects (additive glow)
+```
+
+### Consequences
+- **Pro:** 3D-looking spheres with proper lighting in a 2D engine
+- **Pro:** HDR/EDR emissive glow on capable displays
+- **Pro:** Graceful Canvas2D fallback (radial gradient circles)
+- **Pro:** Uses reserved header slots — no header size change
+- **Pro:** SharedArrayBuffer grows only when `max_sdf_instances > 0`
+- **Con:** Per-fragment raymarching is more expensive than textured quads
+- **Con:** Only Sphere shape initially (extendable via SDFShape enum)

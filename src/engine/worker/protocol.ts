@@ -22,6 +22,8 @@ export const HEADER_SOUND_COUNT = 10;
 export const HEADER_MAX_EVENTS = 11;
 export const HEADER_EVENT_COUNT = 12;
 export const HEADER_PROTOCOL_VERSION = 13;
+export const HEADER_MAX_SDF_INSTANCES = 14;
+export const HEADER_SDF_INSTANCE_COUNT = 15;
 
 /** Protocol version written into the header. */
 export const PROTOCOL_VERSION = 1.0;
@@ -35,6 +37,9 @@ export const EFFECTS_VERTEX_FLOATS = 5;
 /** Floats per game event: kind, a, b, c (wire format — never changes). */
 export const EVENT_FLOATS = 4;
 
+/** Floats per SDF instance: x, y, radius, rotation, r, g, b, shininess, emissive, pad×3. */
+export const SDF_INSTANCE_FLOATS = 12;
+
 /**
  * Runtime-computed buffer layout. Replaces the old compile-time MAX_* constants.
  * Mirrors the Rust `ProtocolLayout` struct.
@@ -44,16 +49,19 @@ export class ProtocolLayout {
   readonly maxEffectsVertices: number;
   readonly maxSounds: number;
   readonly maxEvents: number;
+  readonly maxSdfInstances: number;
 
   readonly instanceDataFloats: number;
   readonly effectsDataFloats: number;
   readonly soundDataFloats: number;
   readonly eventDataFloats: number;
+  readonly sdfDataFloats: number;
 
   readonly instanceDataOffset: number;
   readonly effectsDataOffset: number;
   readonly soundDataOffset: number;
   readonly eventDataOffset: number;
+  readonly sdfDataOffset: number;
 
   readonly bufferTotalFloats: number;
   readonly bufferTotalBytes: number;
@@ -63,23 +71,27 @@ export class ProtocolLayout {
     maxEffectsVertices: number,
     maxSounds: number,
     maxEvents: number,
+    maxSdfInstances: number = 128,
   ) {
     this.maxInstances = maxInstances;
     this.maxEffectsVertices = maxEffectsVertices;
     this.maxSounds = maxSounds;
     this.maxEvents = maxEvents;
+    this.maxSdfInstances = maxSdfInstances;
 
     this.instanceDataFloats = maxInstances * INSTANCE_FLOATS;
     this.effectsDataFloats = maxEffectsVertices * EFFECTS_VERTEX_FLOATS;
     this.soundDataFloats = maxSounds;
     this.eventDataFloats = maxEvents * EVENT_FLOATS;
+    this.sdfDataFloats = maxSdfInstances * SDF_INSTANCE_FLOATS;
 
     this.instanceDataOffset = HEADER_FLOATS;
     this.effectsDataOffset = this.instanceDataOffset + this.instanceDataFloats;
     this.soundDataOffset = this.effectsDataOffset + this.effectsDataFloats;
     this.eventDataOffset = this.soundDataOffset + this.soundDataFloats;
+    this.sdfDataOffset = this.eventDataOffset + this.eventDataFloats;
 
-    this.bufferTotalFloats = this.eventDataOffset + this.eventDataFloats;
+    this.bufferTotalFloats = this.sdfDataOffset + this.sdfDataFloats;
     this.bufferTotalBytes = this.bufferTotalFloats * 4;
   }
 
@@ -90,6 +102,7 @@ export class ProtocolLayout {
       f32[HEADER_MAX_EFFECTS_VERTICES],
       f32[HEADER_MAX_SOUNDS],
       f32[HEADER_MAX_EVENTS],
+      f32[HEADER_MAX_SDF_INSTANCES],
     );
   }
 
@@ -99,12 +112,14 @@ export class ProtocolLayout {
     get_max_effects_vertices: () => number;
     get_max_sounds: () => number;
     get_max_events: () => number;
+    get_max_sdf_instances: () => number;
   }): ProtocolLayout {
     return new ProtocolLayout(
       exports.get_max_instances(),
       exports.get_max_effects_vertices(),
       exports.get_max_sounds(),
       exports.get_max_events(),
+      exports.get_max_sdf_instances(),
     );
   }
 }

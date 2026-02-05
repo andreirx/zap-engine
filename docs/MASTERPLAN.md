@@ -86,6 +86,7 @@ WebGPU + preferred format (bgra8unorm, basic sRGB)
   v
 Canvas 2D (software rendering, SDR only)
 
+you can still get inspiration from /Users/apple/Documents/Xcodes/ZapZap/zapzap-native/
 
 ---
 

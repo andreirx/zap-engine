@@ -9,6 +9,7 @@ import { createImageFromBlob } from '../assets/loader';
 
 const INSTANCE_FLOATS = 8;
 const EFFECTS_VERTEX_FLOATS = 5;
+const SDF_INSTANCE_FLOATS = 12;
 
 export interface Canvas2DRendererConfig {
   canvas: HTMLCanvasElement;
@@ -123,12 +124,46 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     c.fill();
   }
 
+  function drawSdfInstance(
+    c: CanvasRenderingContext2D,
+    data: Float32Array,
+    off: number,
+  ) {
+    const x = data[off];
+    const y = data[off + 1];
+    const radius = data[off + 2];
+    const r = Math.round(data[off + 4] * 255);
+    const g = Math.round(data[off + 5] * 255);
+    const b = Math.round(data[off + 6] * 255);
+
+    if (radius <= 0) return;
+
+    // Radial gradient: white highlight center → base color → darkened edge
+    const grad = c.createRadialGradient(
+      x - radius * 0.3, y - radius * 0.3, radius * 0.1,
+      x, y, radius,
+    );
+    grad.addColorStop(0, `rgba(255, 255, 255, 0.6)`);
+    grad.addColorStop(0.4, `rgb(${r}, ${g}, ${b})`);
+    const darkR = Math.round(r * 0.3);
+    const darkG = Math.round(g * 0.3);
+    const darkB = Math.round(b * 0.3);
+    grad.addColorStop(1, `rgb(${darkR}, ${darkG}, ${darkB})`);
+
+    c.beginPath();
+    c.arc(x, y, radius, 0, Math.PI * 2);
+    c.fillStyle = grad;
+    c.fill();
+  }
+
   function draw(
     instanceData: Float32Array,
     instanceCount: number,
     atlasSplit: number,
     effectsData?: Float32Array,
     effectsVertexCount?: number,
+    sdfData?: Float32Array,
+    sdfInstanceCount?: number,
   ) {
     const w = canvas.width;
     const h = canvas.height;
@@ -151,6 +186,15 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     const secondAtlas = manifest.atlases.length > 1 ? 1 : 0;
     for (let i = atlasSplit; i < instanceCount; i++) {
       drawInstance(ctx!, instanceData, i * INSTANCE_FLOATS, secondAtlas);
+    }
+
+    // SDF molecules (drawn between sprites and effects)
+    const hasSdf = sdfData && sdfInstanceCount && sdfInstanceCount > 0;
+    if (hasSdf) {
+      ctx!.globalAlpha = 1;
+      for (let i = 0; i < sdfInstanceCount; i++) {
+        drawSdfInstance(ctx!, sdfData, i * SDF_INSTANCE_FLOATS);
+      }
     }
 
     // Effects

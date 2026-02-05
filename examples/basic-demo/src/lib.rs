@@ -143,3 +143,18 @@ pub fn get_max_events() -> u32 {
 pub fn get_buffer_total_floats() -> u32 {
     with_runner(|r| r.buffer_total_floats())
 }
+
+#[wasm_bindgen]
+pub fn get_sdf_instances_ptr() -> *const f32 {
+    with_runner(|r| r.sdf_instances_ptr())
+}
+
+#[wasm_bindgen]
+pub fn get_sdf_instance_count() -> u32 {
+    with_runner(|r| r.sdf_instance_count())
+}
+
+#[wasm_bindgen]
+pub fn get_max_sdf_instances() -> u32 {
+    with_runner(|r| r.max_sdf_instances())
+}

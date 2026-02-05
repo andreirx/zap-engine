@@ -11,6 +11,8 @@ export interface Renderer {
    * @param atlasSplit    How many use atlas 0 (alpha blend); rest use atlas 1+ (additive or second atlas)
    * @param effectsData   Optional flat float array of effect vertices (5 floats each: x, y, z, u, v)
    * @param effectsVertexCount Total effect vertices
+   * @param sdfData       Optional flat float array of SDF instances (12 floats each)
+   * @param sdfInstanceCount Total SDF instances
    */
   draw: (
     instanceData: Float32Array,
@@ -18,6 +20,8 @@ export interface Renderer {
     atlasSplit: number,
     effectsData?: Float32Array,
     effectsVertexCount?: number,
+    sdfData?: Float32Array,
+    sdfInstanceCount?: number,
   ) => void;
 
   /** Handle canvas resize. */

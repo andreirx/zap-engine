@@ -29,6 +29,8 @@ pub struct GameConfig {
     pub max_sounds: usize,
     /// Maximum number of game events per frame (default: 32).
     pub max_events: usize,
+    /// Maximum number of SDF instances (default: 128).
+    pub max_sdf_instances: usize,
     /// Gravity vector for physics simulation. Default: zero (no gravity).
     /// For Y-down coordinate systems, use positive Y for downward gravity.
     #[cfg(feature = "physics")]
@@ -45,6 +47,7 @@ impl Default for GameConfig {
             max_effects_vertices: 16384,
             max_sounds: 32,
             max_events: 32,
+            max_sdf_instances: 128,
             #[cfg(feature = "physics")]
             gravity: glam::Vec2::ZERO,
         }
