@@ -1,6 +1,8 @@
 use glam::Vec2;
 use crate::api::types::EntityId;
 use crate::components::sprite::SpriteComponent;
+#[cfg(feature = "physics")]
+use crate::core::physics::PhysicsBody;
 
 /// Fat Entity — a single struct with optional components.
 /// Designed for simplicity and rapid prototyping over ECS purity.
@@ -20,8 +22,9 @@ pub struct Entity {
     pub scale: Vec2,
     /// Sprite component (optional — entities without sprites are invisible).
     pub sprite: Option<SpriteComponent>,
-    // Future: physics body
-    // pub body: Option<PhysicsBody>,
+    /// Physics body (optional — requires "physics" feature).
+    #[cfg(feature = "physics")]
+    pub body: Option<PhysicsBody>,
     // Future: particle emitter
     // pub emitter: Option<EmitterComponent>,
     // Future: SDF mesh
@@ -39,6 +42,8 @@ impl Entity {
             rotation: 0.0,
             scale: Vec2::ONE,
             sprite: None,
+            #[cfg(feature = "physics")]
+            body: None,
         }
     }
 
@@ -66,6 +71,12 @@ impl Entity {
 
     pub fn with_sprite(mut self, sprite: SpriteComponent) -> Self {
         self.sprite = Some(sprite);
+        self
+    }
+
+    #[cfg(feature = "physics")]
+    pub fn with_body(mut self, body: PhysicsBody) -> Self {
+        self.body = Some(body);
         self
     }
 }

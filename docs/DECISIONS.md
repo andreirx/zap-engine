@@ -155,3 +155,45 @@ Each capacity is interleaved with its per-frame count for locality:
 - **Pro:** Self-describing header enables forward compatibility
 - **Pro:** Default values preserve backward compatibility
 - **Con:** Header grew from 12 to 16 floats (+16 bytes)
+
+---
+
+## ADR-007: Rapier2D Physics Integration
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+The engine needs 2D rigid-body physics (gravity, collisions, bounce) for games. The basic-demo was using manual velocity/bounce logic, which doesn't scale to real game physics.
+
+### Decision
+Integrate `rapier2d` v0.22 as a feature-gated (`physics`, default on) dependency of `zap-engine`.
+
+**Key design choices:**
+
+1. **`PhysicsWorld` wrapper**: Encapsulates all 9 Rapier struct instances (pipeline, bodies, colliders, broad/narrow phase, island manager, joints, CCD solver, query pipeline). Games interact through a clean API without touching Rapier directly.
+
+2. **No nalgebra in public API**: All public types use `glam::Vec2`. Internal conversion functions (`vec2_to_na`, `na_to_vec2`, `na_iso_to_pos_rot`) handle the bridging.
+
+3. **WASM-safe event collection**: Custom `DirectEventCollector` implements `EventHandler` using `RefCell<Vec>` instead of `ChannelEventCollector` (which depends on crossbeam, which doesn't compile to `wasm32-unknown-unknown`).
+
+4. **EntityId stored in `user_data`**: Each Rapier body stores the `EntityId` as `u128` in its `user_data` field, enabling collision event resolution back to game entities.
+
+5. **`step_into(&mut Vec<CollisionPair>)` pattern**: The simulation step writes collision events into an external Vec, avoiding borrow conflicts between the physics world and event iteration.
+
+6. **Entity `despawn` via EngineContext**: `ctx.despawn(id)` cleans up both the Scene entity and its Rapier body+colliders in one call.
+
+**Game loop order (per fixed step):**
+```
+1. game.update()       — apply forces, spawn, read PREVIOUS step's collisions
+2. ctx.step_physics()  — Rapier step + position sync to entities + collect events
+3. effects.tick(dt)    — particles/arcs see updated positions
+```
+
+### Consequences
+- **Pro:** Feature-gated — games without physics pay zero cost (no rapier2d compiled)
+- **Pro:** Clean API — games use `ctx.spawn_with_body()`, `ctx.apply_impulse()`, `ctx.collisions()`
+- **Pro:** Automatic position sync — no manual `entity.pos = physics.get_pos()` needed
+- **Pro:** WASM-compatible — custom event handler avoids crossbeam dependency
+- **Con:** rapier2d adds ~500KB to WASM binary (acceptable for physics-enabled games)
+- **Con:** One-frame collision event delay (events from step N visible in step N+1)

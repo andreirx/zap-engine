@@ -3,6 +3,14 @@ use crate::api::types::{EntityId, SoundEvent, GameEvent};
 use crate::input::queue::InputQueue;
 use crate::renderer::instance::RenderBuffer;
 use crate::systems::effects::EffectsState;
+#[cfg(feature = "physics")]
+use crate::core::physics::{
+    PhysicsWorld, BodyDesc, ColliderMaterial, CollisionPair,
+};
+#[cfg(feature = "physics")]
+use crate::components::entity::Entity;
+#[cfg(feature = "physics")]
+use glam::Vec2;
 
 /// Configuration for the engine, provided by the game.
 #[derive(Debug, Clone)]
@@ -21,6 +29,10 @@ pub struct GameConfig {
     pub max_sounds: usize,
     /// Maximum number of game events per frame (default: 32).
     pub max_events: usize,
+    /// Gravity vector for physics simulation. Default: zero (no gravity).
+    /// For Y-down coordinate systems, use positive Y for downward gravity.
+    #[cfg(feature = "physics")]
+    pub gravity: glam::Vec2,
 }
 
 impl Default for GameConfig {
@@ -33,6 +45,8 @@ impl Default for GameConfig {
             max_effects_vertices: 16384,
             max_sounds: 32,
             max_events: 32,
+            #[cfg(feature = "physics")]
+            gravity: glam::Vec2::ZERO,
         }
     }
 }
@@ -61,6 +75,10 @@ pub struct EngineContext {
     pub sounds: Vec<SoundEvent>,
     pub events: Vec<GameEvent>,
     next_id: u32,
+    #[cfg(feature = "physics")]
+    pub physics: PhysicsWorld,
+    #[cfg(feature = "physics")]
+    collision_events: Vec<CollisionPair>,
 }
 
 impl EngineContext {
@@ -71,6 +89,24 @@ impl EngineContext {
             sounds: Vec::new(),
             events: Vec::new(),
             next_id: 1,
+            #[cfg(feature = "physics")]
+            physics: PhysicsWorld::new(Vec2::ZERO),
+            #[cfg(feature = "physics")]
+            collision_events: Vec::new(),
+        }
+    }
+
+    /// Create an EngineContext with a custom gravity vector.
+    #[cfg(feature = "physics")]
+    pub fn with_gravity(gravity: Vec2) -> Self {
+        Self {
+            scene: Scene::new(),
+            effects: EffectsState::new(42),
+            sounds: Vec::new(),
+            events: Vec::new(),
+            next_id: 1,
+            physics: PhysicsWorld::new(gravity),
+            collision_events: Vec::new(),
         }
     }
 
@@ -91,10 +127,103 @@ impl EngineContext {
         self.events.push(event);
     }
 
-    /// Clear per-frame transient data (sounds, events).
+    /// Clear per-frame transient data (sounds, events, collision events).
     pub fn clear_frame_data(&mut self) {
         self.sounds.clear();
         self.events.clear();
+        #[cfg(feature = "physics")]
+        self.collision_events.clear();
+    }
+
+    // -- Physics convenience methods --
+
+    /// Spawn an entity with a physics body. Returns the EntityId.
+    /// The entity's position is set from the BodyDesc.
+    #[cfg(feature = "physics")]
+    pub fn spawn_with_body(
+        &mut self,
+        entity: Entity,
+        desc: BodyDesc,
+        material: ColliderMaterial,
+    ) -> EntityId {
+        let id = entity.id;
+        let body = self.physics.create_body(id, &desc, material);
+        let entity = entity.with_body(body);
+        self.scene.spawn(entity);
+        id
+    }
+
+    /// Despawn an entity, cleaning up its physics body if present.
+    #[cfg(feature = "physics")]
+    pub fn despawn(&mut self, id: EntityId) {
+        if let Some(entity) = self.scene.despawn(id) {
+            if let Some(body) = &entity.body {
+                self.physics.remove_body(body);
+            }
+        }
+    }
+
+    /// Apply a continuous force to an entity's physics body.
+    #[cfg(feature = "physics")]
+    pub fn apply_force(&mut self, id: EntityId, force: Vec2) {
+        if let Some(entity) = self.scene.get(id) {
+            if let Some(body) = &entity.body {
+                self.physics.apply_force(body, force);
+            }
+        }
+    }
+
+    /// Apply an instantaneous impulse to an entity's physics body.
+    #[cfg(feature = "physics")]
+    pub fn apply_impulse(&mut self, id: EntityId, impulse: Vec2) {
+        if let Some(entity) = self.scene.get(id) {
+            if let Some(body) = &entity.body {
+                self.physics.apply_impulse(body, impulse);
+            }
+        }
+    }
+
+    /// Set the linear velocity of an entity's physics body.
+    #[cfg(feature = "physics")]
+    pub fn set_velocity(&mut self, id: EntityId, vel: Vec2) {
+        if let Some(entity) = self.scene.get(id) {
+            if let Some(body) = &entity.body {
+                self.physics.set_velocity(body, vel);
+            }
+        }
+    }
+
+    /// Get the linear velocity of an entity's physics body.
+    #[cfg(feature = "physics")]
+    pub fn velocity(&self, id: EntityId) -> Vec2 {
+        self.scene
+            .get(id)
+            .and_then(|e| e.body.as_ref())
+            .map(|body| self.physics.velocity(body))
+            .unwrap_or(Vec2::ZERO)
+    }
+
+    /// Get collision events from the most recent physics step.
+    #[cfg(feature = "physics")]
+    pub fn collisions(&self) -> &[CollisionPair] {
+        &self.collision_events
+    }
+
+    /// Step the physics simulation and sync positions back to entities.
+    /// Called automatically by the game runner after `Game::update()`.
+    #[cfg(feature = "physics")]
+    pub fn step_physics(&mut self) {
+        self.collision_events.clear();
+        self.physics.step_into(&mut self.collision_events);
+
+        // Sync Rapier body positions back to entity positions
+        for entity in self.scene.iter_mut() {
+            if let Some(body) = &entity.body {
+                let (pos, rot) = self.physics.body_position(body);
+                entity.pos = pos;
+                entity.rotation = rot;
+            }
+        }
     }
 }
 
@@ -107,4 +236,67 @@ impl Default for EngineContext {
 /// Render context for optional custom render commands.
 pub struct RenderContext<'a> {
     pub render_buffer: &'a mut RenderBuffer,
+}
+
+#[cfg(test)]
+#[cfg(feature = "physics")]
+mod physics_tests {
+    use super::*;
+    use crate::core::physics::{BodyDesc, ColliderDesc, ColliderMaterial};
+
+    #[test]
+    fn spawn_with_body_creates_entity_and_physics() {
+        let mut ctx = EngineContext::new();
+        let id = ctx.next_id();
+        let entity = Entity::new(id).with_pos(Vec2::new(100.0, 200.0));
+        let desc = BodyDesc::dynamic(ColliderDesc::Ball { radius: 10.0 })
+            .with_position(Vec2::new(100.0, 200.0));
+
+        ctx.spawn_with_body(entity, desc, ColliderMaterial::default());
+
+        assert_eq!(ctx.scene.len(), 1);
+        assert_eq!(ctx.physics.body_count(), 1);
+        assert!(ctx.scene.get(id).unwrap().body.is_some());
+    }
+
+    #[test]
+    fn despawn_cleans_up_physics() {
+        let mut ctx = EngineContext::new();
+        let id = ctx.next_id();
+        let entity = Entity::new(id);
+        let desc = BodyDesc::dynamic(ColliderDesc::Ball { radius: 10.0 });
+
+        ctx.spawn_with_body(entity, desc, ColliderMaterial::default());
+        assert_eq!(ctx.physics.body_count(), 1);
+
+        ctx.despawn(id);
+        assert_eq!(ctx.scene.len(), 0);
+        assert_eq!(ctx.physics.body_count(), 0);
+    }
+
+    #[test]
+    fn step_physics_syncs_positions() {
+        let mut ctx = EngineContext::with_gravity(Vec2::new(0.0, 100.0));
+        ctx.physics.set_dt(1.0 / 60.0);
+
+        let id = ctx.next_id();
+        let entity = Entity::new(id).with_pos(Vec2::new(100.0, 0.0));
+        let desc = BodyDesc::dynamic(ColliderDesc::Ball { radius: 5.0 })
+            .with_position(Vec2::new(100.0, 0.0));
+
+        ctx.spawn_with_body(entity, desc, ColliderMaterial::default());
+
+        // Step a few times
+        for _ in 0..10 {
+            ctx.step_physics();
+        }
+
+        let entity = ctx.scene.get(id).unwrap();
+        // Entity position should have been synced from physics (moved downward)
+        assert!(
+            entity.pos.y > 0.0,
+            "Entity should have moved down: y={}",
+            entity.pos.y
+        );
+    }
 }

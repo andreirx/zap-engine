@@ -7,9 +7,14 @@ description = "High-performance headless game engine for the web (Rust/WASM + We
 [lib]
 crate-type = ["rlib"]
 
+[features]
+default = ["physics"]
+physics = ["dep:rapier2d"]
+
 [dependencies]
 glam = { version = "0.30", features = ["bytemuck"] }
 bytemuck = { version = "1.21", features = ["derive"] }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rapier2d = { version = "0.22", features = ["wasm-bindgen"], optional = true }

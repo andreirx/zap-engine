@@ -31,9 +31,18 @@ impl<G: Game> GameRunner<G> {
         let render_buffer = RenderBuffer::with_capacity(config.max_instances);
         let sound_buffer = Vec::with_capacity(config.max_sounds);
 
+        #[cfg(feature = "physics")]
+        let ctx = {
+            let mut c = EngineContext::with_gravity(config.gravity);
+            c.physics.set_dt(config.fixed_dt);
+            c
+        };
+        #[cfg(not(feature = "physics"))]
+        let ctx = EngineContext::new();
+
         Self {
             game,
-            ctx: EngineContext::new(),
+            ctx,
             input: InputQueue::new(),
             render_buffer,
             timestep,
@@ -70,6 +79,8 @@ impl<G: Game> GameRunner<G> {
         let steps = self.timestep.accumulate(dt);
         for _ in 0..steps {
             self.game.update(&mut self.ctx, &self.input);
+            #[cfg(feature = "physics")]
+            self.ctx.step_physics();
             self.ctx.effects.tick(self.timestep.dt());
         }
 

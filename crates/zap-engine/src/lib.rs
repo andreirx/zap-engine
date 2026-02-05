@@ -20,3 +20,9 @@ pub use input::queue::{InputEvent, InputQueue};
 pub use assets::manifest::AssetManifest;
 pub use bridge::protocol::ProtocolLayout;
 pub use systems::effects::{EffectsState, ElectricArc, Particle, SegmentColor};
+
+#[cfg(feature = "physics")]
+pub use core::physics::{
+    PhysicsWorld, PhysicsBody, BodyDesc, BodyType,
+    ColliderDesc, ColliderMaterial, CollisionPair,
+};
