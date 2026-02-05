@@ -57,6 +57,7 @@ impl Game for BasicDemo {
             fixed_dt: 1.0 / 60.0,
             world_width: WORLD_W,
             world_height: WORLD_H,
+            ..GameConfig::default()
         }
     }
 

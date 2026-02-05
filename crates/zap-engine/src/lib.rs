@@ -18,4 +18,5 @@ pub use renderer::instance::{RenderInstance, RenderBuffer};
 pub use renderer::camera::Camera2D;
 pub use input::queue::{InputEvent, InputQueue};
 pub use assets::manifest::AssetManifest;
+pub use bridge::protocol::ProtocolLayout;
 pub use systems::effects::{EffectsState, ElectricArc, Particle, SegmentColor};

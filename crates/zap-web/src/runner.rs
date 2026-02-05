@@ -1,7 +1,7 @@
 use zap_engine::{
     Game, GameConfig, EngineContext, RenderContext,
     InputEvent, InputQueue, RenderBuffer,
-    FixedTimestep,
+    FixedTimestep, ProtocolLayout,
 };
 use zap_engine::systems::render::build_render_buffer;
 /// Generic game runner that wires up the engine loop.
@@ -16,6 +16,7 @@ pub struct GameRunner<G: Game> {
     render_buffer: RenderBuffer,
     timestep: FixedTimestep,
     config: GameConfig,
+    layout: ProtocolLayout,
     initialized: bool,
     /// Flat buffer of sound event IDs for SharedArrayBuffer reads.
     sound_buffer: Vec<u8>,
@@ -25,22 +26,28 @@ impl<G: Game> GameRunner<G> {
     pub fn new(game: G) -> Self {
         let config = game.config();
         let timestep = FixedTimestep::new(config.fixed_dt);
+        let layout = ProtocolLayout::from_config(&config);
+
+        let render_buffer = RenderBuffer::with_capacity(config.max_instances);
+        let sound_buffer = Vec::with_capacity(config.max_sounds);
 
         Self {
             game,
             ctx: EngineContext::new(),
             input: InputQueue::new(),
-            render_buffer: RenderBuffer::new(),
+            render_buffer,
             timestep,
+            layout,
             config,
             initialized: false,
-            sound_buffer: Vec::with_capacity(32),
+            sound_buffer,
         }
     }
 
     /// Initialize the game. Call once after construction.
     pub fn init(&mut self) {
         self.config = self.game.config();
+        self.layout = ProtocolLayout::from_config(&self.config);
         self.game.init(&mut self.ctx);
         self.initialized = true;
     }
@@ -134,5 +141,27 @@ impl<G: Game> GameRunner<G> {
 
     pub fn atlas_split(&self) -> u32 {
         self.render_buffer.atlas_split
+    }
+
+    // ---- Capacity accessors (read by TypeScript via wasm_bindgen exports) ----
+
+    pub fn max_instances(&self) -> u32 {
+        self.layout.max_instances as u32
+    }
+
+    pub fn max_effects_vertices(&self) -> u32 {
+        self.layout.max_effects_vertices as u32
+    }
+
+    pub fn max_sounds(&self) -> u32 {
+        self.layout.max_sounds as u32
+    }
+
+    pub fn max_events(&self) -> u32 {
+        self.layout.max_events as u32
+    }
+
+    pub fn buffer_total_floats(&self) -> u32 {
+        self.layout.buffer_total_floats as u32
     }
 }

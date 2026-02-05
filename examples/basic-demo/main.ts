@@ -5,18 +5,13 @@ import {
   initRenderer,
   loadManifest,
   loadAssetBlobs,
-  HEADER_FLOATS,
   HEADER_INSTANCE_COUNT,
   HEADER_ATLAS_SPLIT,
   HEADER_EFFECTS_VERTEX_COUNT,
   HEADER_WORLD_WIDTH,
-  HEADER_WORLD_HEIGHT,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
-  INSTANCE_DATA_OFFSET,
-  EFFECTS_DATA_OFFSET,
-  INSTANCE_DATA_FLOATS,
-  MAX_EFFECTS_VERTICES,
+  ProtocolLayout,
 } from '../../src/engine/index';
 import type { Renderer } from '../../src/engine/index';
 
@@ -47,6 +42,7 @@ async function main() {
   let sharedF32: Float32Array | null = null;
   let sharedI32: Int32Array | null = null;
   let renderer: Renderer | null = null;
+  let layout: ProtocolLayout | null = null;
   let gameWidth = 800;
   let gameHeight = 600;
 
@@ -55,21 +51,33 @@ async function main() {
 
     if (type === 'ready') {
       if (e.data.sharedBuffer) {
+        // SharedArrayBuffer path: read layout from header
         sharedF32 = new Float32Array(e.data.sharedBuffer);
         sharedI32 = new Int32Array(e.data.sharedBuffer);
+        layout = ProtocolLayout.fromHeader(sharedF32);
+      } else {
+        // postMessage fallback: read layout from message data
+        layout = new ProtocolLayout(
+          e.data.maxInstances,
+          e.data.maxEffectsVertices,
+          e.data.maxSounds,
+          e.data.maxEvents,
+        );
       }
 
       // Read world dimensions from the first frame (or use defaults)
       gameWidth = sharedF32?.[HEADER_WORLD_WIDTH] || 800;
-      gameHeight = sharedF32?.[HEADER_WORLD_HEIGHT] || 600;
+      gameHeight = sharedF32?.[HEADER_WORLD_WIDTH + 1] || 600;
 
-      // Init renderer
+      // Init renderer with dynamic capacities
       renderer = await initRenderer({
         canvas,
         manifest,
         atlasBlobs,
         gameWidth: 800,
         gameHeight: 600,
+        maxInstances: layout.maxInstances,
+        maxEffectsVertices: layout.maxEffectsVertices,
       });
 
       // Start render loop
@@ -82,7 +90,7 @@ async function main() {
   };
 
   function drawFromBuffer(buf: Float32Array) {
-    if (!renderer) return;
+    if (!renderer || !layout) return;
 
     const instanceCount = buf[HEADER_INSTANCE_COUNT];
     const atlasSplit = buf[HEADER_ATLAS_SPLIT];
@@ -90,15 +98,15 @@ async function main() {
 
     if (instanceCount > 0) {
       const instanceData = buf.subarray(
-        INSTANCE_DATA_OFFSET,
-        INSTANCE_DATA_OFFSET + instanceCount * INSTANCE_FLOATS,
+        layout.instanceDataOffset,
+        layout.instanceDataOffset + instanceCount * INSTANCE_FLOATS,
       );
 
       let effectsData: Float32Array | undefined;
       if (effectsVertexCount > 0) {
         effectsData = buf.subarray(
-          EFFECTS_DATA_OFFSET,
-          EFFECTS_DATA_OFFSET + effectsVertexCount * EFFECTS_VERTEX_FLOATS,
+          layout.effectsDataOffset,
+          layout.effectsDataOffset + effectsVertexCount * EFFECTS_VERTEX_FLOATS,
         );
       }
 

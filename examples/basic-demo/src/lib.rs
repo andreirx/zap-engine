@@ -118,3 +118,28 @@ pub fn get_world_height() -> f32 {
 pub fn get_atlas_split() -> u32 {
     with_runner(|r| r.atlas_split())
 }
+
+#[wasm_bindgen]
+pub fn get_max_instances() -> u32 {
+    with_runner(|r| r.max_instances())
+}
+
+#[wasm_bindgen]
+pub fn get_max_effects_vertices() -> u32 {
+    with_runner(|r| r.max_effects_vertices())
+}
+
+#[wasm_bindgen]
+pub fn get_max_sounds() -> u32 {
+    with_runner(|r| r.max_sounds())
+}
+
+#[wasm_bindgen]
+pub fn get_max_events() -> u32 {
+    with_runner(|r| r.max_events())
+}
+
+#[wasm_bindgen]
+pub fn get_buffer_total_floats() -> u32 {
+    with_runner(|r| r.buffer_total_floats())
+}

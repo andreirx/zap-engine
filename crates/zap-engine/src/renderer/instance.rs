@@ -44,8 +44,12 @@ pub struct RenderBuffer {
 
 impl RenderBuffer {
     pub fn new() -> Self {
+        Self::with_capacity(512)
+    }
+
+    pub fn with_capacity(max_instances: usize) -> Self {
         Self {
-            instances: Vec::with_capacity(512),
+            instances: Vec::with_capacity(max_instances),
             atlas_split: 0,
         }
     }

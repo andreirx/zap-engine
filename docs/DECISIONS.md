@@ -33,37 +33,28 @@ The game simulation runs in a Web Worker (Rust/WASM). The main thread needs to r
 Use SharedArrayBuffer with Atomics for zero-copy data sharing. Fall back to `postMessage` with buffer copies when COOP/COEP headers are unavailable.
 
 ### Layout
+See ADR-006 for the current header layout (16 floats, self-describing with capacities).
 ```
-[Header: 12 floats]
-  0: lock (Atomics signal)
-  1: frame_counter
-  2: instance_count
-  3: atlas_split
-  4: effects_vertex_count
-  5: world_width
-  6: world_height
-  7: sound_count
-  8: event_count
-  9-11: reserved
+[Header: 16 floats — see ADR-006]
 
-[Instance Data: 512 × 8 floats = 4096 floats]
+[Instance Data: max_instances × 8 floats]
   Per instance: x, y, rotation, scale, sprite_col, alpha, cell_span, atlas_row
 
-[Effects Data: 16384 × 5 floats = 81920 floats]
+[Effects Data: max_effects_vertices × 5 floats]
   Per vertex: x, y, z(color_idx), u, v
 
-[Sound Events: 32 floats]
+[Sound Events: max_sounds floats]
   Per event: event_id (as f32)
 
-[Game Events: 32 × 4 floats = 128 floats]
+[Game Events: max_events × 4 floats]
   Per event: kind, a, b, c
 ```
 
 ### Consequences
 - **Pro:** Zero-copy reads at 60fps — no GC pressure
 - **Pro:** Graceful fallback for non-COOP/COEP environments
+- **Pro:** Configurable buffer sizes via GameConfig (see ADR-006)
 - **Con:** Requires COOP/COEP headers for optimal path
-- **Con:** Fixed buffer sizes (512 instances, 16K effects verts)
 
 ---
 
@@ -121,3 +112,46 @@ Remove the `50.0 *` from the shader. The `scale` field now represents the actual
 - **Pro:** No magic numbers in the shader
 - **Pro:** Games have full control over rendered size
 - **Con:** ZapZap migration requires changing scale from 1.0 to 50.0 for tiles
+
+---
+
+## ADR-006: Configurable Buffer Capacities
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+Buffer capacities (`MAX_INSTANCES=512`, `MAX_EFFECTS_VERTICES=16384`, `MAX_SOUNDS=32`, `MAX_EVENTS=32`) were hardcoded as compile-time constants, duplicated across Rust `protocol.rs`, TypeScript `protocol.ts`, and locally in `webgpu.ts`. A puzzle game and a bullet-hell game got the same fixed allocation.
+
+### Decision
+Make capacities runtime-configurable via `GameConfig`. The SharedArrayBuffer header is self-describing: capacities are written once at init (slots 2, 5, 9, 11), and TypeScript reads them from the header to compute offsets dynamically via the `ProtocolLayout` class.
+
+**Header redesign (12 → 16 floats):**
+Each capacity is interleaved with its per-frame count for locality:
+```
+ 0: lock                      (per-frame, Int32 Atomics)
+ 1: frame_counter             (per-frame)
+ 2: max_instances             (once — capacity)
+ 3: instance_count            (per-frame)
+ 4: atlas_split               (per-frame)
+ 5: max_effects_vertices      (once — capacity)
+ 6: effects_vertex_count      (per-frame)
+ 7: world_width               (per-frame)
+ 8: world_height              (per-frame)
+ 9: max_sounds                (once — capacity)
+10: sound_count               (per-frame)
+11: max_events                (once — capacity)
+12: event_count               (per-frame)
+13: protocol_version (1.0)    (once)
+14-15: reserved
+```
+
+**Wire-format constants remain fixed:**
+`INSTANCE_FLOATS=8`, `EFFECTS_VERTEX_FLOATS=5`, `EVENT_FLOATS=4`, `HEADER_FLOATS=16`.
+
+### Consequences
+- **Pro:** Zero duplication — single source of truth in `GameConfig`
+- **Pro:** Games can tune allocations (puzzle: fewer instances; bullet-hell: more)
+- **Pro:** Self-describing header enables forward compatibility
+- **Pro:** Default values preserve backward compatibility
+- **Con:** Header grew from 12 to 16 floats (+16 bytes)

@@ -1,68 +1,110 @@
-// SharedArrayBuffer layout constants — mirrors Rust bridge/protocol.rs.
+// SharedArrayBuffer layout — mirrors Rust bridge/protocol.rs.
 // MUST stay in sync with the Rust side.
+//
+// Capacities are written once into the header at init.
+// TypeScript reads them from the header to compute offsets dynamically.
 
 /** Number of floats in the header section. */
-export const HEADER_FLOATS = 12;
+export const HEADER_FLOATS = 16;
 
 /** Header field indices. */
 export const HEADER_LOCK = 0;
 export const HEADER_FRAME_COUNTER = 1;
-export const HEADER_INSTANCE_COUNT = 2;
-export const HEADER_ATLAS_SPLIT = 3;
-export const HEADER_EFFECTS_VERTEX_COUNT = 4;
-export const HEADER_WORLD_WIDTH = 5;
-export const HEADER_WORLD_HEIGHT = 6;
-export const HEADER_SOUND_COUNT = 7;
-export const HEADER_EVENT_COUNT = 8;
+export const HEADER_MAX_INSTANCES = 2;
+export const HEADER_INSTANCE_COUNT = 3;
+export const HEADER_ATLAS_SPLIT = 4;
+export const HEADER_MAX_EFFECTS_VERTICES = 5;
+export const HEADER_EFFECTS_VERTEX_COUNT = 6;
+export const HEADER_WORLD_WIDTH = 7;
+export const HEADER_WORLD_HEIGHT = 8;
+export const HEADER_MAX_SOUNDS = 9;
+export const HEADER_SOUND_COUNT = 10;
+export const HEADER_MAX_EVENTS = 11;
+export const HEADER_EVENT_COUNT = 12;
+export const HEADER_PROTOCOL_VERSION = 13;
 
-/** Maximum number of render instances. */
-export const MAX_INSTANCES = 512;
+/** Protocol version written into the header. */
+export const PROTOCOL_VERSION = 1.0;
 
-/** Floats per render instance. */
+/** Floats per render instance (wire format — never changes). */
 export const INSTANCE_FLOATS = 8;
 
-/** Maximum number of effects vertices. */
-export const MAX_EFFECTS_VERTICES = 16384;
-
-/** Floats per effects vertex (x, y, z, u, v). */
+/** Floats per effects vertex: x, y, z, u, v (wire format — never changes). */
 export const EFFECTS_VERTEX_FLOATS = 5;
 
-/** Maximum number of sound events per frame. */
-export const MAX_SOUNDS = 32;
-
-/** Maximum number of game events per frame. */
-export const MAX_EVENTS = 32;
-
-/** Floats per game event (kind, a, b, c). */
+/** Floats per game event: kind, a, b, c (wire format — never changes). */
 export const EVENT_FLOATS = 4;
 
-/** Total size of instance data section in floats. */
-export const INSTANCE_DATA_FLOATS = MAX_INSTANCES * INSTANCE_FLOATS;
+/**
+ * Runtime-computed buffer layout. Replaces the old compile-time MAX_* constants.
+ * Mirrors the Rust `ProtocolLayout` struct.
+ */
+export class ProtocolLayout {
+  readonly maxInstances: number;
+  readonly maxEffectsVertices: number;
+  readonly maxSounds: number;
+  readonly maxEvents: number;
 
-/** Total size of effects data section in floats. */
-export const EFFECTS_DATA_FLOATS = MAX_EFFECTS_VERTICES * EFFECTS_VERTEX_FLOATS;
+  readonly instanceDataFloats: number;
+  readonly effectsDataFloats: number;
+  readonly soundDataFloats: number;
+  readonly eventDataFloats: number;
 
-/** Total size of sound data section in floats. */
-export const SOUND_DATA_FLOATS = MAX_SOUNDS;
+  readonly instanceDataOffset: number;
+  readonly effectsDataOffset: number;
+  readonly soundDataOffset: number;
+  readonly eventDataOffset: number;
 
-/** Total size of events data section in floats. */
-export const EVENT_DATA_FLOATS = MAX_EVENTS * EVENT_FLOATS;
+  readonly bufferTotalFloats: number;
+  readonly bufferTotalBytes: number;
 
-/** Offset (in floats) where instance data begins. */
-export const INSTANCE_DATA_OFFSET = HEADER_FLOATS;
+  constructor(
+    maxInstances: number,
+    maxEffectsVertices: number,
+    maxSounds: number,
+    maxEvents: number,
+  ) {
+    this.maxInstances = maxInstances;
+    this.maxEffectsVertices = maxEffectsVertices;
+    this.maxSounds = maxSounds;
+    this.maxEvents = maxEvents;
 
-/** Offset (in floats) where effects data begins. */
-export const EFFECTS_DATA_OFFSET = INSTANCE_DATA_OFFSET + INSTANCE_DATA_FLOATS;
+    this.instanceDataFloats = maxInstances * INSTANCE_FLOATS;
+    this.effectsDataFloats = maxEffectsVertices * EFFECTS_VERTEX_FLOATS;
+    this.soundDataFloats = maxSounds;
+    this.eventDataFloats = maxEvents * EVENT_FLOATS;
 
-/** Offset (in floats) where sound data begins. */
-export const SOUND_DATA_OFFSET = EFFECTS_DATA_OFFSET + EFFECTS_DATA_FLOATS;
+    this.instanceDataOffset = HEADER_FLOATS;
+    this.effectsDataOffset = this.instanceDataOffset + this.instanceDataFloats;
+    this.soundDataOffset = this.effectsDataOffset + this.effectsDataFloats;
+    this.eventDataOffset = this.soundDataOffset + this.soundDataFloats;
 
-/** Offset (in floats) where event data begins. */
-export const EVENT_DATA_OFFSET = SOUND_DATA_OFFSET + SOUND_DATA_FLOATS;
+    this.bufferTotalFloats = this.eventDataOffset + this.eventDataFloats;
+    this.bufferTotalBytes = this.bufferTotalFloats * 4;
+  }
 
-/** Total buffer size in floats. */
-export const BUFFER_TOTAL_FLOATS =
-  HEADER_FLOATS + INSTANCE_DATA_FLOATS + EFFECTS_DATA_FLOATS + SOUND_DATA_FLOATS + EVENT_DATA_FLOATS;
+  /** Read capacities from a SharedArrayBuffer header (written by the worker at init). */
+  static fromHeader(f32: Float32Array): ProtocolLayout {
+    return new ProtocolLayout(
+      f32[HEADER_MAX_INSTANCES],
+      f32[HEADER_MAX_EFFECTS_VERTICES],
+      f32[HEADER_MAX_SOUNDS],
+      f32[HEADER_MAX_EVENTS],
+    );
+  }
 
-/** Total buffer size in bytes. */
-export const BUFFER_TOTAL_BYTES = BUFFER_TOTAL_FLOATS * 4;
+  /** Read capacities from WASM accessor functions (called in the worker). */
+  static fromWasm(exports: {
+    get_max_instances: () => number;
+    get_max_effects_vertices: () => number;
+    get_max_sounds: () => number;
+    get_max_events: () => number;
+  }): ProtocolLayout {
+    return new ProtocolLayout(
+      exports.get_max_instances(),
+      exports.get_max_effects_vertices(),
+      exports.get_max_sounds(),
+      exports.get_max_events(),
+    );
+  }
+}

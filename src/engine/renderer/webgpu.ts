@@ -11,12 +11,13 @@ import { createGPUTextureFromBlob } from '../assets/loader';
 
 // Bytes per RenderInstance: 8 × f32 = 32 bytes
 const INSTANCE_STRIDE = 32;
-// Max instances we can render
-const MAX_INSTANCES = 512;
 // Effects vertex: 5 floats = 20 bytes
 const EFFECTS_VERTEX_FLOATS = 5;
 const EFFECTS_VERTEX_BYTES = EFFECTS_VERTEX_FLOATS * 4;
-const MAX_EFFECTS_VERTICES = 16384;
+
+// Default capacities (matching GameConfig::default())
+const DEFAULT_MAX_INSTANCES = 512;
+const DEFAULT_MAX_EFFECTS_VERTICES = 16384;
 
 export interface WebGPURendererConfig {
   canvas: HTMLCanvasElement;
@@ -24,10 +25,22 @@ export interface WebGPURendererConfig {
   atlasBlobs: Map<string, Blob>;
   gameWidth: number;
   gameHeight: number;
+  /** Max render instances for GPU buffer allocation (default: 512). */
+  maxInstances?: number;
+  /** Max effects vertices for GPU buffer allocation (default: 16384). */
+  maxEffectsVertices?: number;
 }
 
 export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<Renderer> {
-  const { canvas, manifest, atlasBlobs, gameWidth, gameHeight } = config;
+  const {
+    canvas,
+    manifest,
+    atlasBlobs,
+    gameWidth,
+    gameHeight,
+    maxInstances = DEFAULT_MAX_INSTANCES,
+    maxEffectsVertices = DEFAULT_MAX_EFFECTS_VERTICES,
+  } = config;
 
   // ---- GPU Init ----
   if (!navigator.gpu) {
@@ -159,7 +172,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
 
   // ---- Instance Storage Buffer ----
   const instanceBuffer = device.createBuffer({
-    size: INSTANCE_STRIDE * MAX_INSTANCES,
+    size: INSTANCE_STRIDE * maxInstances,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
   });
 
@@ -178,7 +191,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
 
   // ---- Effects Vertex Buffer ----
   const effectsBuffer = device.createBuffer({
-    size: EFFECTS_VERTEX_BYTES * MAX_EFFECTS_VERTICES,
+    size: EFFECTS_VERTEX_BYTES * maxEffectsVertices,
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   });
 
