@@ -1,0 +1,17 @@
+[package]
+name = "basic-demo"
+version = "0.1.0"
+edition = "2021"
+description = "Basic demo showcasing ZapEngine capabilities"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+zap-engine = { path = "../../crates/zap-engine" }
+zap-web = { path = "../../crates/zap-web" }
+wasm-bindgen = "0.2"
+log = "0.4"
+glam = "0.30"
+console_log = { version = "1", features = ["color"] }
+console_error_panic_hook = "0.1"

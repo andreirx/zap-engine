@@ -1,0 +1,227 @@
+// Generic engine worker — loads a game WASM module and runs the simulation loop.
+// Accepts a wasmUrl via 'init' message, dynamically imports it.
+// Communicates via SharedArrayBuffer (preferred) or postMessage fallback.
+
+import {
+  HEADER_FLOATS,
+  HEADER_FRAME_COUNTER,
+  HEADER_INSTANCE_COUNT,
+  HEADER_ATLAS_SPLIT,
+  HEADER_EFFECTS_VERTEX_COUNT,
+  HEADER_WORLD_WIDTH,
+  HEADER_WORLD_HEIGHT,
+  HEADER_SOUND_COUNT,
+  HEADER_EVENT_COUNT,
+  INSTANCE_FLOATS,
+  EFFECTS_VERTEX_FLOATS,
+  MAX_INSTANCES,
+  MAX_EFFECTS_VERTICES,
+  MAX_SOUNDS,
+  MAX_EVENTS,
+  EVENT_FLOATS,
+  INSTANCE_DATA_FLOATS,
+  INSTANCE_DATA_OFFSET,
+  EFFECTS_DATA_OFFSET,
+  SOUND_DATA_OFFSET,
+  EVENT_DATA_OFFSET,
+  BUFFER_TOTAL_FLOATS,
+} from './protocol';
+
+// Standard WASM export names expected from any game module
+interface GameWasmExports {
+  game_init: () => void;
+  game_tick: (dt: number) => void;
+  game_pointer_down: (x: number, y: number) => void;
+  game_pointer_up: (x: number, y: number) => void;
+  game_pointer_move: (x: number, y: number) => void;
+  game_key_down: (keyCode: number) => void;
+  game_key_up: (keyCode: number) => void;
+  get_instances_ptr: () => number;
+  get_instance_count: () => number;
+  get_effects_ptr: () => number;
+  get_effects_vertex_count: () => number;
+  get_sound_events_ptr: () => number;
+  get_sound_events_len: () => number;
+  get_game_events_ptr: () => number;
+  get_game_events_len: () => number;
+  get_world_width: () => number;
+  get_world_height: () => number;
+  get_atlas_split: () => number;
+}
+
+const HAS_SAB = typeof SharedArrayBuffer !== 'undefined';
+
+let sharedBuffer: SharedArrayBuffer | null = null;
+let sharedF32: Float32Array | null = null;
+let sharedI32: Int32Array | null = null;
+let running = false;
+let wasmMemory: WebAssembly.Memory | null = null;
+let wasm: GameWasmExports | null = null;
+
+async function initialize(wasmUrl: string) {
+  // Dynamic import of the WASM module
+  const mod = await import(/* @vite-ignore */ wasmUrl);
+  const initResult = await mod.default();
+  wasmMemory = initResult.memory;
+
+  // Collect exports
+  wasm = {
+    game_init: mod.game_init,
+    game_tick: mod.game_tick,
+    game_pointer_down: mod.game_pointer_down,
+    game_pointer_up: mod.game_pointer_up,
+    game_pointer_move: mod.game_pointer_move,
+    game_key_down: mod.game_key_down,
+    game_key_up: mod.game_key_up,
+    get_instances_ptr: mod.get_instances_ptr,
+    get_instance_count: mod.get_instance_count,
+    get_effects_ptr: mod.get_effects_ptr,
+    get_effects_vertex_count: mod.get_effects_vertex_count,
+    get_sound_events_ptr: mod.get_sound_events_ptr,
+    get_sound_events_len: mod.get_sound_events_len,
+    get_game_events_ptr: mod.get_game_events_ptr,
+    get_game_events_len: mod.get_game_events_len,
+    get_world_width: mod.get_world_width,
+    get_world_height: mod.get_world_height,
+    get_atlas_split: mod.get_atlas_split,
+  };
+
+  wasm.game_init();
+
+  if (HAS_SAB) {
+    sharedBuffer = new SharedArrayBuffer(BUFFER_TOTAL_FLOATS * 4);
+    sharedF32 = new Float32Array(sharedBuffer);
+    sharedI32 = new Int32Array(sharedBuffer);
+    self.postMessage({ type: 'ready', sharedBuffer });
+  } else {
+    console.warn('[worker] SharedArrayBuffer unavailable, using postMessage fallback');
+    const buf = new ArrayBuffer(BUFFER_TOTAL_FLOATS * 4);
+    sharedF32 = new Float32Array(buf);
+    sharedI32 = new Int32Array(buf);
+    self.postMessage({ type: 'ready' });
+  }
+}
+
+function gameLoop() {
+  if (!running || !sharedF32 || !sharedI32 || !wasmMemory || !wasm) return;
+
+  try {
+    const dt = 1.0 / 60.0;
+    wasm.game_tick(dt);
+
+    const instanceCount = Math.min(wasm.get_instance_count(), MAX_INSTANCES);
+    const effectsVertexCount = Math.min(wasm.get_effects_vertex_count(), MAX_EFFECTS_VERTICES);
+    const soundLen = Math.min(wasm.get_sound_events_len(), MAX_SOUNDS);
+    const eventLen = Math.min(wasm.get_game_events_len(), MAX_EVENTS);
+
+    // Write header
+    sharedF32[HEADER_FRAME_COUNTER] += 1;
+    sharedF32[HEADER_INSTANCE_COUNT] = instanceCount;
+    sharedF32[HEADER_ATLAS_SPLIT] = wasm.get_atlas_split();
+    sharedF32[HEADER_EFFECTS_VERTEX_COUNT] = effectsVertexCount;
+    sharedF32[HEADER_WORLD_WIDTH] = wasm.get_world_width();
+    sharedF32[HEADER_WORLD_HEIGHT] = wasm.get_world_height();
+    sharedF32[HEADER_SOUND_COUNT] = soundLen;
+    sharedF32[HEADER_EVENT_COUNT] = eventLen;
+
+    // Copy instance data
+    if (instanceCount > 0) {
+      const ptr = wasm.get_instances_ptr();
+      const wasmData = new Float32Array(wasmMemory.buffer, ptr, instanceCount * INSTANCE_FLOATS);
+      sharedF32.set(wasmData, INSTANCE_DATA_OFFSET);
+    }
+
+    // Copy effects data
+    if (effectsVertexCount > 0) {
+      const ptr = wasm.get_effects_ptr();
+      const effectsData = new Float32Array(wasmMemory.buffer, ptr, effectsVertexCount * EFFECTS_VERTEX_FLOATS);
+      sharedF32.set(effectsData, EFFECTS_DATA_OFFSET);
+    }
+
+    // Forward sound events
+    if (soundLen > 0) {
+      const ptr = wasm.get_sound_events_ptr();
+      const soundData = new Uint8Array(wasmMemory.buffer, ptr, soundLen);
+      const events = Array.from(soundData);
+      self.postMessage({ type: 'sound', events });
+    }
+
+    // Forward game events
+    if (eventLen > 0) {
+      const ptr = wasm.get_game_events_ptr();
+      const eventData = new Float32Array(wasmMemory.buffer, ptr, eventLen * EVENT_FLOATS);
+      const events = [];
+      for (let i = 0; i < eventLen; i++) {
+        events.push({
+          kind: eventData[i * EVENT_FLOATS],
+          a: eventData[i * EVENT_FLOATS + 1],
+          b: eventData[i * EVENT_FLOATS + 2],
+          c: eventData[i * EVENT_FLOATS + 3],
+        });
+      }
+      self.postMessage({ type: 'event', events });
+    }
+
+    if (HAS_SAB) {
+      Atomics.store(sharedI32!, 0, 1);
+      Atomics.notify(sharedI32!, 0);
+    } else {
+      // Send frame data copy (only the used portion)
+      const usedFloats = HEADER_FLOATS + INSTANCE_DATA_FLOATS
+        + effectsVertexCount * EFFECTS_VERTEX_FLOATS;
+      self.postMessage({ type: 'frame', buffer: sharedF32!.buffer.slice(0, usedFloats * 4) });
+    }
+  } catch (err) {
+    console.error('[worker] gameLoop error:', err);
+    running = false;
+    return;
+  }
+
+  if (running) {
+    setTimeout(gameLoop, 16);
+  }
+}
+
+self.onmessage = (e: MessageEvent) => {
+  const { type } = e.data;
+
+  switch (type) {
+    case 'init':
+      initialize(e.data.wasmUrl).then(() => {
+        running = true;
+        gameLoop();
+      });
+      break;
+
+    case 'pointer_down':
+      wasm?.game_pointer_down(e.data.x, e.data.y);
+      break;
+
+    case 'pointer_up':
+      wasm?.game_pointer_up(e.data.x, e.data.y);
+      break;
+
+    case 'pointer_move':
+      wasm?.game_pointer_move(e.data.x, e.data.y);
+      break;
+
+    case 'key_down':
+      wasm?.game_key_down(e.data.keyCode);
+      break;
+
+    case 'key_up':
+      wasm?.game_key_up(e.data.keyCode);
+      break;
+
+    case 'stop':
+      running = false;
+      break;
+
+    case 'resume':
+      if (!running && sharedF32 && sharedI32 && wasmMemory) {
+        running = true;
+        gameLoop();
+      }
+      break;
+  }
+};

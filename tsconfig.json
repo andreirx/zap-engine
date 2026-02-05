@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["@webgpu/types"],
+    "paths": {
+      "@zap/engine": ["./src/engine/index.ts"],
+      "@zap/engine/*": ["./src/engine/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "examples/**/*.ts", "examples/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "**/pkg"]
+}

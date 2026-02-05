@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "crates/zap-engine",
+    "crates/zap-web",
+    "examples/basic-demo",
+]
+resolver = "2"
