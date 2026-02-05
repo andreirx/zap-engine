@@ -8,9 +8,11 @@ import {
   HEADER_INSTANCE_COUNT,
   HEADER_ATLAS_SPLIT,
   HEADER_EFFECTS_VERTEX_COUNT,
+  HEADER_SDF_INSTANCE_COUNT,
   HEADER_WORLD_WIDTH,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
+  SDF_INSTANCE_FLOATS,
   ProtocolLayout,
 } from '../../src/engine/index';
 import type { Renderer } from '../../src/engine/index';
@@ -62,6 +64,7 @@ async function main() {
           e.data.maxEffectsVertices,
           e.data.maxSounds,
           e.data.maxEvents,
+          e.data.maxSdfInstances,
         );
       }
 
@@ -78,6 +81,7 @@ async function main() {
         gameHeight: 600,
         maxInstances: layout.maxInstances,
         maxEffectsVertices: layout.maxEffectsVertices,
+        maxSdfInstances: layout.maxSdfInstances,
       });
 
       // Start render loop
@@ -95,8 +99,9 @@ async function main() {
     const instanceCount = buf[HEADER_INSTANCE_COUNT];
     const atlasSplit = buf[HEADER_ATLAS_SPLIT];
     const effectsVertexCount = buf[HEADER_EFFECTS_VERTEX_COUNT];
+    const sdfInstanceCount = buf[HEADER_SDF_INSTANCE_COUNT];
 
-    if (instanceCount > 0) {
+    if (instanceCount > 0 || sdfInstanceCount > 0) {
       const instanceData = buf.subarray(
         layout.instanceDataOffset,
         layout.instanceDataOffset + instanceCount * INSTANCE_FLOATS,
@@ -110,7 +115,15 @@ async function main() {
         );
       }
 
-      renderer.draw(instanceData, instanceCount, atlasSplit, effectsData, effectsVertexCount);
+      let sdfData: Float32Array | undefined;
+      if (sdfInstanceCount > 0) {
+        sdfData = buf.subarray(
+          layout.sdfDataOffset,
+          layout.sdfDataOffset + sdfInstanceCount * SDF_INSTANCE_FLOATS,
+        );
+      }
+
+      renderer.draw(instanceData, instanceCount, atlasSplit, effectsData, effectsVertexCount, sdfData, sdfInstanceCount);
     }
   }
 

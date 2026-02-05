@@ -57,7 +57,7 @@ where are we on the grand plan?
 
 ---
 
-### **Phase 3: Visuals & Chemistry (The "Zap" Layer)** INITIAL STEPS - MUST CONTINUE
+### **Phase 3: Visuals & Chemistry (The "Zap" Layer)** DONE
 
 **Goal:** Enable HDR glow and "Fake 3D" spheres for educational content.
 
@@ -90,31 +90,32 @@ you can still get inspiration from /Users/apple/Documents/Xcodes/ZapZap/zapzap-n
 
 ---
 
-### **Phase 4: The Developer Experience (DX)** NOT STARTED
-
-
-# 4. Phase 4: Developer Experience (Productization)
+### **Phase 4: The Developer Experience (DX)** DONE
 
 **Goal:** Make it usable without knowing WGPU internals.
 
-### Task 4.1: The Asset Baker
+### Task 4.0: Fix basic-demo SDF passthrough ✓
+* Updated `examples/basic-demo/main.ts` to pass SDF data through to the renderer.
 
-**Action:** Enhance `extract_assets.py`.
+### Task 4.1: The Asset Baker ✓
 
-* It should scan a folder, pack textures (optional), and output `assets.json`.
-* Rust `AssetManager` reads this JSON to map string IDs ("hero") to Atlas UVs.
+* Created `tools/bake-assets.ts` — convention-based CLI that scans image folders and outputs `assets.json`.
+* Naming convention: `hero_4x8.png` → atlas with 4 cols, 8 rows. Plain files → 1×1 single-sprite atlas.
+* Run via `npm run bake-assets <input-dir> [--output assets.json]`.
 
-### Task 4.2: The `useZapEngine` Hook
+### Task 4.2: The `useZapEngine` Hook ✓
 
-**Action:** Package the TypeScript bridge.
+* Created `src/engine/react/useZapEngine.ts` — React hook encapsulating worker lifecycle, renderer init (WebGPU→Canvas2D fallback), SAB reading, rAF render loop, input forwarding, resize, audio, and game events.
+* API: `useZapEngine({ wasmUrl, assetsUrl })` → `{ canvasRef, sendEvent, fps, isReady, canvasKey }`.
+* Separate import path: `@zap/engine/react` (core engine stays React-free).
 
-* Create a React hook that manages the `Worker` lifecycle.
-* Expose `sendInput(event)` and `gameState` (for UI overlays).
+### Task 4.3: React Demo ✓
 
-### Task 4.3: The Template
+* Created `examples/react-demo/` with `App.tsx` showing the hook in action with an FPS HUD overlay.
+* Reuses basic-demo WASM + assets (no new Rust code).
 
-**Action:** Create a `zap-engine-template` repository.
+### Task 4.4: (Future) The Template Repository
 
-* Includes `infra/` (CDK) pre-configured.
-* Includes a "Hello World" Rust file.
+* A `zap-engine-template` repository with `infra/` (CDK) pre-configured and a "Hello World" Rust file.
+* Deferred — best done as a separate repository once the engine is published.
 

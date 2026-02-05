@@ -12,11 +12,13 @@
     "isolatedModules": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["@webgpu/types"],
+    "jsx": "react-jsx",
     "paths": {
       "@zap/engine": ["./src/engine/index.ts"],
-      "@zap/engine/*": ["./src/engine/*"]
+      "@zap/engine/*": ["./src/engine/*"],
+      "@zap/engine/react": ["./src/engine/react/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "examples/**/*.ts", "examples/**/*.tsx"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "examples/**/*.ts", "examples/**/*.tsx"],
   "exclude": ["node_modules", "dist", "**/pkg"]
 }

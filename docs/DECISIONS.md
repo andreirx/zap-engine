@@ -264,3 +264,62 @@ sprites → SDF molecules → effects (additive glow)
 - **Pro:** SharedArrayBuffer grows only when `max_sdf_instances > 0`
 - **Con:** Per-fragment raymarching is more expensive than textured quads
 - **Con:** Only Sphere shape initially (extendable via SDFShape enum)
+
+---
+
+## ADR-010: React Hook Architecture
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+The VISION.md specifies React as a first-class citizen: "DX: React is a first-class citizen. UI is HTML/CSS, not a canvas overlay." Games need a simple way to embed the engine in a React app without understanding workers, SharedArrayBuffer, or WebGPU internals.
+
+### Decision
+Provide a `useZapEngine` React hook that encapsulates the entire engine lifecycle:
+
+1. **Separate import path**: `@zap/engine/react` — the core engine (`@zap/engine`) remains React-free, so non-React consumers (vanilla TS, Svelte, Vue) are not forced to depend on React.
+
+2. **Single hook API**: `useZapEngine({ wasmUrl, assetsUrl, ... })` returns `{ canvasRef, sendEvent, fps, isReady, canvasKey }`.
+
+3. **Canvas remount pattern**: When WebGPU init fails after tainting the canvas, the hook increments `canvasKey`. The consumer uses this as a React `key` prop on `<canvas>`, forcing React to unmount/remount a fresh DOM element, then retries with Canvas 2D.
+
+4. **Input forwarding**: Pointer events (down/up/move) and keyboard events are forwarded to the worker. Sound manager resume is triggered on first pointer interaction.
+
+5. **ResizeObserver**: Replaces manual `window.resize` listener. Observes the canvas element directly for more reliable sizing in flex/grid layouts.
+
+### Consequences
+- **Pro:** One-line engine integration for React apps
+- **Pro:** Core engine stays framework-agnostic
+- **Pro:** Canvas remount handles WebGPU fallback transparently
+- **Pro:** FPS and ready state exposed as React state for HUD overlays
+- **Con:** React is a devDependency even if only some consumers use the hook
+- **Con:** `canvasKey` pattern requires consumer to pass it as `key` prop
+
+---
+
+## ADR-011: Convention-Based Asset Baker
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+The VISION.md describes an asset pipeline: "Drop images into `assets/`, run `npm run bake-assets`, use string IDs in Rust." The MASTERPLAN references an `extract_assets.py` script to enhance, but no such script exists.
+
+### Decision
+Create a Node.js/TypeScript CLI tool (`tools/bake-assets.ts`) that scans a directory and outputs an `assets.json` manifest:
+
+1. **Convention-based atlas detection**: Files named `*_NxM.ext` (e.g., `hero_4x8.png`) are treated as atlases with N columns and M rows. Files without this suffix are single-sprite atlases (1×1).
+
+2. **No image processing**: The baker only catalogs files — no packing, resizing, or compression. This keeps it zero-dependency (only Node.js built-ins).
+
+3. **Named sprite generation**: Single-sprite files get the filename (sans extension) as their sprite name. Multi-cell atlases get `{name}_{col}_{row}` entries.
+
+4. **Separate tsconfig**: Tools run under Node.js (not the browser), so `tools/tsconfig.json` has `@types/node` in its types array, isolated from the main browser tsconfig.
+
+### Consequences
+- **Pro:** Zero dependencies — runs with `npx tsx`, no install needed
+- **Pro:** Convention over configuration — no manual manifest authoring for simple cases
+- **Pro:** Output matches the existing `AssetManifest` JSON schema exactly
+- **Con:** Naming convention is the only way to specify atlas dimensions (no config file fallback)
+- **Con:** No atlas packing — games with many small sprites still need manual packing
