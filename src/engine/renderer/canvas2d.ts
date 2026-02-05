@@ -217,5 +217,5 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     canvas.height = height;
   }
 
-  return { backend: 'canvas2d', draw, resize };
+  return { backend: 'canvas2d', tier: 'canvas2d', draw, resize };
 }

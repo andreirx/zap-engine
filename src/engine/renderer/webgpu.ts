@@ -6,7 +6,7 @@ import shaderSource from './shaders.wgsl?raw';
 import sdfShaderSource from './molecule.wgsl?raw';
 import { buildProjectionMatrix } from './camera';
 import { packColorsForGPU } from './constants';
-import type { Renderer } from './types';
+import type { Renderer, RenderTier } from './types';
 import type { AssetManifest, GPUTextureAsset } from '../assets/manifest';
 import { createGPUTextureFromBlob } from '../assets/loader';
 
@@ -67,9 +67,9 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     throw new Error('Failed to get WebGPU context');
   }
 
-  // Progressive configure — try full HDR, then basic rgba16float, then preferred format.
+  // Progressive configure — try full HDR/EDR, then basic rgba16float, then preferred format.
   let format: GPUTextureFormat = 'rgba16float';
-  let useHDR = false;
+  let tier: RenderTier = 'sdr';
 
   try {
     context.configure({
@@ -79,7 +79,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       toneMapping: { mode: 'extended' },
       alphaMode: 'premultiplied',
     });
-    useHDR = true;
+    tier = 'hdr-edr';
   } catch {
     try {
       context.configure({
@@ -87,6 +87,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
         format: 'rgba16float',
         alphaMode: 'premultiplied',
       });
+      tier = 'hdr-srgb';
     } catch {
       format = navigator.gpu.getPreferredCanvasFormat();
       context.configure({
@@ -94,12 +95,18 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
         format,
         alphaMode: 'premultiplied',
       });
+      tier = 'sdr';
     }
   }
 
-  if (!useHDR) {
-    console.warn('[renderer] HDR/EDR not available, using sRGB WebGPU');
-  }
+  // Per-tier glow multipliers for shader override constants.
+  const GLOW_MULT: Record<Exclude<RenderTier, 'canvas2d'>, { effects: number; sdf: number }> = {
+    'hdr-edr':  { effects: 6.4, sdf: 5.4 },
+    'hdr-srgb': { effects: 3.0, sdf: 2.5 },
+    'sdr':      { effects: 1.0, sdf: 0.5 },
+  };
+
+  console.info(`[renderer] WebGPU tier: ${tier} (format: ${format})`);
 
   // ---- Load textures from manifest ----
   const textures: GPUTextureAsset[] = [];
@@ -260,6 +267,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     fragment: {
       module: shaderModule,
       entryPoint: 'fs_additive',
+      constants: { EFFECTS_HDR_MULT: GLOW_MULT[tier as Exclude<RenderTier, 'canvas2d'>].effects },
       targets: [{
         format,
         blend: {
@@ -305,6 +313,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     fragment: {
       module: sdfShaderModule,
       entryPoint: 'fs_sdf',
+      constants: { SDF_EMISSIVE_MULT: GLOW_MULT[tier as Exclude<RenderTier, 'canvas2d'>].sdf },
       targets: [{
         format,
         blend: {
@@ -412,23 +421,14 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
   function resize(width: number, height: number) {
     canvas.width = width;
     canvas.height = height;
-    if (useHDR) {
-      context!.configure({
-        device,
-        format,
-        colorSpace: 'display-p3',
-        toneMapping: { mode: 'extended' },
-        alphaMode: 'premultiplied',
-      });
-    } else {
-      context!.configure({
-        device,
-        format,
-        alphaMode: 'premultiplied',
-      });
+    const configOpts: GPUCanvasConfiguration = { device, format, alphaMode: 'premultiplied' };
+    if (tier === 'hdr-edr') {
+      configOpts.colorSpace = 'display-p3';
+      configOpts.toneMapping = { mode: 'extended' };
     }
+    context!.configure(configOpts);
     updateCamera(width, height);
   }
 
-  return { backend: 'webgpu', draw, resize };
+  return { backend: 'webgpu', tier, draw, resize };
 }

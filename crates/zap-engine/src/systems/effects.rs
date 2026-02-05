@@ -347,13 +347,24 @@ impl Particle {
     }
 }
 
+// ---- Debug Lines ----
+
+/// A debug line for visualizing colliders, paths, etc.
+#[derive(Debug, Clone)]
+pub struct DebugLine {
+    pub points: Vec<[f32; 2]>,
+    pub width: f32,
+    pub color: SegmentColor,
+}
+
 // ---- Effects State ----
 
-/// Container for all visual effects (arcs + particles).
+/// Container for all visual effects (arcs + particles + debug lines).
 /// Generic — games add arcs and particles via public methods.
 pub struct EffectsState {
     pub arcs: Vec<(ElectricArc, f32, SegmentColor)>,
     pub particles: Vec<Particle>,
+    pub debug_lines: Vec<DebugLine>,
     pub effects_buffer: Vec<f32>,
     pub rng: Rng,
     pub attractor: [f32; 2],
@@ -364,6 +375,7 @@ impl EffectsState {
         EffectsState {
             arcs: Vec::new(),
             particles: Vec::new(),
+            debug_lines: Vec::new(),
             effects_buffer: Vec::with_capacity(4096),
             rng: Rng::new(seed.wrapping_add(7919)),
             attractor: [0.0, 0.0],
@@ -449,6 +461,16 @@ impl EffectsState {
         self.particles.retain_mut(|p| p.tick(attractor, dt));
     }
 
+    /// Add a debug line (for collider visualization, paths, etc.).
+    pub fn add_debug_line(&mut self, points: Vec<[f32; 2]>, width: f32, color: SegmentColor) {
+        self.debug_lines.push(DebugLine { points, width, color });
+    }
+
+    /// Clear debug lines (call at the start of each frame before re-drawing).
+    pub fn clear_debug(&mut self) {
+        self.debug_lines.clear();
+    }
+
     /// Rebuild the effects vertex buffer (triangle list, 5 floats per vertex).
     pub fn rebuild_effects_buffer(&mut self) {
         self.effects_buffer.clear();
@@ -464,12 +486,19 @@ impl EffectsState {
             let tris = strip_to_triangles(&strip, 5);
             self.effects_buffer.extend_from_slice(&tris);
         }
+
+        for line in &self.debug_lines {
+            let strip = build_strip_vertices(&line.points, line.width, line.color);
+            let tris = strip_to_triangles(&strip, 5);
+            self.effects_buffer.extend_from_slice(&tris);
+        }
     }
 
     /// Clear all effects.
     pub fn clear(&mut self) {
         self.arcs.clear();
         self.particles.clear();
+        self.debug_lines.clear();
         self.effects_buffer.clear();
     }
 

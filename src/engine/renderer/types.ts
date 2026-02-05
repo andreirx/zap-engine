@@ -1,8 +1,14 @@
 // Common Renderer interface — implemented by both WebGPU and Canvas 2D backends.
 
+/** Render tier describes the negotiated surface capability. */
+export type RenderTier = 'hdr-edr' | 'hdr-srgb' | 'sdr' | 'canvas2d';
+
 export interface Renderer {
   /** The active backend: 'webgpu' for HDR/EDR, 'canvas2d' for fallback. */
   backend: 'webgpu' | 'canvas2d';
+
+  /** The negotiated render tier (HDR capability level). */
+  tier: RenderTier;
 
   /**
    * Draw one frame.

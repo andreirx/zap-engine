@@ -19,7 +19,9 @@ pub use renderer::camera::Camera2D;
 pub use input::queue::{InputEvent, InputQueue};
 pub use assets::manifest::AssetManifest;
 pub use bridge::protocol::ProtocolLayout;
-pub use systems::effects::{EffectsState, ElectricArc, Particle, SegmentColor};
+pub use systems::effects::{EffectsState, ElectricArc, Particle, SegmentColor, DebugLine};
+#[cfg(feature = "physics")]
+pub use systems::debug::debug_draw_colliders;
 pub use components::emitter::{EmitterComponent, EmissionMode, ParticleColorMode};
 pub use components::mesh::{MeshComponent, SDFShape, SDFColor};
 pub use renderer::sdf_instance::{SDFInstance, SDFBuffer};

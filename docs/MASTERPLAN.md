@@ -50,8 +50,10 @@ where are we on the grand plan?
 * *Constraint:* Physics determines position. Game logic applies forces, not coordinates.
 
 
-* **Task 2.3: Debug Rendering (Optional but Recommended)**
-* Implement a simple line-drawer to visualize colliders (hitboxes) for debugging.
+* **Task 2.3: Debug Rendering** ✓
+* Implemented `debug_draw_colliders()` — reuses the effects pipeline for zero-cost debug visualization.
+* `collider_shape()` on PhysicsWorld extracts shape info; outlines for Ball (24-seg circle), Cuboid (rotated rect), CapsuleY (semicircles+sides).
+* `DebugLine` type in EffectsState, included in `rebuild_effects_buffer()`. Opt-in per frame from `Game::update()`.
 
 
 
@@ -61,32 +63,23 @@ where are we on the grand plan?
 
 **Goal:** Enable HDR glow and "Fake 3D" spheres for educational content.
 
-* **Task 3.1: Generic Particle System**
-* Refactor `effects.rs` from ZapZap.
-* Create a configurable `Emitter` component (Rate, Lifetime, Color Gradient, Drag).
-* Ensure the engine automatically handles particle lifecycle and writes to the `effects_buffer`.
+* **Task 3.1: Generic Particle System** ✓
+* Refactored `effects.rs` from ZapZap.
+* Created a configurable `EmitterComponent` (Rate, Lifetime, Color Gradient, Drag) with continuous and burst emission modes.
+* Per-particle physics fields (drag, attract_strength, speed_factor). `tick_emitters()` auto-spawns from entities.
 
+* **Task 3.2: The "Molecule" Pipeline (SDF)** ✓
+* `molecule.wgsl` — raymarched spheres with Phong + Fresnel + HDR emissive.
+* `MeshComponent` on Entity, `SDFInstance` buffer (12 floats/48 bytes).
+* WebGPU: separate pipeline with storage buffer. Canvas2D: radial gradient circles.
+* Draw order: sprites → SDF → effects.
 
-* **Task 3.2: The "Molecule" Pipeline (SDF)**
-*
-* **Shader:** Write `molecule.wgsl` using Raymarching (SDF) to draw perfect spheres on 2D quads.
-* **Rust:** Add a `Mesh` component to `Entity`.
-* **Renderer:** Update `webgpu.ts` to handle a third render pass: `customPipeline`.
-
-MUST PROVIDE FALLBACK:
-
-WebGPU + HDR/EDR (rgba16float, display-p3, extended tone mapping)
-  |  fails? (toneMapping unsupported)
-  v
-WebGPU + sRGB (rgba16float, no HDR features)
-  |  fails? (rgba16float unsupported)
-  v
-WebGPU + preferred format (bgra8unorm, basic sRGB)
-  |  fails? (WebGPU unavailable entirely)
-  v
-Canvas 2D (software rendering, SDR only)
-
-you can still get inspiration from /Users/apple/Documents/Xcodes/ZapZap/zapzap-native/
+* **Task 3.3: Tier-Aware HDR Fallback Chain** ✓
+* 4-tier rendering cascade: hdr-edr → hdr-srgb → sdr → canvas2d.
+* WGSL override constants (`EFFECTS_HDR_MULT`, `SDF_EMISSIVE_MULT`) set per tier at pipeline creation.
+* `RenderTier` type exposed on Renderer interface. Per-tier glow multipliers:
+  - hdr-edr: 6.4 / 5.4, hdr-srgb: 3.0 / 2.5, sdr: 1.0 / 0.5.
+* Resize reconfigures canvas based on negotiated tier.
 
 ---
 
@@ -114,8 +107,9 @@ you can still get inspiration from /Users/apple/Documents/Xcodes/ZapZap/zapzap-n
 * Created `examples/react-demo/` with `App.tsx` showing the hook in action with an FPS HUD overlay.
 * Reuses basic-demo WASM + assets (no new Rust code).
 
-### Task 4.4: (Future) The Template Repository
+### Task 4.4: Game Template ✓
 
-* A `zap-engine-template` repository with `infra/` (CDK) pre-configured and a "Hello World" Rust file.
-* Deferred — best done as a separate repository once the engine is published.
+* Created `examples/zap-engine-template/` — minimal starter skeleton for new games.
+* Renders a spinning sprite with the minimum boilerplate: `Game` trait impl, wasm-bindgen exports, TypeScript entry, HTML shell.
+* Copy the directory, rename, and start building. See its `README.md` for quick-start instructions.
 

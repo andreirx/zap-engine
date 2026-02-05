@@ -27,6 +27,10 @@ struct SDFInstance {
 
 @group(1) @binding(0) var<storage, read> sdf_instances: array<SDFInstance>;
 
+// HDR emissive multiplier — set per render tier at pipeline creation.
+// hdr-edr: 5.4, hdr-srgb: 2.5, sdr: 0.5
+override SDF_EMISSIVE_MULT: f32 = 5.4;
+
 // ---- Vertex I/O ----
 
 struct VertexInput {
@@ -123,7 +127,7 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
     let lit = in.base_color * (ambient + diffuse * 0.7) + vec3<f32>(1.0) * specular * 0.5 + in.base_color * rim;
 
     // HDR emissive multiplier
-    let hdr_mult = 1.0 + in.emissive * 5.4;
+    let hdr_mult = 1.0 + in.emissive * SDF_EMISSIVE_MULT;
     let final_color = lit * hdr_mult;
 
     // Edge anti-aliasing

@@ -412,6 +412,28 @@ impl PhysicsWorld {
         self.bodies.len()
     }
 
+    /// Query the collider shape of a physics body.
+    /// Returns `None` if the collider no longer exists or has an unsupported shape.
+    pub fn collider_shape(&self, body: &PhysicsBody) -> Option<ColliderDesc> {
+        let collider = self.colliders.get(body.collider_handle)?;
+        let shape = collider.shape();
+        if let Some(ball) = shape.as_ball() {
+            Some(ColliderDesc::Ball { radius: ball.radius })
+        } else if let Some(cuboid) = shape.as_cuboid() {
+            Some(ColliderDesc::Cuboid {
+                half_width: cuboid.half_extents.x,
+                half_height: cuboid.half_extents.y,
+            })
+        } else if let Some(capsule) = shape.as_capsule() {
+            Some(ColliderDesc::CapsuleY {
+                half_height: capsule.half_height(),
+                radius: capsule.radius,
+            })
+        } else {
+            None
+        }
+    }
+
     // -- private helpers --
 
     fn collider_to_entity(&self, collider_handle: ColliderHandle) -> Option<EntityId> {
@@ -614,6 +636,39 @@ mod tests {
         assert!((pos.x - 100.0).abs() < 0.001);
         assert!((pos.y - 200.0).abs() < 0.001);
         assert!((rot - 1.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn collider_shape_ball_and_cuboid() {
+        let mut world = PhysicsWorld::new(Vec2::ZERO);
+        let ball_body = world.create_body(
+            EntityId(1),
+            &BodyDesc::dynamic(ColliderDesc::Ball { radius: 15.0 }),
+            ColliderMaterial::default(),
+        );
+        let cuboid_body = world.create_body(
+            EntityId(2),
+            &BodyDesc::fixed(ColliderDesc::Cuboid {
+                half_width: 50.0,
+                half_height: 10.0,
+            }),
+            ColliderMaterial::default(),
+        );
+
+        let ball_shape = world.collider_shape(&ball_body).expect("ball should have shape");
+        match ball_shape {
+            ColliderDesc::Ball { radius } => assert!((radius - 15.0).abs() < 0.001),
+            _ => panic!("expected Ball, got {:?}", ball_shape),
+        }
+
+        let cuboid_shape = world.collider_shape(&cuboid_body).expect("cuboid should have shape");
+        match cuboid_shape {
+            ColliderDesc::Cuboid { half_width, half_height } => {
+                assert!((half_width - 50.0).abs() < 0.001);
+                assert!((half_height - 10.0).abs() < 0.001);
+            }
+            _ => panic!("expected Cuboid, got {:?}", cuboid_shape),
+        }
     }
 
     #[test]

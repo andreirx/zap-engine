@@ -3,5 +3,6 @@ members = [
     "crates/zap-engine",
     "crates/zap-web",
     "examples/basic-demo",
+    "examples/zap-engine-template",
 ]
 resolver = "2"

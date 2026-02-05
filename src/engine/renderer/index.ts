@@ -1,6 +1,6 @@
 // Renderer factory — loads assets, tries WebGPU, falls back to Canvas 2D.
 
-export type { Renderer } from './types';
+export type { Renderer, RenderTier } from './types';
 
 import { initWebGPURenderer } from './webgpu';
 import { initCanvas2DRenderer } from './canvas2d';

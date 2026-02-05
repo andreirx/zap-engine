@@ -1,0 +1,13 @@
+{
+  "atlases": [
+    {
+      "name": "demo_tiles",
+      "cols": 4,
+      "rows": 4,
+      "path": "demo_tiles.png"
+    }
+  ],
+  "sprites": {
+    "default": { "atlas": 0, "col": 0, "row": 0 }
+  }
+}

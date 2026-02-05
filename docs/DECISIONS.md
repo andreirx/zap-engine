@@ -323,3 +323,60 @@ Create a Node.js/TypeScript CLI tool (`tools/bake-assets.ts`) that scans a direc
 - **Pro:** Output matches the existing `AssetManifest` JSON schema exactly
 - **Con:** Naming convention is the only way to specify atlas dimensions (no config file fallback)
 - **Con:** No atlas packing — games with many small sprites still need manual packing
+
+---
+
+## ADR-012: Debug Rendering via Effects Pipeline
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+When developing physics-based games, visualizing collider shapes (hitboxes) is essential for debugging. The engine already has an effects pipeline (5-float vertices, `build_strip_vertices()` → `strip_to_triangles()`, additive glow shader) that renders line-like geometry.
+
+### Decision
+Reuse the existing effects pipeline for debug collider visualization:
+
+1. **`collider_shape()` on PhysicsWorld**: Queries Rapier's collider set to extract `ColliderDesc` from handles — games never touch Rapier directly.
+
+2. **`DebugLine` in EffectsState**: `debug_lines: Vec<DebugLine>` field with `add_debug_line(points, width, color)` and `clear_debug()`. Debug lines are included in `rebuild_effects_buffer()` after arcs and particles, using the same strip→triangle pipeline.
+
+3. **`debug_draw_colliders()` free function**: Takes separate `&Scene`, `&PhysicsWorld`, `&mut EffectsState` references (same borrow-conflict-avoidance pattern as `tick_emitters()`). Generates outlines: 24-segment circles for Ball, rotated rectangles for Cuboid, semicircles+sides for CapsuleY.
+
+4. **Opt-in per frame**: Games call `debug_draw_colliders()` from `update()` — no overhead when not used.
+
+### Consequences
+- **Pro:** Zero new GPU resources — reuses the existing additive effects pipeline
+- **Pro:** Supports all collider shapes (Ball, Cuboid, CapsuleY)
+- **Pro:** Feature-gated — compiles out entirely when physics feature is disabled
+- **Pro:** Opt-in per frame — no performance cost when not debugging
+- **Con:** Debug lines use additive blend (glow) — not ideal for opaque wireframes, but visually distinctive
+
+---
+
+## ADR-013: Tier-Aware HDR Rendering
+
+**Date:** 2026-02-05
+**Status:** Accepted
+
+### Context
+The WebGPU renderer configures surfaces in a 3-tier fallback cascade (rgba16float + display-p3 + extended tone mapping → rgba16float + sRGB → preferred format). However, shaders hardcoded HDR glow multipliers (6.4 for effects, 5.4 for SDF emissive), meaning SDR-tier displays would receive oversaturated/clamped output.
+
+### Decision
+Introduce a `RenderTier` type and per-tier shader constants:
+
+1. **`RenderTier`**: `'hdr-edr' | 'hdr-srgb' | 'sdr' | 'canvas2d'` — exposed on the `Renderer` interface so games/UI can adapt (e.g., show "HDR" badge, adjust bloom).
+
+2. **WGSL override constants**: `EFFECTS_HDR_MULT` in `shaders.wgsl` and `SDF_EMISSIVE_MULT` in `molecule.wgsl` — default to full EDR values (6.4, 5.4), overridden at pipeline creation per tier:
+   - `hdr-edr`: 6.4 / 5.4 (full EDR range)
+   - `hdr-srgb`: 3.0 / 2.5 (HDR within sRGB gamut)
+   - `sdr`: 1.0 / 0.5 (safe for bgra8unorm)
+
+3. **Tier-based resize**: The `resize()` function uses the negotiated tier to reconfigure the canvas (only `hdr-edr` gets `display-p3` + `extended` tone mapping).
+
+### Consequences
+- **Pro:** No more clamping/oversaturation on SDR displays
+- **Pro:** Gradual degradation — each tier gets the best possible visual quality
+- **Pro:** `RenderTier` exposed to consumers for adaptive UI
+- **Pro:** Uses existing WebGPU pipeline override constants — zero runtime overhead
+- **Con:** Adds a lookup table for per-tier values (6 numbers total)

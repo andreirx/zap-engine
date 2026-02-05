@@ -74,6 +74,10 @@ const QUAD_IDX = array<u32, 6>(0u, 1u, 2u, 2u, 1u, 3u);
 override ATLAS_COLS: f32 = 16.0;
 override ATLAS_ROWS: f32 = 8.0;
 
+// HDR glow multiplier — set per render tier at pipeline creation.
+// hdr-edr: 6.4, hdr-srgb: 3.0, sdr: 1.0
+override EFFECTS_HDR_MULT: f32 = 6.4;
+
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var out: VertexOutput;
@@ -152,7 +156,7 @@ fn fs_additive(in: VertexOutput) -> @location(0) vec4<f32> {
     let tip = in.tex_coord.y;
 
     let base = segment_color(in.color_idx);
-    let rgb = (vec3<f32>(1.0, 1.0, 1.0) * core * 0.6 + base * halo) * 6.4 * tip;
+    let rgb = (vec3<f32>(1.0, 1.0, 1.0) * core * 0.6 + base * halo) * EFFECTS_HDR_MULT * tip;
     let a = halo * tip;
     return vec4<f32>(rgb, a);
 }
