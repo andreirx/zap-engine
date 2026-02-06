@@ -6,5 +6,6 @@ members = [
     "examples/zap-engine-template",
     "examples/physics-playground",
     "examples/chemistry-lab",
+    "examples/zapzap-mini",
 ]
 resolver = "2"

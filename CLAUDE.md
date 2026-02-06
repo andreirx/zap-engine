@@ -20,6 +20,8 @@
     - LESS spaghetti not MORE spaghetti
     - NO HARDCODINGS - whatever formula you use to compute a value, USE THE FORMULA - do not hardcode values unless appropriate and matching reader understanding - like pi or 90 degrees.
 
+For all future Python tasks, assume I require a virtual environment (venv) or will use brew install for system-level tools. Never use pip globally.
+
 ## Documentation Rules
 - **MAP.md:** Every directory must contain a `MAP.md` explaining *what* the module does and *how* it connects to the architecture.
 - **Architectural Decision Records (ADR):** If we choose a physics engine or data structure, log it in `docs/DECISIONS.md`.

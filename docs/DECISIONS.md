@@ -679,3 +679,42 @@ Implemented a two-part normal map system: offline generation tool + runtime defe
 - **Pro:** Flat normal fallback ensures backward compatibility
 - **Con:** Extra render pass and screen-sized `rgba8unorm` buffer (~8MB at 1080p) when normal maps active
 - **Con:** Semi-transparent sprites get blended normals (acceptable for 2D)
+
+---
+
+## ADR-022: ZapZap Mini Example Game
+
+**Date:** 2026-02-06
+**Status:** Accepted
+
+### Context
+Phases 8-10 added render layers, dynamic lighting, and normal maps. We needed an example game that showcases all these features together. The ZapEngine project was originally inspired by the ZapZap circuit puzzle game, making a simplified port the natural choice.
+
+### Decision
+Created `examples/zapzap-mini/` — an 8x8 simplified version of the ZapZap circuit puzzle, ported from the native Rust crate at `/zapzap-native/crates/zapzap/`.
+
+**Core mechanics ported:**
+- 4-bit connection bitmask tiles (RIGHT=1, UP=2, LEFT=4, DOWN=8)
+- `GRID_CODEP[16]` lookup table for atlas column mapping
+- Two-pass BFS flood-fill: right edge first (Marking::Right), then left edge (→ Marking::Ok on overlap)
+- Column-wise gravity after zap: surviving tiles shift down, new random tiles fill from top
+- Rotation animation (0.2s lerp) and gravity-based fall animation
+
+**Rendering features showcased:**
+- Render layers: Background(0) for dark board, Terrain(1) for tiles + pins, Objects(2) for falling tiles, VFX(4) for arcs
+- Dynamic point lights at marked tile positions: blue-white for Ok, indigo for Left, orange for Right
+- Per-frame wiggle offset on Ok lights simulates arc-light flicker
+- Low ambient (0.15, 0.15, 0.2) for dramatic bump-shadow effect via normal maps
+- Electric arcs via engine's `add_arc()` with SkyBlue/Indigo/Orange/Red colors
+
+**Simplified from native (no bonuses, no bot, no multiplayer, no power-ups):**
+- Single player, endless mode with running score
+- 8x8 board (native was 12x10)
+- `GamePhase` enum: WaitingForInput, RotatingTile, FallingTiles, FreezeDuringZap
+
+### Consequences
+- **Pro:** Demonstrates dynamic lighting + normal maps in a real game context
+- **Pro:** Validates the engine API with a non-trivial game (BFS, state machine, animations)
+- **Pro:** No physics dependency — shows engine works well without rapier2d
+- **Pro:** Reuses native-proven game logic (BFS, gravity, tile generation)
+- **Con:** Rebuilds entire scene every frame (simple but not optimal for 80+ entities)
