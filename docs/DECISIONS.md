@@ -637,3 +637,45 @@ fn update(&mut self, ctx: &mut EngineContext, input: &InputQueue) {
 - **Pro:** layer_mask field ready for future per-layer lighting
 - **Con:** Fullscreen post-process adds one extra render pass when lights are active
 - **Con:** Scratch texture costs ~16MB at 1080p rgba16float when lighting is active
+
+## ADR-021: Normal Map Pipeline (Offline Generation + Deferred Buffer)
+
+**Date:** 2026-02-06
+**Status:** Accepted
+
+### Context
+Flat per-pixel lighting (Phase 3) makes surfaces look uniform. Normal maps add per-pixel directional shading — bumps, grooves, and surface detail that respond to light direction.
+
+### Decision
+Implemented a two-part normal map system: offline generation tool + runtime deferred normal buffer.
+
+**Offline Generation:**
+- `tools/generate_normals.py`: Python script using Sobel operator on alpha or luminance channels
+- Outputs RGBA normal map: `R=nx*0.5+0.5, G=ny*0.5+0.5, B=nz*0.5+0.5, A=source_alpha`
+- Configurable strength multiplier and height source (alpha/luminance)
+
+**Asset Pipeline:**
+- `AtlasDescriptor` extended with optional `normalMap` / `normal_map` field (TS/Rust)
+- `loadNormalMapBlobs()` fetches normal map PNGs in parallel with atlas PNGs
+- Normal maps loaded WITHOUT premultiplied alpha to preserve raw normal values
+- Flat normal placeholder texture (1×1, `(128,128,255,255)` = (0,0,1)) for atlases without normal maps
+
+**Runtime Rendering (deferred normal buffer):**
+- `fs_normal` fragment entry point in `shaders.wgsl`: outputs normal atlas texel with alpha blending
+- Normal render pipelines (one per atlas, targeting `rgba8unorm` normal buffer)
+- Normal buffer cleared to `(0.502, 0.502, 1.0, 1.0)` = flat normal (0,0,1) as default
+- Lighting shader (`lighting.wgsl`) samples both scene color and normal buffer
+- `N·L` dot product with simulated 3D light direction: `(delta.xy, light.radius * 0.3)`
+
+### Alternatives Considered
+- **Runtime Sobel compute shader**: Generates normals from scene color each frame. Higher runtime cost but works for procedural content. Deferred to future iteration.
+- **Forward normal mapping**: Per-sprite normal sampling in the main fragment shader. Requires MRT and significant sprite pipeline changes.
+- **Screen-space normals from depth**: No depth buffer in 2D; doesn't apply.
+
+### Consequences
+- **Pro:** Offline normal maps are zero runtime cost — just texture lookups
+- **Pro:** Optional per-atlas — games without normal maps see no change
+- **Pro:** Deferred buffer keeps sprite pipeline unchanged (no MRT complexity)
+- **Pro:** Flat normal fallback ensures backward compatibility
+- **Con:** Extra render pass and screen-sized `rgba8unorm` buffer (~8MB at 1080p) when normal maps active
+- **Con:** Semi-transparent sprites get blended normals (acceptable for 2D)

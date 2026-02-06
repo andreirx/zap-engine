@@ -126,6 +126,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return color * in.alpha;
 }
 
+// Normal-map fragment shader — outputs normal-atlas texels to the G-buffer.
+// RGB: encoded tangent-space normal (same atlas UV as fs_main).
+// Alpha: texture alpha × instance alpha (controls blend contribution).
+@fragment
+fn fs_normal(in: VertexOutput) -> @location(0) vec4<f32> {
+    let sample = textureSample(t_atlas, s_atlas, in.tex_coord);
+    return vec4<f32>(sample.rgb, sample.a * in.alpha);
+}
+
 // ---- Effects vertex shader (raw triangle list, non-instanced) ----
 
 struct EffectsVertexInput {

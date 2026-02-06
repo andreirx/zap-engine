@@ -10,6 +10,7 @@ import {
   initRenderer,
   loadManifest,
   loadAssetBlobs,
+  loadNormalMapBlobs,
   HEADER_INSTANCE_COUNT,
   HEADER_ATLAS_SPLIT,
   HEADER_EFFECTS_VERTEX_COUNT,
@@ -125,10 +126,13 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       // Compute asset base path from manifest URL
       const basePath = assetBasePath ?? assetsUrl.substring(0, assetsUrl.lastIndexOf('/') + 1);
 
-      // Load manifest and atlas blobs
+      // Load manifest and atlas blobs (+ optional normal maps)
       const manifest = await loadManifest(assetsUrl);
       if (cancelled) return;
-      const atlasBlobs = await loadAssetBlobs(manifest, basePath);
+      const [atlasBlobs, normalMapBlobs] = await Promise.all([
+        loadAssetBlobs(manifest, basePath),
+        loadNormalMapBlobs(manifest, basePath),
+      ]);
       if (cancelled) return;
 
       // Create worker
@@ -177,6 +181,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
               canvas,
               manifest,
               atlasBlobs,
+              normalMapBlobs: normalMapBlobs.size > 0 ? normalMapBlobs : undefined,
               gameWidth,
               gameHeight,
               force2D: force2DRef.current,

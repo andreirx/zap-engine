@@ -8,7 +8,7 @@ export type { Renderer as RendererInterface, LayerBatchDescriptor, BakeState, Li
 export { loadManifest } from './assets/manifest';
 export type { AssetManifest, AtlasDescriptor, SpriteDescriptor } from './assets/manifest';
 
-export { loadAssetBlobs, createGPUTextureFromBlob, createImageFromBlob } from './assets/loader';
+export { loadAssetBlobs, loadNormalMapBlobs, createGPUTextureFromBlob, createImageFromBlob } from './assets/loader';
 
 export { SoundManager } from './audio/sound-manager';
 export type { SoundConfig, SoundEntry } from './audio/sound-manager';

@@ -37,6 +37,8 @@ export interface WebGPURendererConfig {
   canvas: HTMLCanvasElement;
   manifest: AssetManifest;
   atlasBlobs: Map<string, Blob>;
+  /** Optional normal map blobs (atlas name → Blob) for per-pixel lighting. */
+  normalMapBlobs?: Map<string, Blob>;
   gameWidth: number;
   gameHeight: number;
   /** Max render instances for GPU buffer allocation (default: 512). */
@@ -54,6 +56,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     canvas,
     manifest,
     atlasBlobs,
+    normalMapBlobs,
     gameWidth,
     gameHeight,
     maxInstances = DEFAULT_MAX_INSTANCES,
@@ -128,6 +131,20 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     }
     textures.push(await createGPUTextureFromBlob(device, blob));
   }
+
+  // ---- Load normal map textures (optional, per-atlas) ----
+  // normalTextures[i] is the normal map for atlas i, or null if none.
+  // Normal maps are loaded WITHOUT premultiplied alpha to preserve raw normal values.
+  const normalTextures: (GPUTextureAsset | null)[] = [];
+  for (const atlas of manifest.atlases) {
+    const normalBlob = normalMapBlobs?.get(atlas.name);
+    if (normalBlob) {
+      normalTextures.push(await createGPUTextureFromBlob(device, normalBlob, false));
+    } else {
+      normalTextures.push(null);
+    }
+  }
+  const hasNormalMaps = normalTextures.some((t) => t !== null);
 
   // ---- Shader Module ----
   const shaderModule = device.createShaderModule({ code: shaderSource });
@@ -371,6 +388,61 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     primitive: { topology: 'triangle-list' },
   });
 
+  // ---- Flat normal placeholder (1×1 RGBA: 128,128,255,255 → tangent-space (0,0,1)) ----
+  const flatNormalTexture = device.createTexture({
+    size: { width: 1, height: 1 },
+    format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+  device.queue.writeTexture(
+    { texture: flatNormalTexture },
+    new Uint8Array([128, 128, 255, 255]),
+    { bytesPerRow: 4 },
+    { width: 1, height: 1 },
+  );
+  const flatNormalView = flatNormalTexture.createView();
+
+  // Resolve the "active" normal map view per atlas: real normal or flat fallback
+  const normalMapViews: GPUTextureView[] = normalTextures.map(
+    (nt) => nt?.view ?? flatNormalView,
+  );
+
+  // ---- Normal-map pipelines (render to rgba8unorm normal buffer) ----
+  const normalBlendTargets: GPUColorTargetState[] = [{
+    format: 'rgba8unorm',
+    blend: {
+      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+    },
+  }];
+
+  const normalPipelines: GPURenderPipeline[] = manifest.atlases.map((atlas) =>
+    device.createRenderPipeline({
+      layout: tilePipelineLayout,
+      vertex: {
+        module: shaderModule,
+        entryPoint: 'vs_main',
+        constants: { ATLAS_COLS: atlas.cols, ATLAS_ROWS: atlas.rows },
+      },
+      fragment: {
+        module: shaderModule,
+        entryPoint: 'fs_normal',
+        targets: normalBlendTargets,
+      },
+      primitive: { topology: 'triangle-list' },
+    })
+  );
+
+  const normalTextureBindGroups: GPUBindGroup[] = normalMapViews.map((view) =>
+    device.createBindGroup({
+      layout: textureBindGroupLayout,
+      entries: [
+        { binding: 0, resource: view },
+        { binding: 1, resource: sampler },
+      ],
+    })
+  );
+
   // ---- Layer Compositor (for baked layers) ----
   let compositor = new LayerCompositor(device, format, canvas.width, canvas.height);
 
@@ -398,6 +470,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
     ],
   });
 
@@ -423,18 +496,29 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
   // Scratch texture for scene render (created on demand, resized with canvas)
   let scratchTexture: GPUTexture | null = null;
   let scratchView: GPUTextureView | null = null;
+  // Normal buffer for deferred normal-map sampling (same resolution as scratch)
+  let normalBuffer: GPUTexture | null = null;
+  let normalBufferView: GPUTextureView | null = null;
   let lightingBindGroup: GPUBindGroup | null = null;
 
   function ensureScratchTexture(w: number, h: number) {
     if (scratchTexture && scratchTexture.width === w && scratchTexture.height === h) return;
     scratchTexture?.destroy();
+    normalBuffer?.destroy();
     scratchTexture = device.createTexture({
       size: { width: w, height: h },
       format,
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     scratchView = scratchTexture.createView();
-    // Recreate bind group with new texture view
+    // Normal buffer: rgba8unorm (stores tangent-space normals encoded as [0,1])
+    normalBuffer = device.createTexture({
+      size: { width: w, height: h },
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    normalBufferView = normalBuffer.createView();
+    // Recreate bind group with new texture views
     lightingBindGroup = device.createBindGroup({
       layout: lightingBindGroupLayout,
       entries: [
@@ -442,6 +526,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
         { binding: 1, resource: lightingSampler },
         { binding: 2, resource: { buffer: lightUniformBuffer } },
         { binding: 3, resource: { buffer: lightStorageBuffer } },
+        { binding: 4, resource: normalBufferView },
       ],
     });
   }
@@ -483,6 +568,38 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       pass.setPipeline(alphaPipelines[0]);
       pass.setBindGroup(0, cameraBindGroup);
       pass.setBindGroup(1, textureBindGroups[0]);
+      pass.setBindGroup(2, instanceBindGroup);
+      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
+    }
+  }
+
+  // ---- Helper: draw a range of instances using normal-map pipelines ----
+  function drawNormalBatchInstances(
+    pass: GPURenderPassEncoder,
+    batchStart: number,
+    batchEnd: number,
+    batchAtlasSplit: number,
+  ) {
+    const atlas0Count = batchAtlasSplit - batchStart;
+    if (atlas0Count > 0 && normalPipelines.length > 0) {
+      pass.setPipeline(normalPipelines[0]);
+      pass.setBindGroup(0, cameraBindGroup);
+      pass.setBindGroup(1, normalTextureBindGroups[0]);
+      pass.setBindGroup(2, instanceBindGroup);
+      pass.draw(6, atlas0Count, 0, batchStart);
+    }
+
+    const atlas1Count = batchEnd - batchAtlasSplit;
+    if (atlas1Count > 0 && normalPipelines.length > 1) {
+      pass.setPipeline(normalPipelines[1]);
+      pass.setBindGroup(0, cameraBindGroup);
+      pass.setBindGroup(1, normalTextureBindGroups[1]);
+      pass.setBindGroup(2, instanceBindGroup);
+      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
+    } else if (atlas1Count > 0 && normalPipelines.length === 1) {
+      pass.setPipeline(normalPipelines[0]);
+      pass.setBindGroup(0, cameraBindGroup);
+      pass.setBindGroup(1, normalTextureBindGroups[0]);
       pass.setBindGroup(2, instanceBindGroup);
       pass.draw(6, atlas1Count, 0, batchAtlasSplit);
     }
@@ -640,6 +757,31 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     }
 
     pass.end();
+
+    // ---- Phase 2b: Normal buffer render (when lighting + normal maps active) ----
+    if (hasLighting && hasNormalMaps && normalBufferView) {
+      const normalPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: normalBufferView,
+          // Clear to flat normal: (0.5, 0.5, 1.0) = tangent-space (0,0,1)
+          clearValue: { r: 0.502, g: 0.502, b: 1.0, a: 1.0 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        }],
+      });
+
+      // Render sprites using normal atlas textures
+      if (layerBatches && layerBatches.length > 0) {
+        for (const batch of layerBatches) {
+          // Skip baked layers for normal pass (baked layer normals not cached yet)
+          drawNormalBatchInstances(normalPass, batch.start, batch.end, batch.atlasSplit);
+        }
+      } else {
+        drawNormalBatchInstances(normalPass, 0, instanceCount, atlasSplit);
+      }
+
+      normalPass.end();
+    }
 
     // ---- Phase 3: Lighting post-process (scratch → screen) ----
     if (hasLighting && lightingBindGroup) {

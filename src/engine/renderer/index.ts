@@ -42,6 +42,8 @@ export interface RendererConfig {
   canvas: HTMLCanvasElement;
   manifest: AssetManifest;
   atlasBlobs: Map<string, Blob>;
+  /** Optional normal map blobs (atlas name → Blob) for per-pixel lighting. */
+  normalMapBlobs?: Map<string, Blob>;
   gameWidth: number;
   gameHeight: number;
   force2D?: boolean;
@@ -62,13 +64,13 @@ export interface RendererConfig {
  * remount the canvas before retrying with force2D=true.
  */
 export async function initRenderer(config: RendererConfig): Promise<Renderer> {
-  const { canvas, manifest, atlasBlobs, gameWidth, gameHeight, force2D = false, maxInstances, maxEffectsVertices, maxSdfInstances, maxVectorVertices } = config;
+  const { canvas, manifest, atlasBlobs, normalMapBlobs, gameWidth, gameHeight, force2D = false, maxInstances, maxEffectsVertices, maxSdfInstances, maxVectorVertices } = config;
 
   if (!force2D) {
     const webgpuAvailable = await probeWebGPU();
     if (webgpuAvailable) {
       try {
-        return await initWebGPURenderer({ canvas, manifest, atlasBlobs, gameWidth, gameHeight, maxInstances, maxEffectsVertices, maxSdfInstances, maxVectorVertices });
+        return await initWebGPURenderer({ canvas, manifest, atlasBlobs, normalMapBlobs, gameWidth, gameHeight, maxInstances, maxEffectsVertices, maxSdfInstances, maxVectorVertices });
       } catch (e) {
         console.warn('[renderer] WebGPU init failed:', e);
         throw new Error('WebGPUInitFailed');

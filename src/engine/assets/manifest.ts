@@ -5,6 +5,8 @@ export interface AtlasDescriptor {
   cols: number;
   rows: number;
   path: string;
+  /** Optional path to a normal map PNG (e.g., "tiles_normals.png"). */
+  normalMap?: string;
 }
 
 export interface SpriteDescriptor {

@@ -26,6 +26,9 @@ pub struct AtlasDescriptor {
     pub rows: u32,
     /// Relative path to the PNG file (e.g., "base_tiles.png").
     pub path: String,
+    /// Optional path to a normal map PNG (e.g., "base_tiles_normals.png").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub normal_map: Option<String>,
 }
 
 /// Describes a named sprite within an atlas.
@@ -101,6 +104,34 @@ mod tests {
         let manifest = AssetManifest::from_json(json).unwrap();
         assert_eq!(manifest.atlases.len(), 1);
         assert_eq!(manifest.atlases[0].cols, 16);
+        assert_eq!(manifest.atlases[0].normal_map, None);
         assert_eq!(manifest.sprites["hero"].atlas, 0);
+    }
+
+    #[test]
+    fn parse_atlas_with_normal_map() {
+        let json = r#"{
+            "atlases": [
+                { "name": "tiles", "cols": 16, "rows": 8, "path": "tiles.png", "normal_map": "tiles_normals.png" },
+                { "name": "chars", "cols": 4, "rows": 4, "path": "chars.png" }
+            ]
+        }"#;
+        let manifest = AssetManifest::from_json(json).unwrap();
+        assert_eq!(manifest.atlases.len(), 2);
+        assert_eq!(manifest.atlases[0].normal_map, Some("tiles_normals.png".into()));
+        assert_eq!(manifest.atlases[1].normal_map, None);
+    }
+
+    #[test]
+    fn serialize_normal_map_omitted_when_none() {
+        let atlas = AtlasDescriptor {
+            name: "test".into(),
+            cols: 4,
+            rows: 4,
+            path: "test.png".into(),
+            normal_map: None,
+        };
+        let json = serde_json::to_string(&atlas).unwrap();
+        assert!(!json.contains("normal_map"));
     }
 }
