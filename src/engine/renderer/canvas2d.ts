@@ -3,7 +3,7 @@
 
 import { computeProjection } from './camera';
 import { SEGMENT_COLORS_RGB8 } from './constants';
-import type { Renderer } from './types';
+import type { Renderer, LayerBatchDescriptor, BakeState } from './types';
 import type { AssetManifest } from '../assets/manifest';
 import { createImageFromBlob } from '../assets/loader';
 
@@ -272,6 +272,47 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     c.fill();
   }
 
+  function drawBatchRange(
+    c: CanvasRenderingContext2D,
+    instanceData: Float32Array,
+    batchStart: number,
+    batchEnd: number,
+    batchAtlasSplit: number,
+  ) {
+    const secondAtlas = manifest.atlases.length > 1 ? 1 : 0;
+    // Atlas 0 portion
+    for (let i = batchStart; i < batchAtlasSplit; i++) {
+      drawInstance(c, instanceData, i * INSTANCE_FLOATS, 0);
+    }
+    // Atlas 1+ portion
+    for (let i = batchAtlasSplit; i < batchEnd; i++) {
+      drawInstance(c, instanceData, i * INSTANCE_FLOATS, secondAtlas);
+    }
+  }
+
+  // ---- Layer baking cache (OffscreenCanvas per baked layer) ----
+  interface Canvas2DLayerCache {
+    offscreen: OffscreenCanvas;
+    offCtx: OffscreenCanvasRenderingContext2D;
+    lastBakeGen: number;
+    width: number;
+    height: number;
+  }
+  const layerCaches = new Map<number, Canvas2DLayerCache>();
+
+  function getOrCreateLayerCache(layerId: number, w: number, h: number, scaleX: number, scaleY: number): Canvas2DLayerCache {
+    let cache = layerCaches.get(layerId);
+    if (cache && cache.width === w && cache.height === h) {
+      return cache;
+    }
+    // Create or recreate at new size
+    const offscreen = new OffscreenCanvas(w, h);
+    const offCtx = offscreen.getContext('2d')!;
+    cache = { offscreen, offCtx, lastBakeGen: -1, width: w, height: h };
+    layerCaches.set(layerId, cache);
+    return cache;
+  }
+
   function draw(
     instanceData: Float32Array,
     instanceCount: number,
@@ -282,6 +323,8 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     sdfInstanceCount?: number,
     vectorData?: Float32Array,
     vectorVertexCount?: number,
+    layerBatches?: LayerBatchDescriptor[],
+    bakeState?: BakeState,
   ) {
     const w = canvas.width;
     const h = canvas.height;
@@ -295,15 +338,35 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     ctx!.save();
     ctx!.scale(scaleX, scaleY);
 
-    // Atlas 0 instances
-    for (let i = 0; i < atlasSplit; i++) {
-      drawInstance(ctx!, instanceData, i * INSTANCE_FLOATS, 0);
-    }
+    const hasBaking = bakeState && bakeState.bakedMask !== 0 && layerBatches && layerBatches.length > 0;
 
-    // Atlas 1+ instances
-    const secondAtlas = manifest.atlases.length > 1 ? 1 : 0;
-    for (let i = atlasSplit; i < instanceCount; i++) {
-      drawInstance(ctx!, instanceData, i * INSTANCE_FLOATS, secondAtlas);
+    // Draw sprite instances — use layer batches if available, else legacy path
+    if (layerBatches && layerBatches.length > 0) {
+      for (const batch of layerBatches) {
+        if (hasBaking && (bakeState!.bakedMask & (1 << batch.layerId)) !== 0) {
+          // Baked layer: render to cache if dirty, then blit
+          const cache = getOrCreateLayerCache(batch.layerId, w, h, scaleX, scaleY);
+          if (cache.lastBakeGen !== bakeState!.bakeGen) {
+            // Re-render to offscreen canvas
+            cache.offCtx.clearRect(0, 0, w, h);
+            cache.offCtx.save();
+            cache.offCtx.scale(scaleX, scaleY);
+            drawBatchRange(cache.offCtx as unknown as CanvasRenderingContext2D, instanceData, batch.start, batch.end, batch.atlasSplit);
+            cache.offCtx.restore();
+            cache.lastBakeGen = bakeState!.bakeGen;
+          }
+          // Blit cached layer (undo the current scale transform temporarily)
+          ctx!.save();
+          ctx!.setTransform(1, 0, 0, 1, 0, 0);
+          ctx!.drawImage(cache.offscreen, 0, 0);
+          ctx!.restore();
+        } else {
+          // Live layer: draw directly
+          drawBatchRange(ctx!, instanceData, batch.start, batch.end, batch.atlasSplit);
+        }
+      }
+    } else {
+      drawBatchRange(ctx!, instanceData, 0, instanceCount, atlasSplit);
     }
 
     // Vector geometry (drawn between sprites and SDF)

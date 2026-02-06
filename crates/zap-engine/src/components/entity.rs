@@ -1,5 +1,6 @@
 use glam::Vec2;
 use crate::api::types::EntityId;
+use crate::components::layer::RenderLayer;
 use crate::components::sprite::SpriteComponent;
 use crate::components::emitter::EmitterComponent;
 use crate::components::mesh::MeshComponent;
@@ -16,6 +17,8 @@ pub struct Entity {
     pub tag: String,
     /// Whether this entity is active (inactive entities are skipped).
     pub active: bool,
+    /// Render layer — controls draw order (Background..UI). Default: Objects.
+    pub layer: RenderLayer,
     /// Position in world space.
     pub pos: Vec2,
     /// Rotation in radians.
@@ -40,6 +43,7 @@ impl Entity {
             id,
             tag: String::new(),
             active: true,
+            layer: RenderLayer::default(),
             pos: Vec2::ZERO,
             rotation: 0.0,
             scale: Vec2::ONE,
@@ -55,6 +59,11 @@ impl Entity {
 
     pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
         self.tag = tag.into();
+        self
+    }
+
+    pub fn with_layer(mut self, layer: RenderLayer) -> Self {
+        self.layer = layer;
         self
     }
 

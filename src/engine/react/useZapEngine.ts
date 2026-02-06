@@ -15,16 +15,19 @@ import {
   HEADER_EFFECTS_VERTEX_COUNT,
   HEADER_SDF_INSTANCE_COUNT,
   HEADER_VECTOR_VERTEX_COUNT,
+  HEADER_LAYER_BATCH_COUNT,
+  HEADER_BAKE_STATE,
   HEADER_WORLD_WIDTH,
   HEADER_WORLD_HEIGHT,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
   SDF_INSTANCE_FLOATS,
   VECTOR_VERTEX_FLOATS,
+  LAYER_BATCH_FLOATS,
   ProtocolLayout,
   SoundManager,
 } from '../index';
-import type { Renderer, SoundConfig } from '../index';
+import type { Renderer, SoundConfig, LayerBatchDescriptor, BakeState } from '../index';
 
 /** Game event forwarded from the worker. */
 export interface GameEvent {
@@ -303,6 +306,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       const effectsVertexCount = buf[HEADER_EFFECTS_VERTEX_COUNT];
       const sdfInstanceCount = buf[HEADER_SDF_INSTANCE_COUNT];
       const vectorVertexCount = buf[HEADER_VECTOR_VERTEX_COUNT];
+      const layerBatchCount = buf[HEADER_LAYER_BATCH_COUNT] ?? 0;
 
       if (instanceCount > 0 || sdfInstanceCount > 0 || vectorVertexCount > 0) {
         const instanceData = buf.subarray(
@@ -334,7 +338,33 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
           );
         }
 
-        renderer.draw(instanceData, instanceCount, atlasSplit, effectsData, effectsVertexCount, sdfData, sdfInstanceCount, vectorData, vectorVertexCount);
+        // Decode layer batches from SAB
+        let layerBatches: LayerBatchDescriptor[] | undefined;
+        if (layerBatchCount > 0) {
+          layerBatches = [];
+          for (let i = 0; i < layerBatchCount; i++) {
+            const base = layout.layerBatchDataOffset + i * LAYER_BATCH_FLOATS;
+            layerBatches.push({
+              layerId: buf[base],
+              start: buf[base + 1],
+              end: buf[base + 2],
+              atlasSplit: buf[base + 3],
+            });
+          }
+        }
+
+        // Decode bake state from SAB header
+        let bakeState: BakeState | undefined;
+        const rawBakeState = buf[HEADER_BAKE_STATE];
+        if (rawBakeState > 0) {
+          const raw = Math.floor(rawBakeState);
+          bakeState = {
+            bakedMask: raw & 0x3F,
+            bakeGen: raw >>> 6,
+          };
+        }
+
+        renderer.draw(instanceData, instanceCount, atlasSplit, effectsData, effectsVertexCount, sdfData, sdfInstanceCount, vectorData, vectorVertexCount, layerBatches, bakeState);
       }
     }
 

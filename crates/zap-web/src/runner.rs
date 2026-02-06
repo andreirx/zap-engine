@@ -1,11 +1,12 @@
 use zap_engine::{
     Game, GameConfig, EngineContext, RenderContext,
     InputEvent, InputQueue, RenderBuffer,
-    FixedTimestep, ProtocolLayout,
+    FixedTimestep, ProtocolLayout, LayerBatch,
 };
 use zap_engine::systems::render::build_render_buffer;
 use zap_engine::systems::emitter::tick_emitters;
 use zap_engine::renderer::sdf_instance::SDFBuffer;
+use zap_engine::bridge::protocol::LAYER_BATCH_FLOATS;
 /// Generic game runner that wires up the engine loop.
 ///
 /// Each concrete game (e.g., `basic-demo`) creates a `thread_local!` GameRunner
@@ -23,6 +24,11 @@ pub struct GameRunner<G: Game> {
     initialized: bool,
     /// Flat buffer of sound event IDs for SharedArrayBuffer reads.
     sound_buffer: Vec<u8>,
+    /// Layer batch descriptors from the most recent frame.
+    layer_batches: Vec<LayerBatch>,
+    /// Flat f32 buffer of layer batch data for SharedArrayBuffer reads.
+    /// Each batch: [layer_id, start, end, atlas_split] = 4 floats.
+    layer_batch_buffer: Vec<f32>,
 }
 
 impl<G: Game> GameRunner<G> {
@@ -34,6 +40,7 @@ impl<G: Game> GameRunner<G> {
         let render_buffer = RenderBuffer::with_capacity(config.max_instances);
         let sdf_buffer = SDFBuffer::with_capacity(config.max_sdf_instances);
         let sound_buffer = Vec::with_capacity(config.max_sounds);
+        let layer_batch_buffer = Vec::with_capacity(config.max_layer_batches * LAYER_BATCH_FLOATS);
 
         #[cfg(feature = "physics")]
         let ctx = {
@@ -55,6 +62,8 @@ impl<G: Game> GameRunner<G> {
             config,
             initialized: false,
             sound_buffer,
+            layer_batches: Vec::new(),
+            layer_batch_buffer,
         }
     }
 
@@ -100,8 +109,17 @@ impl<G: Game> GameRunner<G> {
         // Drain input after update
         self.input.drain();
 
-        // Build render buffer from entities
-        build_render_buffer(self.ctx.scene.iter(), &mut self.render_buffer);
+        // Build render buffer from entities (returns layer batch descriptors)
+        self.layer_batches = build_render_buffer(self.ctx.scene.iter(), &mut self.render_buffer);
+
+        // Serialize layer batches to flat f32 buffer for SAB
+        self.layer_batch_buffer.clear();
+        for batch in &self.layer_batches {
+            self.layer_batch_buffer.push(batch.layer.as_u8() as f32);
+            self.layer_batch_buffer.push(batch.start as f32);
+            self.layer_batch_buffer.push(batch.end as f32);
+            self.layer_batch_buffer.push(batch.atlas_split as f32);
+        }
 
         // Build SDF buffer from entities with mesh components
         zap_engine::systems::sdf_render::build_sdf_buffer(self.ctx.scene.iter(), &mut self.sdf_buffer);
@@ -221,5 +239,31 @@ impl<G: Game> GameRunner<G> {
     #[cfg(feature = "vectors")]
     pub fn max_vector_vertices(&self) -> u32 {
         self.layout.max_vector_vertices as u32
+    }
+
+    // ---- Bake state accessor ----
+
+    /// Get the encoded bake state for SAB header[21].
+    /// Format: baked_layers_mask | (bake_generation << 6).
+    pub fn bake_state(&self) -> f32 {
+        self.ctx.bake_state_encoded()
+    }
+
+    // ---- Layer batch accessors ----
+
+    pub fn layer_batches_ptr(&self) -> *const f32 {
+        self.layer_batch_buffer.as_ptr()
+    }
+
+    pub fn layer_batch_count(&self) -> u32 {
+        self.layer_batches.len() as u32
+    }
+
+    pub fn max_layer_batches(&self) -> u32 {
+        self.layout.max_layer_batches as u32
+    }
+
+    pub fn layer_batch_data_offset(&self) -> u32 {
+        self.layout.layer_batch_data_offset as u32
     }
 }

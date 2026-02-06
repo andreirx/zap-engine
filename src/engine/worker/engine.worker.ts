@@ -21,12 +21,17 @@ import {
   HEADER_SDF_INSTANCE_COUNT,
   HEADER_MAX_VECTOR_VERTICES,
   HEADER_VECTOR_VERTEX_COUNT,
+  HEADER_MAX_LAYER_BATCHES,
+  HEADER_LAYER_BATCH_COUNT,
+  HEADER_LAYER_BATCH_OFFSET,
+  HEADER_BAKE_STATE,
   PROTOCOL_VERSION,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
   EVENT_FLOATS,
   SDF_INSTANCE_FLOATS,
   VECTOR_VERTEX_FLOATS,
+  LAYER_BATCH_FLOATS,
   ProtocolLayout,
 } from './protocol';
 import { computeProjection } from '../renderer/camera';
@@ -65,6 +70,13 @@ interface GameWasmExports {
   get_vector_vertices_ptr?: () => number;
   get_vector_vertex_count?: () => number;
   get_max_vector_vertices?: () => number;
+  // Layer batch exports
+  get_layer_batches_ptr?: () => number;
+  get_layer_batch_count?: () => number;
+  get_max_layer_batches?: () => number;
+  get_layer_batch_data_offset?: () => number;
+  // Bake state export
+  get_bake_state?: () => number;
 }
 
 const HAS_SAB = typeof SharedArrayBuffer !== 'undefined';
@@ -135,6 +147,13 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     get_vector_vertices_ptr: mod.get_vector_vertices_ptr,
     get_vector_vertex_count: mod.get_vector_vertex_count,
     get_max_vector_vertices: mod.get_max_vector_vertices,
+    // Layer batch exports
+    get_layer_batches_ptr: mod.get_layer_batches_ptr,
+    get_layer_batch_count: mod.get_layer_batch_count,
+    get_max_layer_batches: mod.get_max_layer_batches,
+    get_layer_batch_data_offset: mod.get_layer_batch_data_offset,
+    // Bake state export
+    get_bake_state: mod.get_bake_state,
   };
 
   wasm.game_init();
@@ -164,6 +183,8 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_PROTOCOL_VERSION] = PROTOCOL_VERSION;
     sharedF32[HEADER_MAX_SDF_INSTANCES] = layout.maxSdfInstances;
     sharedF32[HEADER_MAX_VECTOR_VERTICES] = layout.maxVectorVertices;
+    sharedF32[HEADER_MAX_LAYER_BATCHES] = layout.maxLayerBatches;
+    sharedF32[HEADER_LAYER_BATCH_OFFSET] = layout.layerBatchDataOffset;
 
     self.postMessage({ type: 'ready', sharedBuffer });
   } else {
@@ -180,6 +201,8 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_PROTOCOL_VERSION] = PROTOCOL_VERSION;
     sharedF32[HEADER_MAX_SDF_INSTANCES] = layout.maxSdfInstances;
     sharedF32[HEADER_MAX_VECTOR_VERTICES] = layout.maxVectorVertices;
+    sharedF32[HEADER_MAX_LAYER_BATCHES] = layout.maxLayerBatches;
+    sharedF32[HEADER_LAYER_BATCH_OFFSET] = layout.layerBatchDataOffset;
 
     self.postMessage({
       type: 'ready',
@@ -189,6 +212,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
       maxEvents: layout.maxEvents,
       maxSdfInstances: layout.maxSdfInstances,
       maxVectorVertices: layout.maxVectorVertices,
+      maxLayerBatches: layout.maxLayerBatches,
     });
   }
 }
@@ -208,6 +232,9 @@ function gameLoop() {
     const vectorVertexCount = wasm.get_vector_vertex_count
       ? Math.min(wasm.get_vector_vertex_count(), layout.maxVectorVertices)
       : 0;
+    const layerBatchCount = wasm.get_layer_batch_count
+      ? Math.min(wasm.get_layer_batch_count(), layout.maxLayerBatches)
+      : 0;
 
     // Write header
     sharedF32[HEADER_FRAME_COUNTER] += 1;
@@ -220,6 +247,8 @@ function gameLoop() {
     sharedF32[HEADER_EVENT_COUNT] = eventLen;
     sharedF32[HEADER_SDF_INSTANCE_COUNT] = sdfCount;
     sharedF32[HEADER_VECTOR_VERTEX_COUNT] = vectorVertexCount;
+    sharedF32[HEADER_LAYER_BATCH_COUNT] = layerBatchCount;
+    sharedF32[HEADER_BAKE_STATE] = wasm.get_bake_state?.() ?? 0;
 
     // Copy instance data
     if (instanceCount > 0) {
@@ -247,6 +276,13 @@ function gameLoop() {
       const ptr = wasm.get_vector_vertices_ptr();
       const vectorData = new Float32Array(wasmMemory.buffer, ptr, vectorVertexCount * VECTOR_VERTEX_FLOATS);
       sharedF32.set(vectorData, layout.vectorDataOffset);
+    }
+
+    // Copy layer batch data
+    if (layerBatchCount > 0 && wasm.get_layer_batches_ptr) {
+      const ptr = wasm.get_layer_batches_ptr();
+      const batchData = new Float32Array(wasmMemory.buffer, ptr, layerBatchCount * LAYER_BATCH_FLOATS);
+      sharedF32.set(batchData, layout.layerBatchDataOffset);
     }
 
     // Forward sound events

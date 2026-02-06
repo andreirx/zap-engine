@@ -3,7 +3,7 @@
 
 export { initRenderer } from './renderer/index';
 export type { Renderer, RendererConfig } from './renderer/index';
-export type { Renderer as RendererInterface } from './renderer/types';
+export type { Renderer as RendererInterface, LayerBatchDescriptor, BakeState } from './renderer/types';
 
 export { loadManifest } from './assets/manifest';
 export type { AssetManifest, AtlasDescriptor, SpriteDescriptor } from './assets/manifest';
@@ -32,12 +32,18 @@ export {
   HEADER_SDF_INSTANCE_COUNT,
   HEADER_MAX_VECTOR_VERTICES,
   HEADER_VECTOR_VERTEX_COUNT,
+  HEADER_MAX_LAYER_BATCHES,
+  HEADER_LAYER_BATCH_COUNT,
+  HEADER_LAYER_BATCH_OFFSET,
+  HEADER_BAKE_STATE,
   PROTOCOL_VERSION,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
   EVENT_FLOATS,
   SDF_INSTANCE_FLOATS,
   VECTOR_VERTEX_FLOATS,
+  LAYER_BATCH_FLOATS,
+  DEFAULT_MAX_LAYER_BATCHES,
   ProtocolLayout,
 } from './worker/protocol';
 

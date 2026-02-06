@@ -6,6 +6,8 @@ use crate::systems::effects::EffectsState;
 use crate::systems::text::{FontConfig, build_text_entities, despawn_text};
 use crate::assets::manifest::AssetManifest;
 use crate::assets::registry::SpriteRegistry;
+use crate::bridge::protocol::DEFAULT_MAX_LAYER_BATCHES;
+use crate::components::layer::RenderLayer;
 use crate::components::sprite::SpriteComponent;
 use glam::Vec2;
 #[cfg(feature = "physics")]
@@ -40,6 +42,8 @@ pub struct GameConfig {
     /// Maximum number of vector vertices (default: 16384).
     #[cfg(feature = "vectors")]
     pub max_vector_vertices: usize,
+    /// Maximum number of layer batches (default: 6, one per RenderLayer).
+    pub max_layer_batches: usize,
     /// Gravity vector for physics simulation. Default: zero (no gravity).
     /// For Y-down coordinate systems, use positive Y for downward gravity.
     #[cfg(feature = "physics")]
@@ -59,6 +63,7 @@ impl Default for GameConfig {
             max_sdf_instances: 128,
             #[cfg(feature = "vectors")]
             max_vector_vertices: 16384,
+            max_layer_batches: DEFAULT_MAX_LAYER_BATCHES,
             #[cfg(feature = "physics")]
             gravity: glam::Vec2::ZERO,
         }
@@ -90,6 +95,11 @@ pub struct EngineContext {
     pub events: Vec<GameEvent>,
     next_id: u32,
     sprite_registry: SpriteRegistry,
+    /// Bitmask of layers marked for baking (bits 0-5 correspond to RenderLayer variants).
+    baked_layers: u8,
+    /// Monotonic counter incremented on every bake/invalidate call.
+    /// Used by the renderer to detect when cached textures need refreshing.
+    bake_generation: u32,
     #[cfg(feature = "vectors")]
     pub vectors: VectorState,
     #[cfg(feature = "physics")]
@@ -107,6 +117,8 @@ impl EngineContext {
             events: Vec::new(),
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
+            baked_layers: 0,
+            bake_generation: 0,
             #[cfg(feature = "vectors")]
             vectors: VectorState::new(),
             #[cfg(feature = "physics")]
@@ -126,6 +138,8 @@ impl EngineContext {
             events: Vec::new(),
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
+            baked_layers: 0,
+            bake_generation: 0,
             #[cfg(feature = "vectors")]
             vectors: VectorState::new(),
             physics: PhysicsWorld::new(gravity),
@@ -172,6 +186,49 @@ impl EngineContext {
         self.vectors.clear();
         #[cfg(feature = "physics")]
         self.collision_events.clear();
+    }
+
+    // -- Layer baking methods --
+
+    /// Mark a layer for baking. The renderer will cache this layer's contents
+    /// to an intermediate texture and reuse it until `invalidate_layer()` is called.
+    ///
+    /// Call once during `init()` for static layers (e.g., terrain).
+    /// After modifying entities on a baked layer, call `invalidate_layer()` then
+    /// `bake_layer()` again to refresh the cache.
+    pub fn bake_layer(&mut self, layer: RenderLayer) {
+        self.baked_layers |= 1 << layer.as_u8();
+        self.bake_generation = self.bake_generation.wrapping_add(1);
+    }
+
+    /// Mark a baked layer as dirty, signaling the renderer to re-render
+    /// this layer's cached texture on the next frame.
+    pub fn invalidate_layer(&mut self, _layer: RenderLayer) {
+        self.bake_generation = self.bake_generation.wrapping_add(1);
+    }
+
+    /// Remove a layer from baking — it will be rendered live every frame.
+    pub fn unbake_layer(&mut self, layer: RenderLayer) {
+        self.baked_layers &= !(1 << layer.as_u8());
+        self.bake_generation = self.bake_generation.wrapping_add(1);
+    }
+
+    /// Get the baked layers bitmask (bits 0-5 correspond to RenderLayer variants).
+    pub fn baked_layers_mask(&self) -> u8 {
+        self.baked_layers
+    }
+
+    /// Get the bake generation counter (monotonically increasing).
+    pub fn bake_generation(&self) -> u32 {
+        self.bake_generation
+    }
+
+    /// Encode bake state as a single f32 for the SAB header.
+    /// Format: `baked_mask | (bake_generation << 6)` stored as f32.
+    /// f32 can represent integers up to 2^24 exactly, giving ~262k generations.
+    pub fn bake_state_encoded(&self) -> f32 {
+        let encoded = (self.baked_layers as u32) | (self.bake_generation << 6);
+        encoded as f32
     }
 
     // -- Text convenience methods --
@@ -361,6 +418,77 @@ mod sprite_registry_tests {
         assert_eq!(hero.row, 5.0);
         assert_eq!(hero.cell_span, 2.0);
         assert!(ctx.sprite("nonexistent").is_none());
+    }
+}
+
+#[cfg(test)]
+mod bake_tests {
+    use super::*;
+
+    #[test]
+    fn initial_bake_state_is_empty() {
+        let ctx = EngineContext::new();
+        assert_eq!(ctx.baked_layers_mask(), 0);
+        assert_eq!(ctx.bake_generation(), 0);
+        assert_eq!(ctx.bake_state_encoded(), 0.0);
+    }
+
+    #[test]
+    fn bake_layer_sets_bit_and_increments_gen() {
+        let mut ctx = EngineContext::new();
+        ctx.bake_layer(RenderLayer::Terrain);
+
+        assert_eq!(ctx.baked_layers_mask(), 0b00_0010); // bit 1
+        assert_eq!(ctx.bake_generation(), 1);
+    }
+
+    #[test]
+    fn bake_multiple_layers() {
+        let mut ctx = EngineContext::new();
+        ctx.bake_layer(RenderLayer::Background);
+        ctx.bake_layer(RenderLayer::Terrain);
+
+        assert_eq!(ctx.baked_layers_mask(), 0b00_0011); // bits 0 and 1
+        assert_eq!(ctx.bake_generation(), 2);
+    }
+
+    #[test]
+    fn invalidate_increments_gen_without_changing_mask() {
+        let mut ctx = EngineContext::new();
+        ctx.bake_layer(RenderLayer::Terrain);
+        let mask_before = ctx.baked_layers_mask();
+        let gen_before = ctx.bake_generation();
+
+        ctx.invalidate_layer(RenderLayer::Terrain);
+
+        assert_eq!(ctx.baked_layers_mask(), mask_before);
+        assert_eq!(ctx.bake_generation(), gen_before + 1);
+    }
+
+    #[test]
+    fn unbake_layer_clears_bit() {
+        let mut ctx = EngineContext::new();
+        ctx.bake_layer(RenderLayer::Terrain);
+        ctx.bake_layer(RenderLayer::Background);
+        assert_eq!(ctx.baked_layers_mask(), 0b00_0011);
+
+        ctx.unbake_layer(RenderLayer::Terrain);
+        assert_eq!(ctx.baked_layers_mask(), 0b00_0001); // only Background
+    }
+
+    #[test]
+    fn bake_state_encoding_round_trip() {
+        let mut ctx = EngineContext::new();
+        ctx.bake_layer(RenderLayer::Terrain);   // mask = 0b10, gen = 1
+        ctx.bake_layer(RenderLayer::Foreground); // mask = 0b1010, gen = 2
+
+        let encoded = ctx.bake_state_encoded();
+        let raw = encoded as u32;
+        let decoded_mask = raw & 0x3F;
+        let decoded_gen = raw >> 6;
+
+        assert_eq!(decoded_mask, 0b00_1010); // Terrain(1) + Foreground(3)
+        assert_eq!(decoded_gen, 2);
     }
 }
 

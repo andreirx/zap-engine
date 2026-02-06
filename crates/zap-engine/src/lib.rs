@@ -11,6 +11,7 @@ pub mod assets;
 pub use api::game::{Game, GameConfig, EngineContext, RenderContext};
 pub use api::types::{EntityId, SoundEvent, GameEvent};
 pub use components::entity::Entity;
+pub use components::layer::RenderLayer;
 pub use components::sprite::{SpriteComponent, AtlasId, BlendMode};
 pub use core::scene::Scene;
 pub use core::time::FixedTimestep;
@@ -21,6 +22,7 @@ pub use assets::manifest::AssetManifest;
 pub use assets::registry::SpriteRegistry;
 pub use bridge::protocol::ProtocolLayout;
 pub use systems::effects::{EffectsState, ElectricArc, Particle, SegmentColor, DebugLine};
+pub use systems::render::LayerBatch;
 pub use systems::text::FontConfig;
 #[cfg(feature = "physics")]
 pub use systems::debug::debug_draw_colliders;

@@ -188,3 +188,28 @@ pub fn get_vector_vertex_count() -> u32 {
 pub fn get_max_vector_vertices() -> u32 {
     with_runner(|r| r.max_vector_vertices())
 }
+
+#[wasm_bindgen]
+pub fn get_layer_batches_ptr() -> *const f32 {
+    with_runner(|r| r.layer_batches_ptr())
+}
+
+#[wasm_bindgen]
+pub fn get_layer_batch_count() -> u32 {
+    with_runner(|r| r.layer_batch_count())
+}
+
+#[wasm_bindgen]
+pub fn get_max_layer_batches() -> u32 {
+    with_runner(|r| r.max_layer_batches())
+}
+
+#[wasm_bindgen]
+pub fn get_layer_batch_data_offset() -> u32 {
+    with_runner(|r| r.layer_batch_data_offset())
+}
+
+#[wasm_bindgen]
+pub fn get_bake_state() -> f32 {
+    with_runner(|r| r.bake_state())
+}

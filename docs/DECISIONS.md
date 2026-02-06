@@ -498,3 +498,94 @@ pub enum JointDesc {
 - **Pro:** Games can extend with more joint types by accessing `physics.impulse_joints` directly
 - **Con:** Rope and Prismatic joints not wrapped yet (can be added when needed)
 - **Con:** No motor/limit API exposed — would need builder pattern extension
+
+---
+
+## ADR-018: Render Layers (Photoshop-Style Compositing)
+
+**Date:** 2026-02-06
+**Status:** Accepted
+
+### Context
+All entities rendered on the same draw layer — no control over draw order beyond atlas grouping. Games need background/terrain behind objects, UI on top, VFX between layers.
+
+### Decision
+Add a `RenderLayer` enum with 6 layers (Background=0 through UI=5), stored directly on Entity. Entities are sorted by `(layer, atlas)` during `build_render_buffer()`. Layer batch descriptors are written to the SAB so the renderer draws each layer's instances in order.
+
+**Key choices:**
+
+1. **Layer info on Entity, NOT RenderInstance**: Keeps the wire format at 8 floats / 32 bytes. The sorting happens in Rust; the renderer just gets pre-sorted instance data plus batch descriptors.
+
+2. **Default on (not feature-gated)**: All games benefit from layered rendering. Existing games default all entities to `Objects` layer — single batch, identical to the old behavior.
+
+3. **Protocol 2.0 → 3.0**: Header extends from 18 → 22 floats with layer batch metadata (max_layer_batches, batch_count, batch_data_offset, reserved). New `LayerBatch` section appended after Vectors in the SAB.
+
+4. **Batch descriptors in SAB header**: Each batch is 4 floats (layer_id, start, end, atlas_split). The renderer reads these to issue per-batch draw calls with the correct atlas pipeline.
+
+5. **Backward compatible**: TypeScript detects protocol version and falls back to legacy atlas_split when no layer batches are present.
+
+**Layer enum:**
+```
+Background = 0  (parallax, sky)
+Terrain    = 1  (tiles, ground)
+Objects    = 2  (default — game entities)
+Foreground = 3  (decorations in front of objects)
+VFX        = 4  (particle effects rendered as sprites)
+UI         = 5  (HUD elements)
+```
+
+### Consequences
+- **Pro:** Clean draw order control without Z-buffer complexity
+- **Pro:** Zero protocol overhead for existing single-layer games (one batch)
+- **Pro:** No RenderInstance format change — 32-byte wire format preserved
+- **Pro:** Foundation for Phase 2 layer baking (render static layers to textures)
+- **Con:** Header grew from 18 → 22 floats (+16 bytes)
+- **Con:** Sort step adds O(n log n) to render buffer build (acceptable for hundreds of entities)
+
+## ADR-019: Layer Baking (Render-to-Texture Caching)
+
+**Date:** 2026-02-06
+**Status:** Accepted
+
+### Context
+Static layers (e.g., terrain with hundreds of tiles) waste GPU work by re-rendering every frame. Games need a way to cache static layers as textures and only re-render them when content changes.
+
+### Decision
+Add `bake_layer()` / `invalidate_layer()` / `unbake_layer()` API on `EngineContext`. The bake state (a bitmask of baked layers + a monotonic generation counter) is encoded into SAB header[21] and communicated to the renderer.
+
+**Key choices:**
+
+1. **Bake state encoding**: `header[21] = baked_mask | (bake_generation << 6)` packed as a single f32. The mask uses bits 0-5 (6 layers), and the generation uses bits 6+ (up to ~262k invalidations before wrapping, which triggers a full re-render — acceptable).
+
+2. **Generation-based dirty detection**: Rather than per-layer dirty tracking, a single monotonic `bake_generation` counter increments on every `bake_layer()` or `invalidate_layer()` call. The compositor compares its cached generation per-layer and re-renders when mismatched. This simplifies the protocol (no separate dirty mask) at the cost of occasionally re-rendering unrelated baked layers.
+
+3. **WebGPU compositor**: New `LayerCompositor` class manages intermediate `GPUTexture` render targets per baked layer. Dirty layers are rendered in a separate render pass before the main composite pass. Clean layers are blitted via a fullscreen triangle with the `composite.wgsl` shader.
+
+4. **Canvas2D fallback**: Uses `OffscreenCanvas` per baked layer. Dirty layers render to the offscreen canvas; clean layers are composited with `drawImage()`.
+
+5. **Game-driven baking**: The game calls `ctx.bake_layer(RenderLayer::Terrain)` explicitly — the engine does not auto-detect static layers. This gives games full control over the performance/memory tradeoff.
+
+**Usage:**
+```rust
+fn init(&mut self, ctx: &mut EngineContext) {
+    // Spawn terrain tiles...
+    ctx.bake_layer(RenderLayer::Terrain); // Cache once
+
+    // Spawn moving objects on Objects layer (default, not baked)
+}
+
+fn update(&mut self, ctx: &mut EngineContext, input: &InputQueue) {
+    if terrain_changed {
+        ctx.invalidate_layer(RenderLayer::Terrain);
+        ctx.bake_layer(RenderLayer::Terrain);
+    }
+}
+```
+
+### Consequences
+- **Pro:** Static terrain with 1000+ tiles renders in a single texture blit instead of 1000 draw calls
+- **Pro:** Zero overhead for games that don't use baking (bake_state remains 0)
+- **Pro:** No header extension needed — reuses reserved slot [21]
+- **Pro:** Works on both WebGPU (GPU textures) and Canvas2D (OffscreenCanvas)
+- **Con:** Each baked layer costs one GPU texture of screen size (~16MB at 1080p rgba16float)
+- **Con:** Generation-based dirty tracking may cause unnecessary re-renders of other baked layers on invalidation (acceptable for rare events like terrain edits)

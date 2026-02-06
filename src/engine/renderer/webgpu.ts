@@ -7,9 +7,10 @@ import sdfShaderSource from './molecule.wgsl?raw';
 import vectorShaderSource from './vector.wgsl?raw';
 import { buildProjectionMatrix } from './camera';
 import { packColorsForGPU } from './constants';
-import type { Renderer, RenderTier } from './types';
+import type { Renderer, RenderTier, LayerBatchDescriptor, BakeState } from './types';
 import type { AssetManifest, GPUTextureAsset } from '../assets/manifest';
 import { createGPUTextureFromBlob } from '../assets/loader';
+import { LayerCompositor } from './compositor';
 
 // Bytes per RenderInstance: 8 × f32 = 32 bytes
 const INSTANCE_STRIDE = 32;
@@ -363,10 +364,14 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     fragment: {
       module: vectorShaderModule,
       entryPoint: 'fs_vector',
+      constants: { VECTOR_HDR_MULT: GLOW_MULT[tier as Exclude<RenderTier, 'canvas2d'>].effects },
       targets: alphaBlendTargets,
     },
     primitive: { topology: 'triangle-list' },
   });
+
+  // ---- Layer Compositor (for baked layers) ----
+  let compositor = new LayerCompositor(device, format, canvas.width, canvas.height);
 
   // ---- Camera Projection ----
   function updateCamera(width: number, height: number) {
@@ -374,6 +379,41 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
   }
 
   updateCamera(canvas.width, canvas.height);
+
+  // ---- Helper: draw a range of instances using the correct atlas pipeline ----
+  function drawBatchInstances(
+    pass: GPURenderPassEncoder,
+    batchStart: number,
+    batchEnd: number,
+    batchAtlasSplit: number,
+  ) {
+    // Atlas 0 portion: [batchStart..batchAtlasSplit)
+    const atlas0Count = batchAtlasSplit - batchStart;
+    if (atlas0Count > 0 && alphaPipelines.length > 0) {
+      pass.setPipeline(alphaPipelines[0]);
+      pass.setBindGroup(0, cameraBindGroup);
+      pass.setBindGroup(1, textureBindGroups[0]);
+      pass.setBindGroup(2, instanceBindGroup);
+      pass.draw(6, atlas0Count, 0, batchStart);
+    }
+
+    // Atlas 1+ portion: [batchAtlasSplit..batchEnd)
+    const atlas1Count = batchEnd - batchAtlasSplit;
+    if (atlas1Count > 0 && alphaPipelines.length > 1) {
+      pass.setPipeline(alphaPipelines[1]);
+      pass.setBindGroup(0, cameraBindGroup);
+      pass.setBindGroup(1, textureBindGroups[1]);
+      pass.setBindGroup(2, instanceBindGroup);
+      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
+    } else if (atlas1Count > 0 && alphaPipelines.length === 1) {
+      // Single atlas: draw remaining with same pipeline
+      pass.setPipeline(alphaPipelines[0]);
+      pass.setBindGroup(0, cameraBindGroup);
+      pass.setBindGroup(1, textureBindGroups[0]);
+      pass.setBindGroup(2, instanceBindGroup);
+      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
+    }
+  }
 
   // ---- Draw Function ----
   function draw(
@@ -386,6 +426,8 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     sdfInstanceCount?: number,
     vectorData?: Float32Array,
     vectorVertexCount?: number,
+    layerBatches?: LayerBatchDescriptor[],
+    bakeState?: BakeState,
   ) {
     const byteLen = instanceCount * INSTANCE_STRIDE;
     device.queue.writeBuffer(instanceBuffer, 0, instanceData.buffer, instanceData.byteOffset, byteLen);
@@ -409,6 +451,32 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     }
 
     const encoder = device.createCommandEncoder();
+    const hasBaking = bakeState && bakeState.bakedMask !== 0 && layerBatches && layerBatches.length > 0;
+
+    // ---- Phase 1: Render baked+dirty layers to intermediate textures ----
+    if (hasBaking) {
+      for (const batch of layerBatches) {
+        if (!LayerCompositor.isLayerBaked(bakeState.bakedMask, batch.layerId)) continue;
+        if (!compositor.needsRefresh(batch.layerId, bakeState.bakeGen)) continue;
+
+        // Render this layer's instances to an intermediate texture
+        const { view: targetView } = compositor.getOrCreateTarget(batch.layerId);
+        const layerPass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: targetView,
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: 'clear',
+            storeOp: 'store',
+          }],
+        });
+        drawBatchInstances(layerPass, batch.start, batch.end, batch.atlasSplit);
+        layerPass.end();
+
+        compositor.markClean(batch.layerId, bakeState.bakeGen);
+      }
+    }
+
+    // ---- Phase 2: Main render pass (composite to screen) ----
     const textureView = context!.getCurrentTexture().createView();
 
     const pass = encoder.beginRenderPass({
@@ -420,30 +488,25 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       }],
     });
 
-    // Draw instances grouped by atlas.
-    // Atlas 0 gets [0..atlasSplit), atlas 1+ gets [atlasSplit..instanceCount).
-    if (atlasSplit > 0 && alphaPipelines.length > 0) {
-      pass.setPipeline(alphaPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlasSplit);
-    }
-
-    const remainingCount = instanceCount - atlasSplit;
-    if (remainingCount > 0 && alphaPipelines.length > 1) {
-      pass.setPipeline(alphaPipelines[1]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[1]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, remainingCount, 0, atlasSplit);
-    } else if (remainingCount > 0 && alphaPipelines.length === 1) {
-      // Single atlas: draw remaining with same pipeline
-      pass.setPipeline(alphaPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, remainingCount, 0, atlasSplit);
+    // Draw sprite instances — layered with baking support
+    if (layerBatches && layerBatches.length > 0) {
+      for (const batch of layerBatches) {
+        if (hasBaking && LayerCompositor.isLayerBaked(bakeState!.bakedMask, batch.layerId)) {
+          // Blit cached texture for this layer
+          const bindGroup = compositor.getBindGroup(batch.layerId);
+          if (bindGroup) {
+            pass.setPipeline(compositor.getPipeline());
+            pass.setBindGroup(0, bindGroup);
+            pass.draw(3); // Fullscreen triangle
+          }
+        } else {
+          // Live layer: render instances directly
+          drawBatchInstances(pass, batch.start, batch.end, batch.atlasSplit);
+        }
+      }
+    } else {
+      // Legacy path: single atlas split (no baking possible without layer batches)
+      drawBatchInstances(pass, 0, instanceCount, atlasSplit);
     }
 
     // Vector geometry (alpha blend, drawn between sprites and SDF)
@@ -487,6 +550,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     }
     context!.configure(configOpts);
     updateCamera(width, height);
+    compositor.resize(width, height);
   }
 
   return { backend: 'webgpu', tier, draw, resize };
