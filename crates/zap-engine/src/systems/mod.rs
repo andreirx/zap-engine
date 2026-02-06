@@ -4,5 +4,6 @@ pub mod emitter;
 pub mod sdf_render;
 pub mod debug;
 pub mod text;
+pub mod lighting;
 #[cfg(feature = "vectors")]
 pub mod vector;

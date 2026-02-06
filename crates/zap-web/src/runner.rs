@@ -249,6 +249,32 @@ impl<G: Game> GameRunner<G> {
         self.ctx.bake_state_encoded()
     }
 
+    // ---- Lighting accessors ----
+
+    pub fn lights_ptr(&self) -> *const f32 {
+        self.ctx.lights.buffer_ptr()
+    }
+
+    pub fn light_count(&self) -> u32 {
+        self.ctx.lights.count() as u32
+    }
+
+    pub fn max_lights(&self) -> u32 {
+        self.layout.max_lights as u32
+    }
+
+    pub fn ambient_r(&self) -> f32 {
+        self.ctx.lights.ambient()[0]
+    }
+
+    pub fn ambient_g(&self) -> f32 {
+        self.ctx.lights.ambient()[1]
+    }
+
+    pub fn ambient_b(&self) -> f32 {
+        self.ctx.lights.ambient()[2]
+    }
+
     // ---- Layer batch accessors ----
 
     pub fn layer_batches_ptr(&self) -> *const f32 {

@@ -5,9 +5,10 @@
 import shaderSource from './shaders.wgsl?raw';
 import sdfShaderSource from './molecule.wgsl?raw';
 import vectorShaderSource from './vector.wgsl?raw';
-import { buildProjectionMatrix } from './camera';
+import lightingShaderSource from './lighting.wgsl?raw';
+import { buildProjectionMatrix, computeProjection } from './camera';
 import { packColorsForGPU } from './constants';
-import type { Renderer, RenderTier, LayerBatchDescriptor, BakeState } from './types';
+import type { Renderer, RenderTier, LayerBatchDescriptor, BakeState, LightingState } from './types';
 import type { AssetManifest, GPUTextureAsset } from '../assets/manifest';
 import { createGPUTextureFromBlob } from '../assets/loader';
 import { LayerCompositor } from './compositor';
@@ -373,6 +374,78 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
   // ---- Layer Compositor (for baked layers) ----
   let compositor = new LayerCompositor(device, format, canvas.width, canvas.height);
 
+  // ---- Lighting Pipeline (fullscreen post-process) ----
+  const LIGHT_FLOATS = 8;
+  const MAX_LIGHTS_GPU = 64;
+
+  const lightingShaderModule = device.createShaderModule({ code: lightingShaderSource });
+
+  // Uniform buffer: LightUniforms = 2 × vec4<f32> = 32 bytes
+  const lightUniformBuffer = device.createBuffer({
+    size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  // Storage buffer: array<PointLight>, each 8 × f32 = 32 bytes
+  const lightStorageBuffer = device.createBuffer({
+    size: MAX_LIGHTS_GPU * LIGHT_FLOATS * 4,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+  });
+
+  const lightingBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+    ],
+  });
+
+  const lightingPipeline = device.createRenderPipeline({
+    layout: device.createPipelineLayout({ bindGroupLayouts: [lightingBindGroupLayout] }),
+    vertex: {
+      module: lightingShaderModule,
+      entryPoint: 'vs_lighting',
+    },
+    fragment: {
+      module: lightingShaderModule,
+      entryPoint: 'fs_lighting',
+      targets: [{ format }],
+    },
+    primitive: { topology: 'triangle-list' },
+  });
+
+  const lightingSampler = device.createSampler({
+    magFilter: 'linear',
+    minFilter: 'linear',
+  });
+
+  // Scratch texture for scene render (created on demand, resized with canvas)
+  let scratchTexture: GPUTexture | null = null;
+  let scratchView: GPUTextureView | null = null;
+  let lightingBindGroup: GPUBindGroup | null = null;
+
+  function ensureScratchTexture(w: number, h: number) {
+    if (scratchTexture && scratchTexture.width === w && scratchTexture.height === h) return;
+    scratchTexture?.destroy();
+    scratchTexture = device.createTexture({
+      size: { width: w, height: h },
+      format,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+    });
+    scratchView = scratchTexture.createView();
+    // Recreate bind group with new texture view
+    lightingBindGroup = device.createBindGroup({
+      layout: lightingBindGroupLayout,
+      entries: [
+        { binding: 0, resource: scratchView },
+        { binding: 1, resource: lightingSampler },
+        { binding: 2, resource: { buffer: lightUniformBuffer } },
+        { binding: 3, resource: { buffer: lightStorageBuffer } },
+      ],
+    });
+  }
+
   // ---- Camera Projection ----
   function updateCamera(width: number, height: number) {
     device.queue.writeBuffer(cameraBuffer, 0, buildProjectionMatrix(width, height, gameWidth, gameHeight));
@@ -428,6 +501,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     vectorVertexCount?: number,
     layerBatches?: LayerBatchDescriptor[],
     bakeState?: BakeState,
+    lightingState?: LightingState,
   ) {
     const byteLen = instanceCount * INSTANCE_STRIDE;
     device.queue.writeBuffer(instanceBuffer, 0, instanceData.buffer, instanceData.byteOffset, byteLen);
@@ -448,6 +522,33 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     if (hasVectors) {
       const vectorByteLen = vectorVertexCount * VECTOR_VERTEX_BYTES;
       device.queue.writeBuffer(vectorBuffer, 0, vectorData.buffer, vectorData.byteOffset, vectorByteLen);
+    }
+
+    // Determine if lighting post-process is needed
+    const hasLighting = !!lightingState;
+
+    // Upload light data to GPU when active
+    if (hasLighting) {
+      const { projWidth, projHeight } = computeProjection(canvas.width, canvas.height, gameWidth, gameHeight);
+      // LightUniforms: ambient_and_count (vec4), proj_size (vec4) = 32 bytes
+      const uniforms = new Float32Array([
+        lightingState.ambient[0], lightingState.ambient[1], lightingState.ambient[2],
+        lightingState.lightCount,
+        projWidth, projHeight, 0, 0,
+      ]);
+      device.queue.writeBuffer(lightUniformBuffer, 0, uniforms);
+
+      if (lightingState.lightCount > 0) {
+        device.queue.writeBuffer(
+          lightStorageBuffer, 0,
+          lightingState.lightData.buffer,
+          lightingState.lightData.byteOffset,
+          lightingState.lightCount * LIGHT_FLOATS * 4,
+        );
+      }
+
+      // Ensure scratch texture exists at correct size
+      ensureScratchTexture(canvas.width, canvas.height);
     }
 
     const encoder = device.createCommandEncoder();
@@ -476,12 +577,14 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       }
     }
 
-    // ---- Phase 2: Main render pass (composite to screen) ----
-    const textureView = context!.getCurrentTexture().createView();
+    // ---- Phase 2: Main scene render ----
+    // When lighting is active, render to scratch texture; otherwise render directly to screen.
+    const screenView = context!.getCurrentTexture().createView();
+    const sceneTarget = hasLighting ? scratchView! : screenView;
 
     const pass = encoder.beginRenderPass({
       colorAttachments: [{
-        view: textureView,
+        view: sceneTarget,
         clearValue: { r: 0.02, g: 0.02, b: 0.05, a: 1.0 },
         loadOp: 'clear',
         storeOp: 'store',
@@ -537,6 +640,23 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     }
 
     pass.end();
+
+    // ---- Phase 3: Lighting post-process (scratch → screen) ----
+    if (hasLighting && lightingBindGroup) {
+      const lightPass = encoder.beginRenderPass({
+        colorAttachments: [{
+          view: screenView,
+          clearValue: { r: 0, g: 0, b: 0, a: 1.0 },
+          loadOp: 'clear',
+          storeOp: 'store',
+        }],
+      });
+      lightPass.setPipeline(lightingPipeline);
+      lightPass.setBindGroup(0, lightingBindGroup);
+      lightPass.draw(3); // Fullscreen triangle
+      lightPass.end();
+    }
+
     device.queue.submit([encoder.finish()]);
   }
 

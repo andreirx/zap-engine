@@ -6,9 +6,10 @@ use crate::systems::effects::EffectsState;
 use crate::systems::text::{FontConfig, build_text_entities, despawn_text};
 use crate::assets::manifest::AssetManifest;
 use crate::assets::registry::SpriteRegistry;
-use crate::bridge::protocol::DEFAULT_MAX_LAYER_BATCHES;
+use crate::bridge::protocol::{DEFAULT_MAX_LAYER_BATCHES, DEFAULT_MAX_LIGHTS};
 use crate::components::layer::RenderLayer;
 use crate::components::sprite::SpriteComponent;
+use crate::systems::lighting::LightState;
 use glam::Vec2;
 #[cfg(feature = "physics")]
 use crate::core::physics::{
@@ -44,6 +45,8 @@ pub struct GameConfig {
     pub max_vector_vertices: usize,
     /// Maximum number of layer batches (default: 6, one per RenderLayer).
     pub max_layer_batches: usize,
+    /// Maximum number of point lights (default: 64).
+    pub max_lights: usize,
     /// Gravity vector for physics simulation. Default: zero (no gravity).
     /// For Y-down coordinate systems, use positive Y for downward gravity.
     #[cfg(feature = "physics")]
@@ -64,6 +67,7 @@ impl Default for GameConfig {
             #[cfg(feature = "vectors")]
             max_vector_vertices: 16384,
             max_layer_batches: DEFAULT_MAX_LAYER_BATCHES,
+            max_lights: DEFAULT_MAX_LIGHTS,
             #[cfg(feature = "physics")]
             gravity: glam::Vec2::ZERO,
         }
@@ -95,6 +99,8 @@ pub struct EngineContext {
     pub events: Vec<GameEvent>,
     next_id: u32,
     sprite_registry: SpriteRegistry,
+    /// Dynamic lighting state — persistent lights and ambient color.
+    pub lights: LightState,
     /// Bitmask of layers marked for baking (bits 0-5 correspond to RenderLayer variants).
     baked_layers: u8,
     /// Monotonic counter incremented on every bake/invalidate call.
@@ -117,6 +123,7 @@ impl EngineContext {
             events: Vec::new(),
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
+            lights: LightState::new(),
             baked_layers: 0,
             bake_generation: 0,
             #[cfg(feature = "vectors")]
@@ -138,6 +145,7 @@ impl EngineContext {
             events: Vec::new(),
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
+            lights: LightState::new(),
             baked_layers: 0,
             bake_generation: 0,
             #[cfg(feature = "vectors")]

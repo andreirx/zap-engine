@@ -24,6 +24,8 @@ pub use bridge::protocol::ProtocolLayout;
 pub use systems::effects::{EffectsState, ElectricArc, Particle, SegmentColor, DebugLine};
 pub use systems::render::LayerBatch;
 pub use systems::text::FontConfig;
+pub use systems::lighting::{PointLight, LightState};
+pub use bridge::protocol::{LIGHT_FLOATS, DEFAULT_MAX_LIGHTS};
 #[cfg(feature = "physics")]
 pub use systems::debug::debug_draw_colliders;
 pub use components::emitter::{EmitterComponent, EmissionMode, ParticleColorMode};

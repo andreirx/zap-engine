@@ -589,3 +589,51 @@ fn update(&mut self, ctx: &mut EngineContext, input: &InputQueue) {
 - **Pro:** Works on both WebGPU (GPU textures) and Canvas2D (OffscreenCanvas)
 - **Con:** Each baked layer costs one GPU texture of screen size (~16MB at 1080p rgba16float)
 - **Con:** Generation-based dirty tracking may cause unnecessary re-renders of other baked layers on invalidation (acceptable for rare events like terrain edits)
+
+## ADR-020: Dynamic Point Light System
+
+**Date:** 2026-02-06
+**Status:** Accepted
+
+### Context
+2D games benefit from dynamic lighting for atmosphere (torches, explosions, day/night). We need a lighting system that integrates with the existing render layer and baking infrastructure.
+
+### Decision
+Implemented a 2D point light system with fullscreen post-process lighting:
+
+- **PointLight struct** (8 floats / 32 bytes, `#[repr(C)]`): `x, y, r, g, b, intensity, radius, layer_mask`
+- **LightState**: Persistent lights (not cleared per-frame) with ambient RGB color
+- **Protocol extension**: Header 22 → 28 floats (MAX_LIGHTS, LIGHT_COUNT, AMBIENT_R/G/B, reserved), protocol version 4.0
+- **New SAB section**: `[Lights: max_lights × 8 floats]` after LayerBatches
+- **Lighting shader** (`lighting.wgsl`): Fullscreen triangle post-process with smooth quadratic falloff `(1 - d/r)^2`
+- **Two-target rendering**: When lighting active, scene renders to scratch texture first, then lighting pass composites to screen
+- **Default ambient**: `(1.0, 1.0, 1.0)` — full white produces unlit output (backward compatible)
+
+### Alternatives Considered
+- **Per-layer lighting pass**: More accurate layer_mask support but significantly more complex. Deferred to a future iteration.
+- **Deferred shading with G-buffer**: Overkill for 2D; the fullscreen post-process approach is simpler and sufficient.
+- **Clearing lights each frame**: Rejected — persistent lights match the entity model (spawn once, update position) and avoid boilerplate.
+
+### Usage
+```rust
+fn init(&mut self, ctx: &mut EngineContext) {
+    ctx.lights.set_ambient(0.1, 0.1, 0.15);
+    ctx.lights.add(PointLight::new(Vec2::new(400.0, 300.0), [1.0, 0.8, 0.6], 2.0, 200.0));
+}
+
+fn update(&mut self, ctx: &mut EngineContext, input: &InputQueue) {
+    // Move light with entity
+    for light in ctx.lights.iter_mut() {
+        light.x = player_pos.x;
+        light.y = player_pos.y;
+    }
+}
+```
+
+### Consequences
+- **Pro:** Zero visual change for games that don't use lighting (ambient defaults to white)
+- **Pro:** HDR-compatible — intensity > 1.0 produces natural bloom on HDR/EDR displays
+- **Pro:** Persistent lights avoid per-frame allocation; retain/clear for lifecycle management
+- **Pro:** layer_mask field ready for future per-layer lighting
+- **Con:** Fullscreen post-process adds one extra render pass when lights are active
+- **Con:** Scratch texture costs ~16MB at 1080p rgba16float when lighting is active

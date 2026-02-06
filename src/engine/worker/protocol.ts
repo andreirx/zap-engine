@@ -5,7 +5,7 @@
 // TypeScript reads them from the header to compute offsets dynamically.
 
 /** Number of floats in the header section. */
-export const HEADER_FLOATS = 22;
+export const HEADER_FLOATS = 28;
 
 /** Header field indices. */
 export const HEADER_LOCK = 0;
@@ -32,9 +32,16 @@ export const HEADER_LAYER_BATCH_COUNT = 19;
 export const HEADER_LAYER_BATCH_OFFSET = 20;
 /** Encoded bake state: baked_layers_mask | (bake_generation << 6). */
 export const HEADER_BAKE_STATE = 21;
+// Phase 9: Dynamic lighting
+export const HEADER_MAX_LIGHTS = 22;
+export const HEADER_LIGHT_COUNT = 23;
+export const HEADER_AMBIENT_R = 24;
+export const HEADER_AMBIENT_G = 25;
+export const HEADER_AMBIENT_B = 26;
+export const HEADER_RESERVED_27 = 27;
 
 /** Protocol version written into the header. */
-export const PROTOCOL_VERSION = 3.0;
+export const PROTOCOL_VERSION = 4.0;
 
 /** Floats per render instance (wire format — never changes). */
 export const INSTANCE_FLOATS = 8;
@@ -54,8 +61,14 @@ export const VECTOR_VERTEX_FLOATS = 6;
 /** Floats per layer batch descriptor: layer_id, start, end, atlas_split. */
 export const LAYER_BATCH_FLOATS = 4;
 
+/** Floats per point light: x, y, r, g, b, intensity, radius, layer_mask. */
+export const LIGHT_FLOATS = 8;
+
 /** Default maximum layer batches (one per RenderLayer). */
 export const DEFAULT_MAX_LAYER_BATCHES = 6;
+
+/** Default maximum point lights. */
+export const DEFAULT_MAX_LIGHTS = 64;
 
 /**
  * Runtime-computed buffer layout. Replaces the old compile-time MAX_* constants.
@@ -69,6 +82,7 @@ export class ProtocolLayout {
   readonly maxSdfInstances: number;
   readonly maxVectorVertices: number;
   readonly maxLayerBatches: number;
+  readonly maxLights: number;
 
   readonly instanceDataFloats: number;
   readonly effectsDataFloats: number;
@@ -77,6 +91,7 @@ export class ProtocolLayout {
   readonly sdfDataFloats: number;
   readonly vectorDataFloats: number;
   readonly layerBatchDataFloats: number;
+  readonly lightDataFloats: number;
 
   readonly instanceDataOffset: number;
   readonly effectsDataOffset: number;
@@ -85,6 +100,7 @@ export class ProtocolLayout {
   readonly sdfDataOffset: number;
   readonly vectorDataOffset: number;
   readonly layerBatchDataOffset: number;
+  readonly lightDataOffset: number;
 
   readonly bufferTotalFloats: number;
   readonly bufferTotalBytes: number;
@@ -97,6 +113,7 @@ export class ProtocolLayout {
     maxSdfInstances: number = 128,
     maxVectorVertices: number = 0,
     maxLayerBatches: number = DEFAULT_MAX_LAYER_BATCHES,
+    maxLights: number = DEFAULT_MAX_LIGHTS,
   ) {
     this.maxInstances = maxInstances;
     this.maxEffectsVertices = maxEffectsVertices;
@@ -105,6 +122,7 @@ export class ProtocolLayout {
     this.maxSdfInstances = maxSdfInstances;
     this.maxVectorVertices = maxVectorVertices;
     this.maxLayerBatches = maxLayerBatches;
+    this.maxLights = maxLights;
 
     this.instanceDataFloats = maxInstances * INSTANCE_FLOATS;
     this.effectsDataFloats = maxEffectsVertices * EFFECTS_VERTEX_FLOATS;
@@ -113,6 +131,7 @@ export class ProtocolLayout {
     this.sdfDataFloats = maxSdfInstances * SDF_INSTANCE_FLOATS;
     this.vectorDataFloats = maxVectorVertices * VECTOR_VERTEX_FLOATS;
     this.layerBatchDataFloats = maxLayerBatches * LAYER_BATCH_FLOATS;
+    this.lightDataFloats = maxLights * LIGHT_FLOATS;
 
     this.instanceDataOffset = HEADER_FLOATS;
     this.effectsDataOffset = this.instanceDataOffset + this.instanceDataFloats;
@@ -121,8 +140,9 @@ export class ProtocolLayout {
     this.sdfDataOffset = this.eventDataOffset + this.eventDataFloats;
     this.vectorDataOffset = this.sdfDataOffset + this.sdfDataFloats;
     this.layerBatchDataOffset = this.vectorDataOffset + this.vectorDataFloats;
+    this.lightDataOffset = this.layerBatchDataOffset + this.layerBatchDataFloats;
 
-    this.bufferTotalFloats = this.layerBatchDataOffset + this.layerBatchDataFloats;
+    this.bufferTotalFloats = this.lightDataOffset + this.lightDataFloats;
     this.bufferTotalBytes = this.bufferTotalFloats * 4;
   }
 
@@ -136,6 +156,7 @@ export class ProtocolLayout {
       f32[HEADER_MAX_SDF_INSTANCES],
       f32[HEADER_MAX_VECTOR_VERTICES],
       f32[HEADER_MAX_LAYER_BATCHES],
+      f32[HEADER_MAX_LIGHTS],
     );
   }
 
@@ -148,6 +169,7 @@ export class ProtocolLayout {
     get_max_sdf_instances: () => number;
     get_max_vector_vertices?: () => number;
     get_max_layer_batches?: () => number;
+    get_max_lights?: () => number;
   }): ProtocolLayout {
     return new ProtocolLayout(
       exports.get_max_instances(),
@@ -157,6 +179,7 @@ export class ProtocolLayout {
       exports.get_max_sdf_instances(),
       exports.get_max_vector_vertices?.() ?? 0,
       exports.get_max_layer_batches?.() ?? DEFAULT_MAX_LAYER_BATCHES,
+      exports.get_max_lights?.() ?? DEFAULT_MAX_LIGHTS,
     );
   }
 }

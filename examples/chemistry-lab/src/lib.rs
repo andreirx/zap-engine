@@ -213,3 +213,33 @@ pub fn get_layer_batch_data_offset() -> u32 {
 pub fn get_bake_state() -> f32 {
     with_runner(|r| r.bake_state())
 }
+
+#[wasm_bindgen]
+pub fn get_lights_ptr() -> *const f32 {
+    with_runner(|r| r.lights_ptr())
+}
+
+#[wasm_bindgen]
+pub fn get_light_count() -> u32 {
+    with_runner(|r| r.light_count())
+}
+
+#[wasm_bindgen]
+pub fn get_max_lights() -> u32 {
+    with_runner(|r| r.max_lights())
+}
+
+#[wasm_bindgen]
+pub fn get_ambient_r() -> f32 {
+    with_runner(|r| r.ambient_r())
+}
+
+#[wasm_bindgen]
+pub fn get_ambient_g() -> f32 {
+    with_runner(|r| r.ambient_g())
+}
+
+#[wasm_bindgen]
+pub fn get_ambient_b() -> f32 {
+    with_runner(|r| r.ambient_b())
+}

@@ -3,7 +3,7 @@
 
 import { computeProjection } from './camera';
 import { SEGMENT_COLORS_RGB8 } from './constants';
-import type { Renderer, LayerBatchDescriptor, BakeState } from './types';
+import type { Renderer, LayerBatchDescriptor, BakeState, LightingState } from './types';
 import type { AssetManifest } from '../assets/manifest';
 import { createImageFromBlob } from '../assets/loader';
 
@@ -325,6 +325,7 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     vectorVertexCount?: number,
     layerBatches?: LayerBatchDescriptor[],
     bakeState?: BakeState,
+    _lightingState?: LightingState,
   ) {
     const w = canvas.width;
     const h = canvas.height;

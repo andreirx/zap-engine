@@ -17,6 +17,10 @@ import {
   HEADER_VECTOR_VERTEX_COUNT,
   HEADER_LAYER_BATCH_COUNT,
   HEADER_BAKE_STATE,
+  HEADER_LIGHT_COUNT,
+  HEADER_AMBIENT_R,
+  HEADER_AMBIENT_G,
+  HEADER_AMBIENT_B,
   HEADER_WORLD_WIDTH,
   HEADER_WORLD_HEIGHT,
   INSTANCE_FLOATS,
@@ -24,10 +28,11 @@ import {
   SDF_INSTANCE_FLOATS,
   VECTOR_VERTEX_FLOATS,
   LAYER_BATCH_FLOATS,
+  LIGHT_FLOATS,
   ProtocolLayout,
   SoundManager,
 } from '../index';
-import type { Renderer, SoundConfig, LayerBatchDescriptor, BakeState } from '../index';
+import type { Renderer, SoundConfig, LayerBatchDescriptor, BakeState, LightingState } from '../index';
 
 /** Game event forwarded from the worker. */
 export interface GameEvent {
@@ -364,7 +369,33 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
           };
         }
 
-        renderer.draw(instanceData, instanceCount, atlasSplit, effectsData, effectsVertexCount, sdfData, sdfInstanceCount, vectorData, vectorVertexCount, layerBatches, bakeState);
+        // Decode lighting state from SAB
+        let lightingState: LightingState | undefined;
+        const lightCount = buf[HEADER_LIGHT_COUNT] ?? 0;
+        if (lightCount > 0) {
+          lightingState = {
+            lightData: buf.subarray(
+              layout.lightDataOffset,
+              layout.lightDataOffset + lightCount * LIGHT_FLOATS,
+            ),
+            lightCount,
+            ambient: [buf[HEADER_AMBIENT_R], buf[HEADER_AMBIENT_G], buf[HEADER_AMBIENT_B]],
+          };
+        } else {
+          // Even with no lights, pass ambient if it's not default white
+          const ar = buf[HEADER_AMBIENT_R] ?? 1.0;
+          const ag = buf[HEADER_AMBIENT_G] ?? 1.0;
+          const ab = buf[HEADER_AMBIENT_B] ?? 1.0;
+          if (ar < 1.0 || ag < 1.0 || ab < 1.0) {
+            lightingState = {
+              lightData: new Float32Array(0),
+              lightCount: 0,
+              ambient: [ar, ag, ab],
+            };
+          }
+        }
+
+        renderer.draw(instanceData, instanceCount, atlasSplit, effectsData, effectsVertexCount, sdfData, sdfInstanceCount, vectorData, vectorVertexCount, layerBatches, bakeState, lightingState);
       }
     }
 

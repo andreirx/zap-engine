@@ -23,6 +23,16 @@ export interface BakeState {
   bakeGen: number;
 }
 
+/** Lighting state decoded from SAB header + light data section. */
+export interface LightingState {
+  /** Flat f32 array of point lights (8 floats each: x, y, r, g, b, intensity, radius, layer_mask). */
+  lightData: Float32Array;
+  /** Number of active lights. */
+  lightCount: number;
+  /** Ambient light RGB. */
+  ambient: [number, number, number];
+}
+
 export interface Renderer {
   /** The active backend: 'webgpu' for HDR/EDR, 'canvas2d' for fallback. */
   backend: 'webgpu' | 'canvas2d';
@@ -43,6 +53,7 @@ export interface Renderer {
    * @param vectorVertexCount Total vector vertices
    * @param layerBatches  Optional layer batch descriptors for layered rendering
    * @param bakeState     Optional bake state for layer caching
+   * @param lightingState Optional dynamic lighting data (point lights + ambient)
    */
   draw: (
     instanceData: Float32Array,
@@ -56,6 +67,7 @@ export interface Renderer {
     vectorVertexCount?: number,
     layerBatches?: LayerBatchDescriptor[],
     bakeState?: BakeState,
+    lightingState?: LightingState,
   ) => void;
 
   /** Handle canvas resize. */

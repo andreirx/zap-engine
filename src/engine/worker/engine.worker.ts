@@ -25,6 +25,11 @@ import {
   HEADER_LAYER_BATCH_COUNT,
   HEADER_LAYER_BATCH_OFFSET,
   HEADER_BAKE_STATE,
+  HEADER_MAX_LIGHTS,
+  HEADER_LIGHT_COUNT,
+  HEADER_AMBIENT_R,
+  HEADER_AMBIENT_G,
+  HEADER_AMBIENT_B,
   PROTOCOL_VERSION,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
@@ -32,6 +37,7 @@ import {
   SDF_INSTANCE_FLOATS,
   VECTOR_VERTEX_FLOATS,
   LAYER_BATCH_FLOATS,
+  LIGHT_FLOATS,
   ProtocolLayout,
 } from './protocol';
 import { computeProjection } from '../renderer/camera';
@@ -77,6 +83,13 @@ interface GameWasmExports {
   get_layer_batch_data_offset?: () => number;
   // Bake state export
   get_bake_state?: () => number;
+  // Lighting exports
+  get_lights_ptr?: () => number;
+  get_light_count?: () => number;
+  get_max_lights?: () => number;
+  get_ambient_r?: () => number;
+  get_ambient_g?: () => number;
+  get_ambient_b?: () => number;
 }
 
 const HAS_SAB = typeof SharedArrayBuffer !== 'undefined';
@@ -154,6 +167,13 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     get_layer_batch_data_offset: mod.get_layer_batch_data_offset,
     // Bake state export
     get_bake_state: mod.get_bake_state,
+    // Lighting exports
+    get_lights_ptr: mod.get_lights_ptr,
+    get_light_count: mod.get_light_count,
+    get_max_lights: mod.get_max_lights,
+    get_ambient_r: mod.get_ambient_r,
+    get_ambient_g: mod.get_ambient_g,
+    get_ambient_b: mod.get_ambient_b,
   };
 
   wasm.game_init();
@@ -185,6 +205,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_MAX_VECTOR_VERTICES] = layout.maxVectorVertices;
     sharedF32[HEADER_MAX_LAYER_BATCHES] = layout.maxLayerBatches;
     sharedF32[HEADER_LAYER_BATCH_OFFSET] = layout.layerBatchDataOffset;
+    sharedF32[HEADER_MAX_LIGHTS] = layout.maxLights;
 
     self.postMessage({ type: 'ready', sharedBuffer });
   } else {
@@ -203,6 +224,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_MAX_VECTOR_VERTICES] = layout.maxVectorVertices;
     sharedF32[HEADER_MAX_LAYER_BATCHES] = layout.maxLayerBatches;
     sharedF32[HEADER_LAYER_BATCH_OFFSET] = layout.layerBatchDataOffset;
+    sharedF32[HEADER_MAX_LIGHTS] = layout.maxLights;
 
     self.postMessage({
       type: 'ready',
@@ -213,6 +235,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
       maxSdfInstances: layout.maxSdfInstances,
       maxVectorVertices: layout.maxVectorVertices,
       maxLayerBatches: layout.maxLayerBatches,
+      maxLights: layout.maxLights,
     });
   }
 }
@@ -235,6 +258,9 @@ function gameLoop() {
     const layerBatchCount = wasm.get_layer_batch_count
       ? Math.min(wasm.get_layer_batch_count(), layout.maxLayerBatches)
       : 0;
+    const lightCount = wasm.get_light_count
+      ? Math.min(wasm.get_light_count(), layout.maxLights)
+      : 0;
 
     // Write header
     sharedF32[HEADER_FRAME_COUNTER] += 1;
@@ -249,6 +275,10 @@ function gameLoop() {
     sharedF32[HEADER_VECTOR_VERTEX_COUNT] = vectorVertexCount;
     sharedF32[HEADER_LAYER_BATCH_COUNT] = layerBatchCount;
     sharedF32[HEADER_BAKE_STATE] = wasm.get_bake_state?.() ?? 0;
+    sharedF32[HEADER_LIGHT_COUNT] = lightCount;
+    sharedF32[HEADER_AMBIENT_R] = wasm.get_ambient_r?.() ?? 1.0;
+    sharedF32[HEADER_AMBIENT_G] = wasm.get_ambient_g?.() ?? 1.0;
+    sharedF32[HEADER_AMBIENT_B] = wasm.get_ambient_b?.() ?? 1.0;
 
     // Copy instance data
     if (instanceCount > 0) {
@@ -283,6 +313,13 @@ function gameLoop() {
       const ptr = wasm.get_layer_batches_ptr();
       const batchData = new Float32Array(wasmMemory.buffer, ptr, layerBatchCount * LAYER_BATCH_FLOATS);
       sharedF32.set(batchData, layout.layerBatchDataOffset);
+    }
+
+    // Copy light data
+    if (lightCount > 0 && wasm.get_lights_ptr) {
+      const ptr = wasm.get_lights_ptr();
+      const lightData = new Float32Array(wasmMemory.buffer, ptr, lightCount * LIGHT_FLOATS);
+      sharedF32.set(lightData, layout.lightDataOffset);
     }
 
     // Forward sound events
