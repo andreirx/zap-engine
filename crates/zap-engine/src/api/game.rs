@@ -3,9 +3,11 @@ use crate::api::types::{EntityId, SoundEvent, GameEvent};
 use crate::input::queue::InputQueue;
 use crate::renderer::instance::RenderBuffer;
 use crate::systems::effects::EffectsState;
+use crate::systems::text::{FontConfig, build_text_entities, despawn_text};
 use crate::assets::manifest::AssetManifest;
 use crate::assets::registry::SpriteRegistry;
 use crate::components::sprite::SpriteComponent;
+use glam::Vec2;
 #[cfg(feature = "physics")]
 use crate::core::physics::{
     PhysicsWorld, BodyDesc, ColliderMaterial, CollisionPair,
@@ -13,8 +15,8 @@ use crate::core::physics::{
 };
 #[cfg(feature = "physics")]
 use crate::components::entity::Entity;
-#[cfg(feature = "physics")]
-use glam::Vec2;
+#[cfg(feature = "vectors")]
+use crate::systems::vector::VectorState;
 
 /// Configuration for the engine, provided by the game.
 #[derive(Debug, Clone)]
@@ -35,6 +37,9 @@ pub struct GameConfig {
     pub max_events: usize,
     /// Maximum number of SDF instances (default: 128).
     pub max_sdf_instances: usize,
+    /// Maximum number of vector vertices (default: 16384).
+    #[cfg(feature = "vectors")]
+    pub max_vector_vertices: usize,
     /// Gravity vector for physics simulation. Default: zero (no gravity).
     /// For Y-down coordinate systems, use positive Y for downward gravity.
     #[cfg(feature = "physics")]
@@ -52,6 +57,8 @@ impl Default for GameConfig {
             max_sounds: 32,
             max_events: 32,
             max_sdf_instances: 128,
+            #[cfg(feature = "vectors")]
+            max_vector_vertices: 16384,
             #[cfg(feature = "physics")]
             gravity: glam::Vec2::ZERO,
         }
@@ -83,6 +90,8 @@ pub struct EngineContext {
     pub events: Vec<GameEvent>,
     next_id: u32,
     sprite_registry: SpriteRegistry,
+    #[cfg(feature = "vectors")]
+    pub vectors: VectorState,
     #[cfg(feature = "physics")]
     pub physics: PhysicsWorld,
     #[cfg(feature = "physics")]
@@ -98,6 +107,8 @@ impl EngineContext {
             events: Vec::new(),
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
+            #[cfg(feature = "vectors")]
+            vectors: VectorState::new(),
             #[cfg(feature = "physics")]
             physics: PhysicsWorld::new(Vec2::ZERO),
             #[cfg(feature = "physics")]
@@ -115,6 +126,8 @@ impl EngineContext {
             events: Vec::new(),
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
+            #[cfg(feature = "vectors")]
+            vectors: VectorState::new(),
             physics: PhysicsWorld::new(gravity),
             collision_events: Vec::new(),
         }
@@ -151,12 +164,54 @@ impl EngineContext {
         self.events.push(event);
     }
 
-    /// Clear per-frame transient data (sounds, events, collision events).
+    /// Clear per-frame transient data (sounds, events, collision events, vectors).
     pub fn clear_frame_data(&mut self) {
         self.sounds.clear();
         self.events.clear();
+        #[cfg(feature = "vectors")]
+        self.vectors.clear();
         #[cfg(feature = "physics")]
         self.collision_events.clear();
+    }
+
+    // -- Text convenience methods --
+
+    /// Spawn text as a series of character entities.
+    ///
+    /// Each printable character becomes an Entity with a SpriteComponent.
+    /// Characters outside the font's range are skipped.
+    /// All character entities share the given `tag` for batch despawn.
+    ///
+    /// Returns the EntityIds of all spawned characters.
+    pub fn spawn_text(
+        &mut self,
+        text: &str,
+        pos: Vec2,
+        size: f32,
+        font: &FontConfig,
+        tag: &str,
+    ) -> Vec<EntityId> {
+        // Use borrow-split pattern to avoid conflict between next_id() and scene.spawn()
+        let mut next = self.next_id;
+        let entities = build_text_entities(text, pos, size, font, tag, &mut || {
+            let id = EntityId(next);
+            next += 1;
+            id
+        });
+        self.next_id = next;
+
+        let ids: Vec<EntityId> = entities.iter().map(|e| e.id).collect();
+        for entity in entities {
+            self.scene.spawn(entity);
+        }
+        ids
+    }
+
+    /// Despawn all entities with the given tag.
+    ///
+    /// Useful for removing text that was spawned with a shared tag.
+    pub fn despawn_text(&mut self, tag: &str) {
+        despawn_text(&mut self.scene, tag);
     }
 
     // -- Physics convenience methods --

@@ -19,6 +19,8 @@ export interface Renderer {
    * @param effectsVertexCount Total effect vertices
    * @param sdfData       Optional flat float array of SDF instances (12 floats each)
    * @param sdfInstanceCount Total SDF instances
+   * @param vectorData    Optional flat float array of vector vertices (6 floats each: x, y, r, g, b, a)
+   * @param vectorVertexCount Total vector vertices
    */
   draw: (
     instanceData: Float32Array,
@@ -28,6 +30,8 @@ export interface Renderer {
     effectsVertexCount?: number,
     sdfData?: Float32Array,
     sdfInstanceCount?: number,
+    vectorData?: Float32Array,
+    vectorVertexCount?: number,
   ) => void;
 
   /** Handle canvas resize. */

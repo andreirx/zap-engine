@@ -8,8 +8,9 @@ description = "WASM bridge for ZapEngine — connects Rust game logic to the bro
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["physics"]
+default = ["physics", "vectors"]
 physics = ["zap-engine/physics"]
+vectors = ["zap-engine/vectors"]
 
 [dependencies]
 zap-engine = { path = "../zap-engine", default-features = false }

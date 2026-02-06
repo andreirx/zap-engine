@@ -21,6 +21,7 @@ pub use assets::manifest::AssetManifest;
 pub use assets::registry::SpriteRegistry;
 pub use bridge::protocol::ProtocolLayout;
 pub use systems::effects::{EffectsState, ElectricArc, Particle, SegmentColor, DebugLine};
+pub use systems::text::FontConfig;
 #[cfg(feature = "physics")]
 pub use systems::debug::debug_draw_colliders;
 pub use components::emitter::{EmitterComponent, EmissionMode, ParticleColorMode};
@@ -33,3 +34,6 @@ pub use core::physics::{
     ColliderDesc, ColliderMaterial, CollisionPair,
     JointHandle, JointDesc,
 };
+
+#[cfg(feature = "vectors")]
+pub use systems::vector::{VectorState, VectorVertex, VectorColor};

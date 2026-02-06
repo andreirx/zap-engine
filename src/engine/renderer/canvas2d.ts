@@ -10,6 +10,7 @@ import { createImageFromBlob } from '../assets/loader';
 const INSTANCE_FLOATS = 8;
 const EFFECTS_VERTEX_FLOATS = 5;
 const SDF_INSTANCE_FLOATS = 12;
+const VECTOR_VERTEX_FLOATS = 6;
 
 export interface Canvas2DRendererConfig {
   canvas: HTMLCanvasElement;
@@ -241,6 +242,36 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     }
   }
 
+  function drawVectorTriangle(
+    c: CanvasRenderingContext2D,
+    data: Float32Array,
+    v0Index: number,
+  ) {
+    const off0 = v0Index * VECTOR_VERTEX_FLOATS;
+    const off1 = (v0Index + 1) * VECTOR_VERTEX_FLOATS;
+    const off2 = (v0Index + 2) * VECTOR_VERTEX_FLOATS;
+
+    const x0 = data[off0], y0 = data[off0 + 1];
+    const x1 = data[off1], y1 = data[off1 + 1];
+    const x2 = data[off2], y2 = data[off2 + 1];
+
+    // Average the vertex colors (simple flat shading)
+    const r = Math.round(((data[off0 + 2] + data[off1 + 2] + data[off2 + 2]) / 3) * 255);
+    const g = Math.round(((data[off0 + 3] + data[off1 + 3] + data[off2 + 3]) / 3) * 255);
+    const b = Math.round(((data[off0 + 4] + data[off1 + 4] + data[off2 + 4]) / 3) * 255);
+    const a = (data[off0 + 5] + data[off1 + 5] + data[off2 + 5]) / 3;
+
+    if (a < 0.01) return;
+
+    c.beginPath();
+    c.moveTo(x0, y0);
+    c.lineTo(x1, y1);
+    c.lineTo(x2, y2);
+    c.closePath();
+    c.fillStyle = `rgba(${r}, ${g}, ${b}, ${Math.min(a, 1).toFixed(3)})`;
+    c.fill();
+  }
+
   function draw(
     instanceData: Float32Array,
     instanceCount: number,
@@ -249,6 +280,8 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     effectsVertexCount?: number,
     sdfData?: Float32Array,
     sdfInstanceCount?: number,
+    vectorData?: Float32Array,
+    vectorVertexCount?: number,
   ) {
     const w = canvas.width;
     const h = canvas.height;
@@ -273,7 +306,17 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
       drawInstance(ctx!, instanceData, i * INSTANCE_FLOATS, secondAtlas);
     }
 
-    // SDF molecules (drawn between sprites and effects)
+    // Vector geometry (drawn between sprites and SDF)
+    const hasVectors = vectorData && vectorVertexCount && vectorVertexCount > 0;
+    if (hasVectors) {
+      ctx!.globalAlpha = 1;
+      const triCount = Math.floor(vectorVertexCount / 3);
+      for (let t = 0; t < triCount; t++) {
+        drawVectorTriangle(ctx!, vectorData, t * 3);
+      }
+    }
+
+    // SDF molecules (drawn between vectors and effects)
     const hasSdf = sdfData && sdfInstanceCount && sdfInstanceCount > 0;
     if (hasSdf) {
       ctx!.globalAlpha = 1;

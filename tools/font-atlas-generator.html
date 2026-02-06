@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZapEngine Font Atlas Generator</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #4ade80;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+        .controls {
+            background: #252540;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .control-group {
+            margin-bottom: 16px;
+        }
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: #aaa;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #1a1a2e;
+            color: #eee;
+            font-size: 14px;
+        }
+        input[type="color"] {
+            height: 40px;
+            cursor: pointer;
+        }
+        input[type="range"] {
+            cursor: pointer;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            background: #4ade80;
+            color: #1a1a2e;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #22c55e;
+        }
+        .preview {
+            background: #252540;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .preview h2 {
+            margin-bottom: 16px;
+            color: #4ade80;
+        }
+        .canvas-wrapper {
+            background: #000;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+            max-height: 500px;
+        }
+        #fontCanvas {
+            display: block;
+            image-rendering: pixelated;
+        }
+        .output {
+            margin-top: 20px;
+        }
+        .output h3 {
+            margin-bottom: 10px;
+            color: #4ade80;
+        }
+        pre {
+            background: #1a1a2e;
+            padding: 12px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .code-rust {
+            color: #f59e0b;
+        }
+        .code-json {
+            color: #60a5fa;
+        }
+        .info {
+            margin-top: 20px;
+            padding: 12px;
+            background: #1a1a2e;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #888;
+        }
+        .info code {
+            color: #4ade80;
+        }
+    </style>
+</head>
+<body>
+    <h1>ZapEngine Font Atlas Generator</h1>
+
+    <div class="container">
+        <div class="controls">
+            <div class="control-group">
+                <label for="fontFamily">Font Family</label>
+                <input type="text" id="fontFamily" value="monospace" placeholder="e.g., Arial, monospace">
+            </div>
+
+            <div class="control-group">
+                <label for="fontSize">Font Size (px)</label>
+                <input type="range" id="fontSize" min="8" max="64" value="24">
+                <span id="fontSizeValue">24</span>
+            </div>
+
+            <div class="control-group">
+                <label for="cellSize">Cell Size (px)</label>
+                <input type="range" id="cellSize" min="8" max="128" value="32">
+                <span id="cellSizeValue">32</span>
+            </div>
+
+            <div class="control-group">
+                <label for="fontColor">Text Color</label>
+                <input type="color" id="fontColor" value="#ffffff">
+            </div>
+
+            <div class="control-group">
+                <label for="bgColor">Background Color</label>
+                <input type="color" id="bgColor" value="#000000">
+            </div>
+
+            <div class="control-group">
+                <label for="transparent">
+                    <input type="checkbox" id="transparent" checked> Transparent Background
+                </label>
+            </div>
+
+            <div class="control-group">
+                <label for="startChar">Start Character (ASCII)</label>
+                <input type="number" id="startChar" value="32" min="0" max="127">
+            </div>
+
+            <div class="control-group">
+                <label for="cols">Columns</label>
+                <input type="number" id="cols" value="16" min="1" max="32">
+            </div>
+
+            <div class="control-group">
+                <label for="rows">Rows</label>
+                <input type="number" id="rows" value="6" min="1" max="16">
+            </div>
+
+            <button id="generate">Generate Atlas</button>
+            <br><br>
+            <button id="download">Download PNG</button>
+
+            <div class="info">
+                <p>Standard ASCII layout: 16 cols x 6 rows covers characters 32-127 (space through ~).</p>
+                <p>The atlas renders characters starting from <code>start_char</code> in row-major order.</p>
+            </div>
+        </div>
+
+        <div class="preview">
+            <h2>Preview</h2>
+            <div class="canvas-wrapper">
+                <canvas id="fontCanvas"></canvas>
+            </div>
+
+            <div class="output">
+                <h3>Rust FontConfig</h3>
+                <pre class="code-rust" id="rustCode"></pre>
+
+                <h3>Manifest JSON Entry</h3>
+                <pre class="code-json" id="jsonCode"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('fontCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const inputs = {
+            fontFamily: document.getElementById('fontFamily'),
+            fontSize: document.getElementById('fontSize'),
+            cellSize: document.getElementById('cellSize'),
+            fontColor: document.getElementById('fontColor'),
+            bgColor: document.getElementById('bgColor'),
+            transparent: document.getElementById('transparent'),
+            startChar: document.getElementById('startChar'),
+            cols: document.getElementById('cols'),
+            rows: document.getElementById('rows'),
+        };
+
+        const fontSizeValue = document.getElementById('fontSizeValue');
+        const cellSizeValue = document.getElementById('cellSizeValue');
+        const rustCode = document.getElementById('rustCode');
+        const jsonCode = document.getElementById('jsonCode');
+
+        function generate() {
+            const fontFamily = inputs.fontFamily.value || 'monospace';
+            const fontSize = parseInt(inputs.fontSize.value);
+            const cellSize = parseInt(inputs.cellSize.value);
+            const fontColor = inputs.fontColor.value;
+            const bgColor = inputs.bgColor.value;
+            const transparent = inputs.transparent.checked;
+            const startChar = parseInt(inputs.startChar.value);
+            const cols = parseInt(inputs.cols.value);
+            const rows = parseInt(inputs.rows.value);
+
+            // Set canvas size
+            canvas.width = cols * cellSize;
+            canvas.height = rows * cellSize;
+
+            // Clear background
+            if (transparent) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            } else {
+                ctx.fillStyle = bgColor;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // Setup font
+            ctx.fillStyle = fontColor;
+            ctx.font = `${fontSize}px ${fontFamily}`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Draw characters
+            let charCode = startChar;
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    if (charCode > 127) break;
+
+                    const char = String.fromCharCode(charCode);
+                    const x = col * cellSize + cellSize / 2;
+                    const y = row * cellSize + cellSize / 2;
+
+                    ctx.fillText(char, x, y);
+                    charCode++;
+                }
+            }
+
+            // Update code snippets
+            rustCode.textContent = `let font = FontConfig {
+    atlas: AtlasId(1),  // Change to your font atlas index
+    cols: ${cols},
+    rows: ${rows},
+    start_char: ${startChar},
+    spacing: 0.55,  // Adjust for character width
+};`;
+
+            jsonCode.textContent = `{
+  "atlases": [
+    { "name": "tiles", "cols": 16, "rows": 8, "path": "tiles.png" },
+    { "name": "font", "cols": ${cols}, "rows": ${rows}, "path": "font.png" }
+  ],
+  "sprites": { ... }
+}`;
+        }
+
+        function download() {
+            const link = document.createElement('a');
+            link.download = 'font.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // Event listeners
+        document.getElementById('generate').addEventListener('click', generate);
+        document.getElementById('download').addEventListener('click', download);
+
+        inputs.fontSize.addEventListener('input', () => {
+            fontSizeValue.textContent = inputs.fontSize.value;
+        });
+
+        inputs.cellSize.addEventListener('input', () => {
+            cellSizeValue.textContent = inputs.cellSize.value;
+        });
+
+        // Auto-generate on input change
+        Object.values(inputs).forEach(input => {
+            input.addEventListener('change', generate);
+            input.addEventListener('input', () => {
+                if (input.type === 'range' || input.type === 'number' || input.type === 'text') {
+                    generate();
+                }
+            });
+        });
+
+        // Initial generation
+        generate();
+    </script>
+</body>
+</html>

@@ -8,8 +8,9 @@ description = "High-performance headless game engine for the web (Rust/WASM + We
 crate-type = ["rlib"]
 
 [features]
-default = ["physics"]
+default = ["physics", "vectors"]
 physics = ["dep:rapier2d"]
+vectors = ["dep:lyon"]
 
 [dependencies]
 glam = { version = "0.30", features = ["bytemuck"] }
@@ -18,3 +19,4 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rapier2d = { version = "0.22", features = ["wasm-bindgen"], optional = true }
+lyon = { version = "1.0", optional = true }

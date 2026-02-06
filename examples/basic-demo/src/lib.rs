@@ -168,3 +168,21 @@ pub fn get_sdf_instance_count() -> u32 {
 pub fn get_max_sdf_instances() -> u32 {
     with_runner(|r| r.max_sdf_instances())
 }
+
+#[cfg(feature = "vectors")]
+#[wasm_bindgen]
+pub fn get_vector_vertices_ptr() -> *const f32 {
+    with_runner(|r| r.vector_vertices_ptr())
+}
+
+#[cfg(feature = "vectors")]
+#[wasm_bindgen]
+pub fn get_vector_vertex_count() -> u32 {
+    with_runner(|r| r.vector_vertex_count())
+}
+
+#[cfg(feature = "vectors")]
+#[wasm_bindgen]
+pub fn get_max_vector_vertices() -> u32 {
+    with_runner(|r| r.max_vector_vertices())
+}

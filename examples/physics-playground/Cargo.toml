@@ -8,8 +8,9 @@ description = "Angry Birds-style physics sandbox showcasing ZapEngine"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["physics"]
+default = ["physics", "vectors"]
 physics = ["zap-engine/physics", "zap-web/physics"]
+vectors = ["zap-engine/vectors", "zap-web/vectors"]
 
 [dependencies]
 zap-engine = { path = "../../crates/zap-engine", default-features = false }

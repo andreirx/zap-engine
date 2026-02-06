@@ -19,11 +19,14 @@ import {
   HEADER_PROTOCOL_VERSION,
   HEADER_MAX_SDF_INSTANCES,
   HEADER_SDF_INSTANCE_COUNT,
+  HEADER_MAX_VECTOR_VERTICES,
+  HEADER_VECTOR_VERTEX_COUNT,
   PROTOCOL_VERSION,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
   EVENT_FLOATS,
   SDF_INSTANCE_FLOATS,
+  VECTOR_VERTEX_FLOATS,
   ProtocolLayout,
 } from './protocol';
 import { computeProjection } from '../renderer/camera';
@@ -58,6 +61,10 @@ interface GameWasmExports {
   get_max_sdf_instances: () => number;
   game_custom_event?: (kind: number, a: number, b: number, c: number) => void;
   game_load_manifest?: (json: string) => void;
+  // Optional vector exports (feature-gated in Rust)
+  get_vector_vertices_ptr?: () => number;
+  get_vector_vertex_count?: () => number;
+  get_max_vector_vertices?: () => number;
 }
 
 const HAS_SAB = typeof SharedArrayBuffer !== 'undefined';
@@ -124,6 +131,10 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     get_max_sdf_instances: mod.get_max_sdf_instances,
     game_custom_event: mod.game_custom_event,
     game_load_manifest: mod.game_load_manifest,
+    // Optional vector exports (feature-gated)
+    get_vector_vertices_ptr: mod.get_vector_vertices_ptr,
+    get_vector_vertex_count: mod.get_vector_vertex_count,
+    get_max_vector_vertices: mod.get_max_vector_vertices,
   };
 
   wasm.game_init();
@@ -152,6 +163,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_MAX_EVENTS] = layout.maxEvents;
     sharedF32[HEADER_PROTOCOL_VERSION] = PROTOCOL_VERSION;
     sharedF32[HEADER_MAX_SDF_INSTANCES] = layout.maxSdfInstances;
+    sharedF32[HEADER_MAX_VECTOR_VERTICES] = layout.maxVectorVertices;
 
     self.postMessage({ type: 'ready', sharedBuffer });
   } else {
@@ -167,6 +179,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_MAX_EVENTS] = layout.maxEvents;
     sharedF32[HEADER_PROTOCOL_VERSION] = PROTOCOL_VERSION;
     sharedF32[HEADER_MAX_SDF_INSTANCES] = layout.maxSdfInstances;
+    sharedF32[HEADER_MAX_VECTOR_VERTICES] = layout.maxVectorVertices;
 
     self.postMessage({
       type: 'ready',
@@ -175,6 +188,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
       maxSounds: layout.maxSounds,
       maxEvents: layout.maxEvents,
       maxSdfInstances: layout.maxSdfInstances,
+      maxVectorVertices: layout.maxVectorVertices,
     });
   }
 }
@@ -191,6 +205,9 @@ function gameLoop() {
     const soundLen = Math.min(wasm.get_sound_events_len(), layout.maxSounds);
     const eventLen = Math.min(wasm.get_game_events_len(), layout.maxEvents);
     const sdfCount = Math.min(wasm.get_sdf_instance_count(), layout.maxSdfInstances);
+    const vectorVertexCount = wasm.get_vector_vertex_count
+      ? Math.min(wasm.get_vector_vertex_count(), layout.maxVectorVertices)
+      : 0;
 
     // Write header
     sharedF32[HEADER_FRAME_COUNTER] += 1;
@@ -202,6 +219,7 @@ function gameLoop() {
     sharedF32[HEADER_SOUND_COUNT] = soundLen;
     sharedF32[HEADER_EVENT_COUNT] = eventLen;
     sharedF32[HEADER_SDF_INSTANCE_COUNT] = sdfCount;
+    sharedF32[HEADER_VECTOR_VERTEX_COUNT] = vectorVertexCount;
 
     // Copy instance data
     if (instanceCount > 0) {
@@ -222,6 +240,13 @@ function gameLoop() {
       const ptr = wasm.get_sdf_instances_ptr();
       const sdfData = new Float32Array(wasmMemory.buffer, ptr, sdfCount * SDF_INSTANCE_FLOATS);
       sharedF32.set(sdfData, layout.sdfDataOffset);
+    }
+
+    // Copy vector vertex data
+    if (vectorVertexCount > 0 && wasm.get_vector_vertices_ptr) {
+      const ptr = wasm.get_vector_vertices_ptr();
+      const vectorData = new Float32Array(wasmMemory.buffer, ptr, vectorVertexCount * VECTOR_VERTEX_FLOATS);
+      sharedF32.set(vectorData, layout.vectorDataOffset);
     }
 
     // Forward sound events

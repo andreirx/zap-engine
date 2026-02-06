@@ -205,4 +205,21 @@ impl<G: Game> GameRunner<G> {
     pub fn max_sdf_instances(&self) -> u32 {
         self.layout.max_sdf_instances as u32
     }
+
+    // ---- Vector accessors ----
+
+    #[cfg(feature = "vectors")]
+    pub fn vector_vertices_ptr(&self) -> *const f32 {
+        self.ctx.vectors.buffer_ptr()
+    }
+
+    #[cfg(feature = "vectors")]
+    pub fn vector_vertex_count(&self) -> u32 {
+        self.ctx.vectors.vertex_count() as u32
+    }
+
+    #[cfg(feature = "vectors")]
+    pub fn max_vector_vertices(&self) -> u32 {
+        self.layout.max_vector_vertices as u32
+    }
 }

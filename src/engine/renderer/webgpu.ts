@@ -4,6 +4,7 @@
 
 import shaderSource from './shaders.wgsl?raw';
 import sdfShaderSource from './molecule.wgsl?raw';
+import vectorShaderSource from './vector.wgsl?raw';
 import { buildProjectionMatrix } from './camera';
 import { packColorsForGPU } from './constants';
 import type { Renderer, RenderTier } from './types';
@@ -20,10 +21,15 @@ const EFFECTS_VERTEX_BYTES = EFFECTS_VERTEX_FLOATS * 4;
 const SDF_INSTANCE_FLOATS = 12;
 const SDF_INSTANCE_STRIDE = SDF_INSTANCE_FLOATS * 4;
 
+// Vector vertex: 6 floats = 24 bytes (x, y, r, g, b, a)
+const VECTOR_VERTEX_FLOATS = 6;
+const VECTOR_VERTEX_BYTES = VECTOR_VERTEX_FLOATS * 4;
+
 // Default capacities (matching GameConfig::default())
 const DEFAULT_MAX_INSTANCES = 512;
 const DEFAULT_MAX_EFFECTS_VERTICES = 16384;
 const DEFAULT_MAX_SDF_INSTANCES = 128;
+const DEFAULT_MAX_VECTOR_VERTICES = 16384;
 
 export interface WebGPURendererConfig {
   canvas: HTMLCanvasElement;
@@ -37,6 +43,8 @@ export interface WebGPURendererConfig {
   maxEffectsVertices?: number;
   /** Max SDF instances for GPU buffer allocation (default: 128). */
   maxSdfInstances?: number;
+  /** Max vector vertices for GPU buffer allocation (default: 16384). */
+  maxVectorVertices?: number;
 }
 
 export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<Renderer> {
@@ -49,6 +57,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     maxInstances = DEFAULT_MAX_INSTANCES,
     maxEffectsVertices = DEFAULT_MAX_EFFECTS_VERTICES,
     maxSdfInstances = DEFAULT_MAX_SDF_INSTANCES,
+    maxVectorVertices = DEFAULT_MAX_VECTOR_VERTICES,
   } = config;
 
   // ---- GPU Init ----
@@ -211,6 +220,12 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
   });
 
+  // ---- Vector Vertex Buffer ----
+  const vectorBuffer = device.createBuffer({
+    size: VECTOR_VERTEX_BYTES * maxVectorVertices,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+
   // ---- Pipeline Layouts ----
   const tilePipelineLayout = device.createPipelineLayout({
     bindGroupLayouts: [cameraBindGroupLayout, textureBindGroupLayout, instanceBindGroupLayout],
@@ -325,6 +340,34 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     primitive: { topology: 'triangle-list' },
   });
 
+  // ---- Vector Pipeline (Lyon-tessellated geometry) ----
+  const vectorShaderModule = device.createShaderModule({ code: vectorShaderSource });
+
+  const vectorPipelineLayout = device.createPipelineLayout({
+    bindGroupLayouts: [cameraBindGroupLayout],
+  });
+
+  const vectorPipeline = device.createRenderPipeline({
+    layout: vectorPipelineLayout,
+    vertex: {
+      module: vectorShaderModule,
+      entryPoint: 'vs_vector',
+      buffers: [{
+        arrayStride: VECTOR_VERTEX_BYTES,
+        attributes: [
+          { shaderLocation: 0, offset: 0, format: 'float32x2' },   // position
+          { shaderLocation: 1, offset: 8, format: 'float32x4' },   // color
+        ],
+      }],
+    },
+    fragment: {
+      module: vectorShaderModule,
+      entryPoint: 'fs_vector',
+      targets: alphaBlendTargets,
+    },
+    primitive: { topology: 'triangle-list' },
+  });
+
   // ---- Camera Projection ----
   function updateCamera(width: number, height: number) {
     device.queue.writeBuffer(cameraBuffer, 0, buildProjectionMatrix(width, height, gameWidth, gameHeight));
@@ -341,6 +384,8 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     effectsVertexCount?: number,
     sdfData?: Float32Array,
     sdfInstanceCount?: number,
+    vectorData?: Float32Array,
+    vectorVertexCount?: number,
   ) {
     const byteLen = instanceCount * INSTANCE_STRIDE;
     device.queue.writeBuffer(instanceBuffer, 0, instanceData.buffer, instanceData.byteOffset, byteLen);
@@ -355,6 +400,12 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     if (hasSdf) {
       const sdfByteLen = sdfInstanceCount * SDF_INSTANCE_STRIDE;
       device.queue.writeBuffer(sdfStorageBuffer, 0, sdfData.buffer, sdfData.byteOffset, sdfByteLen);
+    }
+
+    const hasVectors = vectorData && vectorVertexCount && vectorVertexCount > 0;
+    if (hasVectors) {
+      const vectorByteLen = vectorVertexCount * VECTOR_VERTEX_BYTES;
+      device.queue.writeBuffer(vectorBuffer, 0, vectorData.buffer, vectorData.byteOffset, vectorByteLen);
     }
 
     const encoder = device.createCommandEncoder();
@@ -395,7 +446,15 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       pass.draw(6, remainingCount, 0, atlasSplit);
     }
 
-    // SDF molecules (alpha blend, drawn between sprites and effects)
+    // Vector geometry (alpha blend, drawn between sprites and SDF)
+    if (hasVectors) {
+      pass.setPipeline(vectorPipeline);
+      pass.setBindGroup(0, cameraBindGroup);
+      pass.setVertexBuffer(0, vectorBuffer);
+      pass.draw(vectorVertexCount!);
+    }
+
+    // SDF molecules (alpha blend, drawn between vectors and effects)
     if (hasSdf) {
       pass.setPipeline(sdfPipeline);
       pass.setBindGroup(0, cameraBindGroup);

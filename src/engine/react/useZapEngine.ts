@@ -14,11 +14,13 @@ import {
   HEADER_ATLAS_SPLIT,
   HEADER_EFFECTS_VERTEX_COUNT,
   HEADER_SDF_INSTANCE_COUNT,
+  HEADER_VECTOR_VERTEX_COUNT,
   HEADER_WORLD_WIDTH,
   HEADER_WORLD_HEIGHT,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
   SDF_INSTANCE_FLOATS,
+  VECTOR_VERTEX_FLOATS,
   ProtocolLayout,
   SoundManager,
 } from '../index';
@@ -154,6 +156,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
               e.data.maxSounds,
               e.data.maxEvents,
               e.data.maxSdfInstances,
+              e.data.maxVectorVertices ?? 0,
             );
           }
 
@@ -172,6 +175,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
               maxInstances: layout.maxInstances,
               maxEffectsVertices: layout.maxEffectsVertices,
               maxSdfInstances: layout.maxSdfInstances,
+              maxVectorVertices: layout.maxVectorVertices,
             });
             if (cancelled) return;
             rendererRef.current = renderer;
@@ -298,8 +302,9 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       const atlasSplit = buf[HEADER_ATLAS_SPLIT];
       const effectsVertexCount = buf[HEADER_EFFECTS_VERTEX_COUNT];
       const sdfInstanceCount = buf[HEADER_SDF_INSTANCE_COUNT];
+      const vectorVertexCount = buf[HEADER_VECTOR_VERTEX_COUNT];
 
-      if (instanceCount > 0 || sdfInstanceCount > 0) {
+      if (instanceCount > 0 || sdfInstanceCount > 0 || vectorVertexCount > 0) {
         const instanceData = buf.subarray(
           layout.instanceDataOffset,
           layout.instanceDataOffset + instanceCount * INSTANCE_FLOATS,
@@ -321,7 +326,15 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
           );
         }
 
-        renderer.draw(instanceData, instanceCount, atlasSplit, effectsData, effectsVertexCount, sdfData, sdfInstanceCount);
+        let vectorData: Float32Array | undefined;
+        if (vectorVertexCount > 0) {
+          vectorData = buf.subarray(
+            layout.vectorDataOffset,
+            layout.vectorDataOffset + vectorVertexCount * VECTOR_VERTEX_FLOATS,
+          );
+        }
+
+        renderer.draw(instanceData, instanceCount, atlasSplit, effectsData, effectsVertexCount, sdfData, sdfInstanceCount, vectorData, vectorVertexCount);
       }
     }
 
