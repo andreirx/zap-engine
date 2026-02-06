@@ -15,7 +15,7 @@ const BLOCK_HALF_W: f32 = 20.0;
 const BLOCK_HALF_H: f32 = 20.0;
 const BLOCK_SIZE: f32 = BLOCK_HALF_W * 2.0;
 
-const SLING_X: f32 = 200.0;
+const SLING_X: f32 = 400.0;
 const SLING_Y: f32 = 450.0;
 const BALL_RADIUS: f32 = 15.0;
 const LAUNCH_SCALE: f32 = 4.0;
@@ -24,8 +24,10 @@ const TOWER_BASE_X: f32 = 800.0;
 const TOWER_ROWS: usize = 5;
 const TOWER_COLS: usize = 3;
 
-const SETTLED_FRAMES: u32 = 90;
-const SETTLED_VEL_THRESHOLD: f32 = 5.0;
+const SETTLED_FRAMES: u32 = 60;
+const SETTLED_VEL_THRESHOLD: f32 = 15.0;
+/// Maximum flight time before auto-respawn (frames). Prevents stuck projectiles.
+const MAX_FLIGHT_FRAMES: u32 = 600;
 
 /// Custom event kinds from React UI
 const CUSTOM_RESET: u32 = 1;
@@ -48,6 +50,7 @@ pub struct PhysicsPlayground {
     projectile_id: Option<EntityId>,
     block_ids: Vec<EntityId>,
     settled_counter: u32,
+    flight_timer: u32,
     score: u32,
 }
 
@@ -61,6 +64,7 @@ impl PhysicsPlayground {
             projectile_id: None,
             block_ids: Vec::new(),
             settled_counter: 0,
+            flight_timer: 0,
             score: 0,
         }
     }
@@ -142,11 +146,14 @@ impl PhysicsPlayground {
     }
 
     fn reset_level(&mut self, ctx: &mut EngineContext) {
-        // Despawn all entities except walls and ground
+        // Clear accumulated effects (arcs + particles)
+        ctx.effects.clear();
+
+        // Despawn all entities except walls, ground, and sling indicator
         let to_despawn: Vec<EntityId> = ctx.scene.iter()
             .filter(|e| {
                 let tag = e.tag.as_str();
-                tag != "wall" && tag != "ground"
+                tag != "wall" && tag != "ground" && tag != "sling"
             })
             .map(|e| e.id)
             .collect();
@@ -198,6 +205,7 @@ impl PhysicsPlayground {
         self.projectile_id = Some(id);
         self.state = GameState::Flying;
         self.settled_counter = 0;
+        self.flight_timer = 0;
     }
 
     fn count_knocked_blocks(&self, ctx: &EngineContext) -> u32 {
@@ -242,9 +250,29 @@ impl Game for PhysicsPlayground {
         Self::build_ground(ctx);
         Self::build_walls(ctx);
         self.build_tower(ctx);
+
+        // Sling origin indicator — semi-transparent marker showing where to drag from
+        let sling_id = ctx.next_id();
+        ctx.scene.spawn(
+            Entity::new(sling_id)
+                .with_tag("sling")
+                .with_pos(Vec2::new(SLING_X, SLING_Y))
+                .with_scale(Vec2::splat(BALL_RADIUS * 3.0))
+                .with_sprite(SpriteComponent {
+                    atlas: AtlasId(0),
+                    col: 3.0,
+                    row: 0.0,
+                    cell_span: 1.0,
+                    alpha: 0.4,
+                    blend: BlendMode::Alpha,
+                }),
+        );
     }
 
     fn update(&mut self, ctx: &mut EngineContext, input: &InputQueue) {
+        // Clear previous frame's arcs (arcs persist in EffectsState)
+        ctx.effects.arcs.clear();
+
         // Handle input events
         for event in input.iter() {
             match event {
@@ -282,8 +310,9 @@ impl Game for PhysicsPlayground {
         // Draw sling band during aiming
         self.draw_sling_band(ctx);
 
-        // Flying state: check if projectile settled
+        // Flying state: check if projectile settled or flight timed out
         if self.state == GameState::Flying {
+            self.flight_timer += 1;
             if let Some(proj_id) = self.projectile_id {
                 let vel = ctx.velocity(proj_id);
                 if vel.length() < SETTLED_VEL_THRESHOLD {
@@ -291,10 +320,19 @@ impl Game for PhysicsPlayground {
                 } else {
                     self.settled_counter = 0;
                 }
-                if self.settled_counter >= SETTLED_FRAMES {
+                if self.settled_counter >= SETTLED_FRAMES || self.flight_timer >= MAX_FLIGHT_FRAMES {
                     self.state = GameState::Settled;
                 }
             }
+        }
+
+        // Settled state: despawn old projectile and allow next shot
+        if self.state == GameState::Settled {
+            if let Some(pid) = self.projectile_id.take() {
+                ctx.despawn(pid);
+            }
+            self.state = GameState::Aiming;
+            self.settled_counter = 0;
         }
 
         // Count score

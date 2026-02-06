@@ -2,6 +2,7 @@ use zap_engine::*;
 use zap_engine::api::game::GameConfig;
 use zap_engine::input::queue::{InputEvent, InputQueue};
 use zap_engine::components::mesh::{MeshComponent, SDFColor};
+use zap_engine::systems::effects::SegmentColor;
 use glam::Vec2;
 
 use crate::elements::{self, element_data};
@@ -10,11 +11,12 @@ use crate::molecule::{MoleculeState, Bond};
 const WORLD_W: f32 = 800.0;
 const WORLD_H: f32 = 600.0;
 const WALL_THICKNESS: f32 = 20.0;
-const BOND_RADIUS: f32 = 3.0;
+const BOND_RADIUS: f32 = 6.0;
 const BOND_COLOR: SDFColor = SDFColor { r: 0.5, g: 0.5, b: 0.5 };
-const SPRING_STIFFNESS: f32 = 300.0;
-const SPRING_DAMPING: f32 = 15.0;
+const SPRING_STIFFNESS: f32 = 800.0;
+const SPRING_DAMPING: f32 = 30.0;
 const MAX_ATOMS: usize = 32;
+const FLICK_SCALE: f32 = 15.0;
 
 /// Custom event kinds from React UI
 const CUSTOM_SELECT_ELEMENT: u32 = 1;
@@ -29,6 +31,7 @@ pub struct ChemistryLab {
     molecule: MoleculeState,
     drag_from: Option<EntityId>,
     drag_active: bool,
+    drag_pos: Vec2,
 }
 
 impl ChemistryLab {
@@ -38,6 +41,7 @@ impl ChemistryLab {
             molecule: MoleculeState::new(),
             drag_from: None,
             drag_active: false,
+            drag_pos: Vec2::ZERO,
         }
     }
 
@@ -69,12 +73,13 @@ impl ChemistryLab {
             .with_mesh(MeshComponent::sphere(elem.radius, elem.color));
 
         let desc = BodyDesc::dynamic(ColliderDesc::Ball { radius: elem.radius })
-            .with_position(pos);
+            .with_position(pos)
+            .with_ccd(true);
 
         let material = ColliderMaterial {
-            restitution: 0.3,
+            restitution: 0.6,
             friction: 0.3,
-            density: 0.8,
+            density: 0.3,
         };
 
         ctx.spawn_with_body(entity, desc, material);
@@ -86,7 +91,7 @@ impl ChemistryLab {
             if let Some(entity) = ctx.scene.get(atom_id) {
                 let elem = element_data(kind)?;
                 let dist = entity.pos.distance(pos);
-                if dist < elem.radius * 1.5 {
+                if dist < elem.radius * 2.5 {
                     return Some(atom_id);
                 }
             }
@@ -137,7 +142,9 @@ impl ChemistryLab {
             None => return,
         };
 
-        let rest_length = pos_a.distance(pos_b);
+        // Minimum rest length = sum of radii so atoms never overlap
+        let min_rest = elem_a.radius + elem_b.radius;
+        let rest_length = pos_a.distance(pos_b).max(min_rest);
 
         // Create spring joint
         let joint_handle = match ctx.create_joint(atom_a, atom_b, &JointDesc::Spring {
@@ -154,7 +161,8 @@ impl ChemistryLab {
         // Create visual bond entity (capsule SDF — no physics body)
         let bond_id = ctx.next_id();
         let midpoint = (pos_a + pos_b) / 2.0;
-        let half_len = rest_length / 2.0;
+        // Subtract BOND_RADIUS so total capsule length (body + hemispheres) matches distance
+        let half_len = (rest_length / 2.0 - BOND_RADIUS).max(0.0);
         let angle = (pos_b.y - pos_a.y).atan2(pos_b.x - pos_a.x) - std::f32::consts::FRAC_PI_2;
 
         let entity = Entity::new(bond_id)
@@ -170,6 +178,7 @@ impl ChemistryLab {
             atom_b,
             visual_entity: bond_id,
             joint_handle,
+            rest_length,
         });
     }
 
@@ -185,14 +194,14 @@ impl ChemistryLab {
             };
 
             let midpoint = (pos_a + pos_b) / 2.0;
-            let distance = pos_a.distance(pos_b);
-            let half_len = distance / 2.0;
             let angle = (pos_b.y - pos_a.y).atan2(pos_b.x - pos_a.x) - std::f32::consts::FRAC_PI_2;
+
+            let distance = pos_a.distance(pos_b);
+            let half_len = (distance / 2.0 - BOND_RADIUS).max(0.0);
 
             if let Some(entity) = ctx.scene.get_mut(bond.visual_entity) {
                 entity.pos = midpoint;
                 entity.rotation = angle;
-                // Update capsule half_height to match current distance
                 if let Some(ref mut mesh) = entity.mesh {
                     mesh.shape = zap_engine::components::mesh::SDFShape::Capsule {
                         radius: BOND_RADIUS,
@@ -231,7 +240,7 @@ impl Game for ChemistryLab {
             world_width: WORLD_W,
             world_height: WORLD_H,
             max_sdf_instances: 256,
-            gravity: Vec2::new(0.0, 50.0),
+            gravity: Vec2::ZERO,
             ..GameConfig::default()
         }
     }
@@ -265,12 +274,16 @@ impl Game for ChemistryLab {
                 InputEvent::PointerDown { x, y } => {
                     let pos = Vec2::new(*x, *y);
                     if let Some(hit_id) = self.hit_test_atom(ctx, pos) {
-                        // Start bond drag from existing atom
                         self.drag_from = Some(hit_id);
                         self.drag_active = true;
+                        self.drag_pos = pos;
                     } else {
-                        // Spawn new atom at click position
                         self.spawn_atom(ctx, pos);
+                    }
+                }
+                InputEvent::PointerMove { x, y } => {
+                    if self.drag_active {
+                        self.drag_pos = Vec2::new(*x, *y);
                     }
                 }
                 InputEvent::PointerUp { x, y } => {
@@ -278,13 +291,32 @@ impl Game for ChemistryLab {
                         if let Some(from_id) = self.drag_from.take() {
                             let pos = Vec2::new(*x, *y);
                             if let Some(target_id) = self.hit_test_atom(ctx, pos) {
+                                // Dropped on another atom → create bond
                                 self.try_create_bond(ctx, from_id, target_id);
+                            } else {
+                                // Dropped on empty space → flick the atom
+                                if let Some(atom_entity) = ctx.scene.get(from_id) {
+                                    let impulse = (pos - atom_entity.pos) * FLICK_SCALE;
+                                    ctx.apply_impulse(from_id, impulse);
+                                }
                             }
                         }
                         self.drag_active = false;
                     }
                 }
                 _ => {}
+            }
+        }
+
+        // Clear previous frame's arcs and draw drag arc
+        ctx.effects.arcs.clear();
+        if self.drag_active {
+            if let Some(from_id) = self.drag_from {
+                if let Some(from_entity) = ctx.scene.get(from_id) {
+                    let start = [from_entity.pos.x, from_entity.pos.y];
+                    let end = [self.drag_pos.x, self.drag_pos.y];
+                    ctx.effects.add_arc(start, end, 3.0, SegmentColor::Cyan, 4);
+                }
             }
         }
 

@@ -214,6 +214,26 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     })
   );
 
+  // Fallback 1×1 white texture for effects when no atlases exist
+  const fallbackTex = device.createTexture({
+    size: [1, 1],
+    format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  });
+  device.queue.writeTexture(
+    { texture: fallbackTex },
+    new Uint8Array([255, 255, 255, 255]),
+    { bytesPerRow: 4 },
+    [1, 1],
+  );
+  const fallbackTextureBindGroup = device.createBindGroup({
+    layout: textureBindGroupLayout,
+    entries: [
+      { binding: 0, resource: fallbackTex.createView() },
+      { binding: 1, resource: sampler },
+    ],
+  });
+
   // ---- Instance Storage Buffer ----
   const instanceBuffer = device.createBuffer({
     size: INSTANCE_STRIDE * maxInstances,
@@ -749,7 +769,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     if (hasEffects) {
       pass.setPipeline(additivePipeline);
       pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[0] ?? emptyBindGroup);
+      pass.setBindGroup(1, textureBindGroups[0] ?? fallbackTextureBindGroup);
       pass.setBindGroup(2, emptyBindGroup);
       pass.setBindGroup(3, colorsBindGroup);
       pass.setVertexBuffer(0, effectsBuffer);

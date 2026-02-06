@@ -102,12 +102,14 @@ fn vs_sdf(input: VertexInput) -> VertexOutput {
     let world_pos = rotated + inst.position;
     out.clip_position = camera.projection * vec4<f32>(world_pos, 0.0, 1.0);
 
-    // Pass UV and normalize shape params relative to radius
-    out.local_uv = uv;
+    // Pass UV and normalize shape params relative to radius.
+    // Multiply by overscan so |local_uv|=1.0 maps to exactly inst.radius
+    // in world space (the extra quad area beyond 1.0 is discarded by the SDF).
+    out.local_uv = uv * overscan;
     if (is_capsule || is_box) {
         // Scale UV to cover the full elongated extent
         let extent = (inst.radius + inst.half_height) / inst.radius;
-        out.local_uv = uv * extent;
+        out.local_uv = uv * extent * overscan;
     }
     out.base_color = inst.color;
     out.shininess = inst.shininess;

@@ -40,6 +40,8 @@ pub struct ZapZapMini {
     score: u32,
     /// Whether we have a pending connection check after rotation completes
     pending_check: bool,
+    /// Frame counter for per-frame light wiggle randomness
+    frame: u32,
 }
 
 impl ZapZapMini {
@@ -50,6 +52,7 @@ impl ZapZapMini {
             phase: GamePhase::WaitingForInput,
             score: 0,
             pending_check: false,
+            frame: 0,
         }
     }
 
@@ -84,6 +87,10 @@ impl ZapZapMini {
 
     /// Build arcs for all marked tiles using the engine's effects system.
     fn build_arcs(&self, effects: &mut EffectsState) {
+        // Clear previous frame's arcs — arcs persist in EffectsState and must be
+        // rebuilt each frame (they naturally twitch, giving the electric flicker effect).
+        effects.arcs.clear();
+
         let left_pin_x = GRID_OFFSET_X - TILE_SIZE + TILE_SIZE * 0.5;
         let right_pin_x = GRID_OFFSET_X + BOARD_WIDTH as f32 * TILE_SIZE + TILE_SIZE * 0.5;
 
@@ -156,8 +163,26 @@ impl ZapZapMini {
     }
 
     /// Spawn dynamic point lights at marked tile positions for dramatic lighting.
-    fn build_lights(&self, lights: &mut LightState) {
+    /// Only activates dark ambient + point lights when connections exist;
+    /// otherwise the board stays fully lit.
+    fn build_lights(&mut self, lights: &mut LightState) {
         lights.clear();
+
+        // Check if any tiles are marked (Left/Right/Ok)
+        let has_markings = (0..BOARD_HEIGHT).any(|y| {
+            (0..BOARD_WIDTH).any(|x| {
+                let m = self.board.get_marking(x, y);
+                m == Marking::Left || m == Marking::Right || m == Marking::Ok
+            })
+        });
+
+        if !has_markings {
+            // No connections — fully lit board
+            lights.set_ambient(1.0, 1.0, 1.0);
+            return;
+        }
+
+        // Dark ambient for dramatic arc lighting + bump-map shadows
         lights.set_ambient(0.15, 0.15, 0.2);
 
         for y in 0..BOARD_HEIGHT {
@@ -167,9 +192,10 @@ impl ZapZapMini {
 
                 match marking {
                     Marking::Ok => {
-                        // Bright blue-white light with wiggle for arc-light flicker
-                        let wiggle_x = (self.board.rng.state.wrapping_mul(x as u64 + 1).wrapping_add(y as u64) % 600) as f32 / 100.0 - 3.0;
-                        let wiggle_y = (self.board.rng.state.wrapping_mul(y as u64 + 1).wrapping_add(x as u64) % 600) as f32 / 100.0 - 3.0;
+                        // Per-frame wiggle using RNG for arc-light flicker on bump map
+                        let seed = self.board.rng.next_u64();
+                        let wiggle_x = (seed % 600) as f32 / 100.0 - 3.0;
+                        let wiggle_y = (seed.wrapping_shr(16) % 600) as f32 / 100.0 - 3.0;
                         lights.add(PointLight::new(
                             Vec2::new(center.x + wiggle_x, center.y + wiggle_y),
                             [0.4, 0.7, 1.0],
@@ -325,6 +351,7 @@ impl Game for ZapZapMini {
 
     fn update(&mut self, ctx: &mut EngineContext, input: &InputQueue) {
         let dt = 1.0 / 60.0f32;
+        self.frame = self.frame.wrapping_add(1);
 
         // Handle custom events (New Game)
         for event in input.iter() {

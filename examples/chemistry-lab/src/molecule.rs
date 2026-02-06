@@ -8,6 +8,9 @@ pub struct Bond {
     pub atom_b: EntityId,
     pub visual_entity: EntityId,
     pub joint_handle: JointHandle,
+    /// The spring rest length (minimum = sum of atom radii to prevent overlap).
+    #[allow(dead_code)]
+    pub rest_length: f32,
 }
 
 /// Tracks atoms and bonds in the molecule.

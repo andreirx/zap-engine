@@ -229,7 +229,9 @@ impl GameBoard {
             if x >= self.width || y >= self.height {
                 continue;
             }
-            if self.get_marking(x, y) == marker {
+            let current = self.get_marking(x, y);
+            // Skip if already at the target marking or already Ok
+            if current == marker || current == Marking::Ok {
                 continue;
             }
 
@@ -238,7 +240,13 @@ impl GameBoard {
                 _ => continue,
             };
 
-            self.set_marking(x, y, marker);
+            // Upgrade to Ok if cell is already marked from the other side
+            let effective = match (marker, current) {
+                (Marking::Left, Marking::Right) | (Marking::Right, Marking::Left) => Marking::Ok,
+                (Marking::Ok, _) => Marking::Ok,
+                _ => marker,
+            };
+            self.set_marking(x, y, effective);
 
             if tile.has_connection(Direction::LEFT) && x > 0 {
                 queue.push_back((x - 1, y, Direction::RIGHT));
