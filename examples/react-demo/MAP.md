@@ -19,4 +19,4 @@ npm run dev
 
 ## Architecture Connection
 
-Reuses the same WASM binary and assets from `examples/basic-demo/` — no new Rust code needed. Demonstrates the React integration layer at `src/engine/react/`.
+Reuses the same WASM binary and assets from `examples/basic-demo/` — no new Rust code needed. Demonstrates the React integration layer at `packages/zap-web/src/react/` (imported as `@zap/web/react`).

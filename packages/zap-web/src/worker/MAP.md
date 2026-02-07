@@ -15,4 +15,6 @@ The worker communicates with the main thread via:
 1. **SharedArrayBuffer** (preferred): Zero-copy reads from main thread using Atomics
 2. **postMessage fallback**: Buffer copies when COOP/COEP headers are absent
 
-Layout: `[Header (12 floats)] [Instances (512×8 floats)] [Effects (16384×5 floats)] [Sounds (32×1)] [Events (32×4)]`
+Layout: `[Header (28 floats)] [Instances] [Effects] [Sounds] [Events] [SDF] [Vectors] [LayerBatches] [Lights]`
+
+Protocol version: 4.0

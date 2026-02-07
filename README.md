@@ -37,6 +37,9 @@ wasm-pack build examples/chemistry-lab --target web --out-dir pkg
 
 # ZapZap Mini (circuit puzzle with dynamic lighting)
 wasm-pack build examples/zapzap-mini --target web --out-dir pkg
+
+# Glypher
+wasm-pack build examples/glypher --target web --out-dir pkg
 ```
 
 ### Run the dev server
@@ -53,6 +56,7 @@ This starts Vite at `http://localhost:5173` with the required COOP/COEP headers 
 - **Physics Playground:** http://localhost:5173/examples/physics-playground/index.html
 - **Chemistry Lab:** http://localhost:5173/examples/chemistry-lab/index.html
 - **ZapZap Mini:** http://localhost:5173/examples/zapzap-mini/index.html
+- **Glypher:** http://localhost:5173/examples/glypher/index.html
 
 ## Architecture
 
@@ -72,19 +76,22 @@ zap-engine/
 │   │
 │   └── zap-web/             # WASM bridge (GameRunner, wasm-bindgen glue)
 │
-├── src/engine/              # TypeScript runtime
-│   ├── renderer/            # WebGPU + Canvas2D renderers, shaders
-│   ├── worker/              # Web Worker (loads WASM, runs game loop)
-│   ├── react/               # useZapEngine hook
-│   ├── assets/              # Manifest loader, normal map loader
-│   └── audio/               # SoundManager
+├── packages/
+│   └── zap-web/             # @zap/web — TypeScript engine NPM package
+│       └── src/
+│           ├── renderer/    # WebGPU + Canvas2D renderers, WGSL shaders
+│           ├── worker/      # Web Worker (loads WASM, runs game loop)
+│           ├── react/       # useZapEngine hook
+│           ├── assets/      # Manifest loader, normal map loader
+│           └── audio/       # SoundManager
 │
 ├── examples/
 │   ├── basic-demo/          # Minimal spinning sprite
 │   ├── zap-engine-template/ # Starter template for new games
 │   ├── physics-playground/  # Angry Birds-style sling + tower
 │   ├── chemistry-lab/       # SDF molecule visualization
-│   └── zapzap-mini/         # Circuit puzzle (lighting + normal maps)
+│   ├── zapzap-mini/         # Circuit puzzle (lighting + normal maps)
+│   └── glypher/             # Glypher game (in development)
 │
 ├── tools/
 │   ├── bake-assets.ts       # Asset manifest generator
@@ -204,6 +211,22 @@ Interactive molecule builder using SDF raymarching. Atoms are rendered as mathem
 
 ### ZapZap Mini
 8x8 circuit puzzle ported from the native ZapZap game. Tap tiles to rotate their connections. When a path forms from left to right, electric arcs light up with dynamic point lights that cast bump-mapped shadows on the tile board via normal maps.
+
+### Glypher
+A new game built on ZapEngine. Currently scaffolded and ready for development.
+
+## Imports
+
+Games import the TypeScript engine via the `@zap/web` package:
+
+```tsx
+// Core engine (renderer, assets, audio, protocol constants)
+import { initRenderer, ProtocolLayout, createEngineWorker } from '@zap/web';
+
+// React hook (separate entry point — keeps core React-free)
+import { useZapEngine } from '@zap/web/react';
+import type { GameEvent } from '@zap/web/react';
+```
 
 ## Scripts
 

@@ -1,18 +1,19 @@
-# src/engine/react/
+# react/
 
 React integration layer for ZapEngine. Provides the `useZapEngine` hook that encapsulates the full engine lifecycle into a single hook call.
 
 ## Files
 
-- **useZapEngine.ts** — The main hook. Manages worker, renderer (WebGPU → Canvas2D fallback), SharedArrayBuffer reading, rAF render loop, input forwarding, resize, audio, and game events.
+- **useZapEngine.ts** — The main hook. Manages worker, renderer (WebGPU -> Canvas2D fallback), SharedArrayBuffer reading, rAF render loop, input forwarding, resize, audio, and game events.
 - **index.ts** — Public re-exports.
 
 ## Architecture Connection
 
-This module imports from `../index` (the core engine) but is NOT exported by it. This keeps the core engine React-free. Consumers import via `@zap/engine/react`:
+This module imports from `../index` (the core engine) but is NOT exported by it. This keeps the core engine React-free. Consumers import via `@zap/web/react`:
 
 ```tsx
-import { useZapEngine } from '@zap/engine/react';
+import { useZapEngine } from '@zap/web/react';
+import type { GameEvent } from '@zap/web/react';
 ```
 
 ## Canvas Remount Pattern

@@ -8,11 +8,12 @@ instead of hardcoded atlas layouts.
 | File | Purpose |
 |---|---|
 | `manifest.ts` | `AssetManifest` TypeScript type + `loadManifest(url)` function |
-| `loader.ts` | Blob fetching + GPU texture / HTMLImage creation |
+| `loader.ts` | Blob fetching, normal map loading, GPU texture / HTMLImage creation |
 
 ## Asset Pipeline
 
-1. Game provides `assets.json` manifest listing atlases and named sprites
+1. Game provides `assets.json` manifest listing atlases (with optional normal maps) and named sprites
 2. `loadManifest()` fetches and parses the manifest
 3. `loadAssetBlobs()` fetches all atlas PNGs as Blobs
-4. Renderer-specific functions create GPU textures or canvas images from blobs
+4. `loadNormalMapBlobs()` fetches normal map PNGs (loaded without premultiplied alpha)
+5. Renderer-specific functions create GPU textures or canvas images from blobs

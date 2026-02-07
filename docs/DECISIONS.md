@@ -278,7 +278,7 @@ The VISION.md specifies React as a first-class citizen: "DX: React is a first-cl
 ### Decision
 Provide a `useZapEngine` React hook that encapsulates the entire engine lifecycle:
 
-1. **Separate import path**: `@zap/engine/react` — the core engine (`@zap/engine`) remains React-free, so non-React consumers (vanilla TS, Svelte, Vue) are not forced to depend on React.
+1. **Separate import path**: `@zap/web/react` — the core engine (`@zap/web`) remains React-free, so non-React consumers (vanilla TS, Svelte, Vue) are not forced to depend on React.
 
 2. **Single hook API**: `useZapEngine({ wasmUrl, assetsUrl, ... })` returns `{ canvasRef, sendEvent, fps, isReady, canvasKey }`.
 
@@ -718,3 +718,27 @@ Created `examples/zapzap-mini/` — an 8x8 simplified version of the ZapZap circ
 - **Pro:** No physics dependency — shows engine works well without rapier2d
 - **Pro:** Reuses native-proven game logic (BFS, gravity, tile generation)
 - **Con:** Rebuilds entire scene every frame (simple but not optimal for 80+ entities)
+
+---
+
+## ADR-023: TypeScript Engine as @zap/web NPM Package
+
+**Date:** 2026-02-07
+**Status:** Accepted
+
+### Context
+The TypeScript engine runtime (renderer, worker, assets, audio, React hook) lived at `src/engine/` and was consumed via Vite path aliases (`@zap/engine`). This worked within the monorepo but made it difficult to create new games with clean imports.
+
+### Decision
+Move the TypeScript engine to `packages/zap-web/` as a proper NPM package (`@zap/web`). Two entry points:
+- `@zap/web` — core engine (renderer, assets, audio, protocol, `createEngineWorker()`)
+- `@zap/web/react` — React hook (`useZapEngine`, types)
+
+The package uses source-level exports (`.ts` files in the `exports` field) — no build step needed since Vite resolves them directly. Root `vite.config.ts` and `tsconfig.json` aliases point to the package source.
+
+### Consequences
+- **Pro:** Clean import paths (`@zap/web/react` instead of `../../src/engine/react`)
+- **Pro:** `createEngineWorker()` factory enables non-React consumers
+- **Pro:** Package boundary enforces separation between engine and game code
+- **Pro:** Ready for future npm publishing if desired
+- **Con:** Requires Vite aliases in root config (or a build step) for consumers

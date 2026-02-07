@@ -98,9 +98,9 @@ where are we on the grand plan?
 
 ### Task 4.2: The `useZapEngine` Hook ✓
 
-* Created `src/engine/react/useZapEngine.ts` — React hook encapsulating worker lifecycle, renderer init (WebGPU→Canvas2D fallback), SAB reading, rAF render loop, input forwarding, resize, audio, and game events.
+* Created `useZapEngine.ts` React hook (now at `packages/zap-web/src/react/useZapEngine.ts`) — encapsulates worker lifecycle, renderer init (WebGPU→Canvas2D fallback), SAB reading, rAF render loop, input forwarding, resize, audio, and game events.
 * API: `useZapEngine({ wasmUrl, assetsUrl })` → `{ canvasRef, sendEvent, fps, isReady, canvasKey }`.
-* Separate import path: `@zap/engine/react` (core engine stays React-free).
+* Separate import path: `@zap/web/react` (core engine stays React-free).
 
 ### Task 4.3: React Demo ✓
 
@@ -122,7 +122,7 @@ where are we on the grand plan?
 ### Task 5.1: Audio System Completion ✓
 
 * **Per-sound volume**: `SoundEntry` interface (`{ path, volume? }`) on `SoundConfig.sounds`. Playback routes through `GainNode` when `volume < 1.0`. Backward compatible — plain strings still work.
-* **Manifest bridge**: `buildSoundConfigFromManifest(manifest, basePath)` utility converts `AssetManifest.sounds` entries (with `event_id`) to `SoundConfig`. Exported from `@zap/engine`.
+* **Manifest bridge**: `buildSoundConfigFromManifest(manifest, basePath)` utility converts `AssetManifest.sounds` entries (with `event_id`) to `SoundConfig`. Exported from `@zap/web`.
 * **Eager init**: `SoundManager.init()` called immediately in `useZapEngine` hook. AudioContext starts suspended; `resume()` on pointerdown handles unsuspension. Pre-decodes buffers for zero first-play latency.
 * **Manifest sounds section**: Added `"sounds": {}` to basic-demo and template `assets.json` manifests.
 

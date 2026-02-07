@@ -1,12 +1,10 @@
 # src/
 
-TypeScript engine — the browser-side runtime for ZapEngine.
+Legacy source directory. The TypeScript engine has been moved to `packages/zap-web/src/`.
 
-All rendering, audio, and worker management happens here. The Rust/WASM side
-produces flat render buffers; this code reads them and draws to the screen.
+## Remaining Contents
 
-## Subdirectories
-
-| Directory | Purpose |
+| Path | Purpose |
 |---|---|
-| `engine/` | Core TypeScript engine: renderer, worker, assets, audio |
+| `vite-env.d.ts` | Vite type declarations |
+| `games/` | Old WASM build artifacts (can be cleaned up) |

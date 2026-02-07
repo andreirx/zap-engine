@@ -17,4 +17,4 @@ npx tsx tools/bake-assets.ts path/to/images/ --output path/to/assets.json
 
 ## Architecture Connection
 
-The baker's output feeds into `loadManifest()` (TypeScript) and the Rust `AssetManifest` parser. The schema is defined in `src/engine/assets/manifest.ts` and `crates/zap-engine/src/assets/manifest.rs`.
+The baker's output feeds into `loadManifest()` (TypeScript) and the Rust `AssetManifest` parser. The schema is defined in `packages/zap-web/src/assets/manifest.ts` and `crates/zap-engine/src/assets/manifest.rs`.
