@@ -1,19 +1,20 @@
-// React Demo — demonstrates useZapEngine hook with a HUD overlay.
-// Reuses the basic-demo WASM + assets (no new Rust code needed).
+// Glypher — a ZapEngine game.
 
 import { useZapEngine } from '@zap/web/react';
 
-const WASM_URL = '/examples/basic-demo/pkg/basic_demo.js';
-const ASSETS_URL = '/examples/basic-demo/public/assets/assets.json';
+const WASM_URL = '/examples/glypher/pkg/glypher.js';
+const ASSETS_URL = '/examples/glypher/public/assets/assets.json';
 
 export function App() {
   const { canvasRef, fps, isReady, canvasKey } = useZapEngine({
     wasmUrl: WASM_URL,
     assetsUrl: ASSETS_URL,
+    gameWidth: 800,
+    gameHeight: 600,
   });
 
   return (
-    <div style={{ position: 'relative', width: '100vw', height: '100vh', background: '#000' }}>
+    <div style={{ position: 'relative', width: '100vw', height: '100vh', background: '#111' }}>
       <canvas
         key={canvasKey}
         ref={canvasRef}

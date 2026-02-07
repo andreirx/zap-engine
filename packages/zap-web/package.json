@@ -1,0 +1,13 @@
+{
+  "name": "@zap/web",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react/index.ts"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19"
+  }
+}

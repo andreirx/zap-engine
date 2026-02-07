@@ -2,8 +2,8 @@
 // Drag near the sling to aim, release to launch. Reset button to try again.
 
 import { useState, useCallback } from 'react';
-import { useZapEngine } from '../../src/engine/react';
-import type { GameEvent } from '../../src/engine/react/useZapEngine';
+import { useZapEngine } from '@zap/web/react';
+import type { GameEvent } from '@zap/web/react';
 
 const WASM_URL = '/examples/physics-playground/pkg/physics_playground.js';
 const ASSETS_URL = '/examples/physics-playground/public/assets/assets.json';

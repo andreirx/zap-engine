@@ -14,8 +14,8 @@ import {
   EFFECTS_VERTEX_FLOATS,
   SDF_INSTANCE_FLOATS,
   ProtocolLayout,
-} from '../../src/engine/index';
-import type { Renderer } from '../../src/engine/index';
+} from '@zap/web';
+import type { Renderer } from '@zap/web';
 
 const MANIFEST_URL = '/examples/zap-engine-template/public/assets/assets.json';
 const ASSET_BASE = '/examples/zap-engine-template/public/assets/';
@@ -33,7 +33,7 @@ async function main() {
   const atlasBlobs = await loadAssetBlobs(manifest, ASSET_BASE);
 
   const worker = new Worker(
-    new URL('../../src/engine/worker/engine.worker.ts', import.meta.url),
+    new URL('../../packages/zap-web/src/worker/engine.worker.ts', import.meta.url),
     { type: 'module' },
   );
 

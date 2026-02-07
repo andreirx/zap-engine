@@ -14,11 +14,11 @@
     "types": ["@webgpu/types"],
     "jsx": "react-jsx",
     "paths": {
-      "@zap/engine": ["./src/engine/index.ts"],
-      "@zap/engine/*": ["./src/engine/*"],
-      "@zap/engine/react": ["./src/engine/react/index.ts"]
+      "@zap/web": ["./packages/zap-web/src/index.ts"],
+      "@zap/web/*": ["./packages/zap-web/src/*"],
+      "@zap/web/react": ["./packages/zap-web/src/react/index.ts"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "examples/**/*.ts", "examples/**/*.tsx"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "packages/**/*.ts", "packages/**/*.tsx", "examples/**/*.ts", "examples/**/*.tsx"],
   "exclude": ["node_modules", "dist", "**/pkg"]
 }

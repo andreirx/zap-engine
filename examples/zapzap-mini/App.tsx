@@ -2,8 +2,8 @@
 // Tap tiles to rotate. Connect left pins to right pins to zap!
 
 import { useState, useCallback } from 'react';
-import { useZapEngine } from '../../src/engine/react';
-import type { GameEvent } from '../../src/engine/react/useZapEngine';
+import { useZapEngine } from '@zap/web/react';
+import type { GameEvent } from '@zap/web/react';
 
 const WASM_URL = '/examples/zapzap-mini/pkg/zapzap_mini.js';
 const ASSETS_URL = '/examples/zapzap-mini/public/assets/assets.json';

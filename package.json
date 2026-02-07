@@ -11,7 +11,7 @@
     "bake-assets": "npx tsx tools/bake-assets.ts"
   },
   "dependencies": {
-    "basic-demo": "file:examples/basic-demo/pkg"
+    "@zap/web": "file:packages/zap-web"
   },
   "devDependencies": {
     "@types/node": "^25.2.1",

@@ -3,7 +3,7 @@
 // Manages: Worker, Renderer (WebGPU→Canvas2D fallback), SharedArrayBuffer reading,
 // requestAnimationFrame render loop, input forwarding, resize, audio, and game events.
 //
-// Imported via '@zap/engine/react' — NOT part of core engine exports.
+// Imported via '@zap/web/react' — NOT part of core engine exports.
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
@@ -32,6 +32,7 @@ import {
   LIGHT_FLOATS,
   ProtocolLayout,
   SoundManager,
+  createEngineWorker,
 } from '../index';
 import type { Renderer, SoundConfig, LayerBatchDescriptor, BakeState, LightingState } from '../index';
 
@@ -136,10 +137,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       if (cancelled) return;
 
       // Create worker
-      const worker = new Worker(
-        new URL('../worker/engine.worker.ts', import.meta.url),
-        { type: 'module' },
-      );
+      const worker = createEngineWorker();
       workerRef.current = worker;
 
       // Sound manager — pre-initialize so audio buffers are decoded before first interaction.

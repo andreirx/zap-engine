@@ -2,8 +2,8 @@
 // Click to place atoms, drag between atoms to create bonds.
 
 import { useState, useCallback } from 'react';
-import { useZapEngine } from '../../src/engine/react';
-import type { GameEvent } from '../../src/engine/react/useZapEngine';
+import { useZapEngine } from '@zap/web/react';
+import type { GameEvent } from '@zap/web/react';
 
 const WASM_URL = '/examples/chemistry-lab/pkg/chemistry_lab.js';
 const ASSETS_URL = '/examples/chemistry-lab/public/assets/assets.json';

@@ -56,3 +56,11 @@ export {
 
 export { SEGMENT_COLORS, SEGMENT_COLORS_RGB8, packColorsForGPU } from './renderer/constants';
 export { computeProjection, buildProjectionMatrix } from './renderer/camera';
+
+/** Create an engine worker instance. Works with any Vite-based bundler. */
+export function createEngineWorker(): Worker {
+  return new Worker(
+    new URL('./worker/engine.worker.ts', import.meta.url),
+    { type: 'module' },
+  );
+}

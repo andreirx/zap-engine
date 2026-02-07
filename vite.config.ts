@@ -17,8 +17,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@zap/engine': '/src/engine/index.ts',
-      '@zap/engine/react': '/src/engine/react/index.ts',
+      '@zap/web/react': '/packages/zap-web/src/react/index.ts',
+      '@zap/web': '/packages/zap-web/src/index.ts',
     },
   },
 });
