@@ -187,6 +187,12 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
   worldWidth = wasm.get_world_width();
   worldHeight = wasm.get_world_height();
 
+  // Send initial viewport dimensions if canvas size is already known
+  if (canvasWidth > 0 && canvasHeight > 0) {
+    const proj = computeProjection(canvasWidth, canvasHeight, worldWidth, worldHeight);
+    wasm.game_custom_event?.(99, proj.projWidth, proj.projHeight, 0);
+  }
+
   // Build layout from WASM-reported capacities
   layout = ProtocolLayout.fromWasm(wasm);
 
@@ -398,6 +404,11 @@ self.onmessage = (e: MessageEvent) => {
     case 'resize':
       canvasWidth = e.data.width;
       canvasHeight = e.data.height;
+      // Forward visible world dimensions to game so it can adapt layout
+      if (worldWidth > 0 && worldHeight > 0) {
+        const proj = computeProjection(canvasWidth, canvasHeight, worldWidth, worldHeight);
+        wasm?.game_custom_event?.(99, proj.projWidth, proj.projHeight, 0);
+      }
       break;
 
     case 'key_down':
