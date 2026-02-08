@@ -1,4 +1,4 @@
-// Glypher — a ZapEngine game.
+// Glypher — a ZapEngine handwriting game.
 
 import { useZapEngine } from '@zap/web/react';
 
@@ -6,7 +6,7 @@ const WASM_URL = '/examples/glypher/pkg/glypher.js';
 const ASSETS_URL = '/examples/glypher/public/assets/assets.json';
 
 export function App() {
-  const { canvasRef, fps, isReady, canvasKey } = useZapEngine({
+  const { canvasRef, sendEvent, fps, isReady, canvasKey } = useZapEngine({
     wasmUrl: WASM_URL,
     assetsUrl: ASSETS_URL,
     gameWidth: 800,
@@ -14,24 +14,22 @@ export function App() {
   });
 
   return (
-    <div style={{ position: 'relative', width: '100vw', height: '100vh', background: '#111' }}>
+    <div style={{ position: 'relative', width: '100vw', height: '100vh', background: '#000' }}>
       <canvas
         key={canvasKey}
         ref={canvasRef}
-        style={{ width: '100%', height: '100%', display: 'block' }}
+        style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
       />
       <div style={{
         position: 'absolute',
-        top: 12,
-        right: 16,
-        color: '#fff',
+        top: 8,
+        right: 12,
+        color: 'rgba(255,255,255,0.3)',
         fontFamily: 'monospace',
-        fontSize: 14,
-        background: 'rgba(0,0,0,0.5)',
-        padding: '4px 10px',
-        borderRadius: 4,
+        fontSize: 12,
+        pointerEvents: 'none',
       }}>
-        {isReady ? `${fps} FPS` : 'Loading...'}
+        {isReady ? `${fps} fps` : 'loading...'}
       </div>
     </div>
   );

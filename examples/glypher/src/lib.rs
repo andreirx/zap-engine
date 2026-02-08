@@ -4,6 +4,9 @@ use zap_engine::*;
 use zap_web::GameRunner;
 
 mod game;
+mod glyphs;
+mod sayings;
+mod tracing;
 use game::Glypher;
 
 thread_local! {

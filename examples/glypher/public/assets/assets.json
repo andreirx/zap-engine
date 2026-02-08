@@ -1,4 +1,15 @@
 {
-  "atlases": [],
-  "sprites": {}
+  "atlases": [
+    {
+      "name": "background",
+      "cols": 1,
+      "rows": 1,
+      "path": "vbg_1024.jpg",
+      "normalMap": "vbg_1024_normals.png"
+    }
+  ],
+  "sprites": {
+    "bg": { "atlas": 0, "col": 0, "row": 0, "span": 1 }
+  },
+  "sounds": {}
 }

@@ -1,11 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ZapEngine Glyph Editor</title>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #1a1a2e;
@@ -14,7 +20,13 @@
             padding: 20px;
             user-select: none;
         }
-        h1 { text-align: center; margin-bottom: 16px; color: #4ade80; font-size: 22px; }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 16px;
+            color: #4ade80;
+            font-size: 22px;
+        }
 
         .main-layout {
             max-width: 1100px;
@@ -32,106 +44,334 @@
             padding: 10px;
             border-radius: 8px;
         }
-        .letter-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-        .letter-row + .letter-row { margin-top: 6px; }
-        .row-label { font-size: 11px; color: #666; width: 28px; text-align: center; flex-shrink: 0; }
-        .letter-btn {
-            width: 32px; height: 32px;
-            border: 1px solid #444; border-radius: 4px;
-            background: #1a1a2e; color: #aaa;
-            font-size: 16px; font-family: 'Georgia', serif;
-            cursor: pointer; transition: all 0.15s;
+
+        .letter-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            align-items: center;
         }
-        .letter-btn:hover { background: #333; color: #fff; }
-        .letter-btn.active { background: #4ade80; color: #1a1a2e; border-color: #4ade80; font-weight: 700; }
-        .letter-btn.has-data { border-color: #4ade80; color: #4ade80; }
+
+        .letter-row+.letter-row {
+            margin-top: 6px;
+        }
+
+        .row-label {
+            font-size: 11px;
+            color: #666;
+            width: 28px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .letter-btn {
+            width: 32px;
+            height: 32px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #1a1a2e;
+            color: #aaa;
+            font-size: 16px;
+            font-family: 'Georgia', serif;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .letter-btn:hover {
+            background: #333;
+            color: #fff;
+        }
+
+        .letter-btn.active {
+            background: #4ade80;
+            color: #1a1a2e;
+            border-color: #4ade80;
+            font-weight: 700;
+        }
+
+        .letter-btn.has-data {
+            border-color: #4ade80;
+            color: #4ade80;
+        }
 
         /* Canvas + toolbar */
         .canvas-area {
             background: #252540;
-            padding: 12px; border-radius: 8px;
-            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            padding: 12px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
         }
-        .toolbar { display: flex; gap: 4px; align-self: flex-start; }
+
+        .toolbar {
+            display: flex;
+            gap: 4px;
+            align-self: flex-start;
+        }
+
         .tool-btn {
-            padding: 5px 14px; border: 1px solid #444; border-radius: 4px;
-            background: #1a1a2e; color: #aaa;
-            font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s;
+            padding: 5px 14px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #1a1a2e;
+            color: #aaa;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
         }
-        .tool-btn:hover { background: #333; color: #fff; }
-        .tool-btn.active { background: #4ade80; color: #1a1a2e; border-color: #4ade80; }
-        #drawCanvas { background: #0d0d1a; border-radius: 4px; cursor: crosshair; }
+
+        .tool-btn:hover {
+            background: #333;
+            color: #fff;
+        }
+
+        .tool-btn.active {
+            background: #4ade80;
+            color: #1a1a2e;
+            border-color: #4ade80;
+        }
+
+        #drawCanvas {
+            background: #0d0d1a;
+            border-radius: 4px;
+            cursor: crosshair;
+        }
 
         /* Controls panel */
         .controls {
             background: #252540;
-            padding: 16px; border-radius: 8px;
-            display: flex; flex-direction: column; gap: 10px;
-            overflow-y: auto; max-height: calc(100vh - 160px);
+            padding: 16px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            overflow-y: auto;
+            max-height: calc(100vh - 160px);
         }
-        .control-group { display: flex; flex-direction: column; gap: 4px; }
-        .control-group label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
-        .control-group .value { font-size: 18px; color: #4ade80; font-weight: 600; }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .control-group label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .control-group .value {
+            font-size: 18px;
+            color: #4ade80;
+            font-weight: 600;
+        }
+
         select {
-            padding: 6px 8px; border: 1px solid #444; border-radius: 4px;
-            background: #1a1a2e; color: #eee; font-size: 14px;
+            padding: 6px 8px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: #1a1a2e;
+            color: #eee;
+            font-size: 14px;
         }
-        select:disabled { opacity: 0.5; }
-        .separator { border-top: 1px solid #333; margin: 2px 0; }
-        .btn-row { display: flex; gap: 6px; }
-        .btn-row button { flex: 1; }
+
+        select:disabled {
+            opacity: 0.5;
+        }
+
+        .separator {
+            border-top: 1px solid #333;
+            margin: 2px 0;
+        }
+
+        .btn-row {
+            display: flex;
+            gap: 6px;
+        }
+
+        .btn-row button {
+            flex: 1;
+        }
 
         button.action {
-            padding: 8px 12px; border: none; border-radius: 4px;
-            font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
         }
-        button.action:disabled { opacity: 0.35; cursor: default; }
-        button.primary { background: #4ade80; color: #1a1a2e; }
-        button.primary:hover:not(:disabled) { background: #22c55e; }
-        button.secondary { background: #334; color: #aaa; border: 1px solid #444; }
-        button.secondary:hover:not(:disabled) { background: #445; color: #fff; }
-        button.danger { background: #ef4444; color: #fff; }
-        button.danger:hover:not(:disabled) { background: #dc2626; }
-        button.export { background: #60a5fa; color: #1a1a2e; }
-        button.export:hover:not(:disabled) { background: #3b82f6; }
+
+        button.action:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }
+
+        button.primary {
+            background: #4ade80;
+            color: #1a1a2e;
+        }
+
+        button.primary:hover:not(:disabled) {
+            background: #22c55e;
+        }
+
+        button.secondary {
+            background: #334;
+            color: #aaa;
+            border: 1px solid #444;
+        }
+
+        button.secondary:hover:not(:disabled) {
+            background: #445;
+            color: #fff;
+        }
+
+        button.danger {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        button.danger:hover:not(:disabled) {
+            background: #dc2626;
+        }
+
+        button.export {
+            background: #60a5fa;
+            color: #1a1a2e;
+        }
+
+        button.export:hover:not(:disabled) {
+            background: #3b82f6;
+        }
 
         /* Stroke list */
         .stroke-list {
-            max-height: 180px; overflow-y: auto;
-            background: #1a1a2e; border-radius: 4px; padding: 4px;
+            max-height: 180px;
+            overflow-y: auto;
+            background: #1a1a2e;
+            border-radius: 4px;
+            padding: 4px;
         }
+
         .stroke-item {
-            display: flex; align-items: center; gap: 4px;
-            padding: 4px 6px; border-radius: 3px; cursor: pointer;
-            font-size: 12px; border: 1px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 6px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+            border: 1px solid transparent;
         }
-        .stroke-item:hover { background: #333; }
-        .stroke-item.active { background: #1a3a2a; border-color: #4ade80; }
-        .stroke-info { flex: 1; color: #aaa; }
-        .stroke-item.active .stroke-info { color: #4ade80; }
+
+        .stroke-item:hover {
+            background: #333;
+        }
+
+        .stroke-item.active {
+            background: #1a3a2a;
+            border-color: #4ade80;
+        }
+
+        .stroke-info {
+            flex: 1;
+            color: #aaa;
+        }
+
+        .stroke-item.active .stroke-info {
+            color: #4ade80;
+        }
+
         .stroke-btn {
-            width: 22px; height: 22px;
-            border: 1px solid #555; border-radius: 3px;
-            background: #252540; color: #888;
-            font-size: 12px; cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
-            padding: 0; line-height: 1;
+            width: 22px;
+            height: 22px;
+            border: 1px solid #555;
+            border-radius: 3px;
+            background: #252540;
+            color: #888;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            line-height: 1;
         }
-        .stroke-btn:hover:not(:disabled) { background: #445; color: #fff; }
-        .stroke-btn:disabled { opacity: 0.3; cursor: default; }
-        .stroke-btn.del:hover:not(:disabled) { background: #ef4444; color: #fff; }
-        .stroke-empty { color: #555; font-size: 12px; padding: 8px; text-align: center; }
 
-        .hint { font-size: 11px; color: #666; line-height: 1.4; padding: 4px 0; }
-        .saved-indicator { font-size: 11px; color: #4ade80; text-align: center; opacity: 0; transition: opacity 0.3s; }
-        .saved-indicator.show { opacity: 1; }
+        .stroke-btn:hover:not(:disabled) {
+            background: #445;
+            color: #fff;
+        }
 
-        .meta-row { display: flex; gap: 12px; align-items: center; }
-        .meta-item { display: flex; align-items: center; gap: 4px; }
-        .meta-label { font-size: 11px; color: #666; text-transform: uppercase; }
-        .meta-value { font-size: 14px; font-weight: 600; font-family: 'Georgia', serif; }
+        .stroke-btn:disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+
+        .stroke-btn.del:hover:not(:disabled) {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        .stroke-empty {
+            color: #555;
+            font-size: 12px;
+            padding: 8px;
+            text-align: center;
+        }
+
+        .hint {
+            font-size: 11px;
+            color: #666;
+            line-height: 1.4;
+            padding: 4px 0;
+        }
+
+        .saved-indicator {
+            font-size: 11px;
+            color: #4ade80;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .saved-indicator.show {
+            opacity: 1;
+        }
+
+        .meta-row {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .meta-label {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+        }
+
+        .meta-value {
+            font-size: 14px;
+            font-weight: 600;
+            font-family: 'Georgia', serif;
+        }
     </style>
 </head>
+
 <body>
     <h1>ZapEngine Glyph Editor</h1>
     <div class="main-layout">
@@ -204,7 +444,9 @@
 
             <div class="control-group">
                 <label>Import JSON</label>
-                <textarea id="importArea" rows="3" style="width:100%;background:#1a1a2e;border:1px solid #444;border-radius:4px;color:#eee;font-size:12px;padding:6px;resize:vertical;" placeholder="Paste edit or legacy JSON..."></textarea>
+                <textarea id="importArea" rows="3"
+                    style="width:100%;background:#1a1a2e;border:1px solid #444;border-radius:4px;color:#eee;font-size:12px;padding:6px;resize:vertical;"
+                    placeholder="Paste edit or legacy JSON..."></textarea>
             </div>
             <button class="action secondary" id="btnImport" style="width:100%">Import</button>
 
@@ -222,1005 +464,1049 @@
     </div>
 
     <script>
-    // ============================================================
-    //  STATE
-    // ============================================================
-    const glyphs = {};
-    let currentChar = 'a';
-    let currentVariant = 'Baseline';
+        // ============================================================
+        //  STATE
+        // ============================================================
+        const glyphs = {};
+        let currentChar = 'a';
+        let currentVariant = 'Baseline';
 
-    let currentTool = 'draw';
-    let drawingPoints = [];
-    let mouseNorm = null;
+        let currentTool = 'draw';
+        let drawingPoints = [];
+        let mouseNorm = null;
 
-    let selStroke = null;
-    let selPoint = null;
-    let dragTarget = null;
-    let isDragging = false;
+        let selStroke = null;
+        let selPoint = null;
+        let dragTarget = null;
+        let isDragging = false;
 
-    // ============================================================
-    //  CONSTANTS
-    // ============================================================
-    const SUBDIVISIONS = 20;
-    const HIT_RADIUS = 10;
-    const STORAGE_KEY = 'zap-glyph-editor-data';
+        // ============================================================
+        //  CONSTANTS
+        // ============================================================
+        const BAKE_STEP = 0.01; // constant arc-length distance between baked points
+        const HIT_RADIUS = 10;
+        const STORAGE_KEY = 'zap-glyph-editor-data';
 
-    const GUIDES = [
-        { name: 'ascender',  y: 0.00, color: '#555', dash: [4, 4] },
-        { name: 'cap',       y: 0.15, color: '#444', dash: [2, 6] },
-        { name: 'x-height',  y: 0.40, color: '#666', dash: [6, 3] },
-        { name: 'baseline',  y: 0.75, color: '#888', dash: [6, 3] },
-        { name: 'descender', y: 1.00, color: '#555', dash: [4, 4] },
-    ];
+        const GUIDES = [
+            { name: 'ascender', y: 0.00, color: '#555', dash: [4, 4] },
+            { name: 'cap', y: 0.15, color: '#444', dash: [2, 6] },
+            { name: 'x-height', y: 0.40, color: '#666', dash: [6, 3] },
+            { name: 'baseline', y: 0.75, color: '#888', dash: [6, 3] },
+            { name: 'descender', y: 1.00, color: '#555', dash: [4, 4] },
+        ];
 
-    // ============================================================
-    //  LETTER METADATA (hardcoded knowledge)
-    // ============================================================
-    const EXIT_TYPES = { b: 'High', o: 'High', v: 'High', w: 'High' };
+        // ============================================================
+        //  LETTER METADATA (hardcoded knowledge)
+        // ============================================================
+        const EXIT_TYPES = { b: 'High', o: 'High', v: 'High', w: 'High' };
 
-    const WIDTHS = {
-        // Lowercase
-        i: 0, j: 0, l: 0, t: 0, e: 0, f: 0,
-        m: 2, w: 2,
-        // Uppercase
-        M: 2, W: 2, X: 2,
-        // Digits
-        '1': 0,
-    };
-
-    // One unit of character width — must be less than baseline-to-x-height (0.35)
-    const UNIT = 0.20;
-
-    function buildVerticalLayout(width) {
-        const halfBody = (width * UNIT) / 2;
-        const lines = [];
-        if (width === 0) {
-            lines.push(0.50);
-        } else {
-            lines.push(0.50 - halfBody);
-            if (width === 2) lines.push(0.50);
-            lines.push(0.50 + halfBody);
-        }
-        return {
-            lines,
-            entryX: 0.50 - halfBody - UNIT / 2,
-            exitX: 0.50 + halfBody + UNIT / 2,
+        const WIDTHS = {
+            // Lowercase
+            i: 0, j: 0, l: 0, t: 0, e: 0, f: 0, x: 0,
+            m: 2, w: 2,
+            // Uppercase
+            M: 2, W: 2,
+            // Digits
+            '1': 0,
         };
-    }
 
-    const VERTICAL_LAYOUTS = {
-        0: buildVerticalLayout(0),
-        1: buildVerticalLayout(1),
-        2: buildVerticalLayout(2),
-    };
+        // One unit of character width — must be less than baseline-to-x-height (0.35)
+        const UNIT = 0.20;
 
-    function isLowercase(ch) { return ch >= 'a' && ch <= 'z'; }
-    function getExitType(ch) { return isLowercase(ch) ? (EXIT_TYPES[ch] || 'Baseline') : null; }
-    function getWidth(ch) { return (ch in WIDTHS) ? WIDTHS[ch] : 1; }
-    function getVariantNames(ch) { return isLowercase(ch) ? ['Baseline', 'High'] : ['Default']; }
-
-    // ============================================================
-    //  CANVAS SETUP
-    // ============================================================
-    const MARGIN = 40;
-    const canvas = document.getElementById('drawCanvas');
-    const cc = canvas.getContext('2d');
-    const W = canvas.width, H = canvas.height;
-    const dX = MARGIN, dY = MARGIN, dW = W - 2*MARGIN, dH = H - 2*MARGIN;
-
-    // ============================================================
-    //  COORDINATE HELPERS
-    // ============================================================
-    function toCanvas(nx, ny) { return [dX + nx * dW, dY + ny * dH]; }
-    function toNorm(cx, cy) { return [r3((cx - dX) / dW), r3((cy - dY) / dH)]; }
-    function canvasCoords(e) {
-        const rect = canvas.getBoundingClientRect();
-        return [(e.clientX - rect.left) * (W / rect.width),
-                (e.clientY - rect.top)  * (H / rect.height)];
-    }
-    function eventToNorm(e) { const [cx, cy] = canvasCoords(e); return toNorm(cx, cy); }
-    function snapToGuides(ny) {
-        let best = ny, bd = Infinity;
-        for (const g of GUIDES) { const d = Math.abs(ny - g.y); if (d < bd && d < 0.04) { bd = d; best = g.y; } }
-        return best;
-    }
-    function clamp01(v) { return Math.max(0, Math.min(1, v)); }
-    function r3(v) { return Math.round(v * 1000) / 1000; }
-    function dist(ax, ay, bx, by) { const dx = ax-bx, dy = ay-by; return Math.sqrt(dx*dx + dy*dy); }
-    function inDrawArea(cx, cy) { return cx >= dX && cx <= dX+dW && cy >= dY && cy <= dY+dH; }
-
-    // ============================================================
-    //  BEZIER MATH
-    // ============================================================
-    function sampleBezier(b0, b1, b2, b3, t) {
-        const m = 1 - t;
-        return [
-            m*m*m*b0[0] + 3*m*m*t*b1[0] + 3*m*t*t*b2[0] + t*t*t*b3[0],
-            m*m*m*b0[1] + 3*m*m*t*b1[1] + 3*m*t*t*b2[1] + t*t*t*b3[1],
-        ];
-    }
-    function segBezier(a, b) {
-        return [
-            [a.x, a.y],
-            [a.x + a.ho[0], a.y + a.ho[1]],
-            [b.x + b.hi[0], b.y + b.hi[1]],
-            [b.x, b.y],
-        ];
-    }
-
-    // ============================================================
-    //  POLYLINE -> HANDLED STROKE (Catmull-Rom)
-    // ============================================================
-    function polylineToStroke(pts) {
-        const n = pts.length;
-        if (n === 0) return [];
-        if (n === 1) return [{ x: pts[0][0], y: pts[0][1], hi: [0,0], ho: [0,0] }];
-        const result = [];
-        for (let i = 0; i < n; i++) {
-            const prev = pts[Math.max(0, i-1)];
-            const curr = pts[i];
-            const next = pts[Math.min(n-1, i+1)];
-            const tx = (next[0] - prev[0]) / 6;
-            const ty = (next[1] - prev[1]) / 6;
-            result.push({
-                x: curr[0], y: curr[1],
-                hi: (i === 0)   ? [0,0] : [r3(-tx), r3(-ty)],
-                ho: (i === n-1) ? [0,0] : [r3(tx),  r3(ty)],
-            });
-        }
-        return result;
-    }
-
-    // ============================================================
-    //  BAKE STROKE
-    // ============================================================
-    function bakeStroke(stroke) {
-        if (stroke.length <= 1) return stroke.map(p => [r3(p.x), r3(p.y)]);
-        const out = [];
-        for (let i = 0; i < stroke.length - 1; i++) {
-            const [b0, b1, b2, b3] = segBezier(stroke[i], stroke[i+1]);
-            const s = (i === 0) ? 0 : 1;
-            for (let j = s; j <= SUBDIVISIONS; j++) {
-                const pt = sampleBezier(b0, b1, b2, b3, j / SUBDIVISIONS);
-                out.push([r3(pt[0]), r3(pt[1])]);
-            }
-        }
-        return out;
-    }
-
-    // ============================================================
-    //  GLYPH DATA HELPERS
-    // ============================================================
-    function ensureGlyph(ch) {
-        if (!glyphs[ch]) {
-            const entry = { width: getWidth(ch), variants: {} };
-            if (isLowercase(ch)) {
-                entry.exit = getExitType(ch);
-                entry.variants = { 'Baseline': [], 'High': [] };
+        function buildVerticalLayout(width) {
+            const halfBody = (width * UNIT) / 2;
+            const lines = [];
+            if (width === 0) {
+                lines.push(0.50);
             } else {
-                entry.variants = { 'Default': [] };
+                lines.push(0.50 - halfBody);
+                if (width === 2) lines.push(0.50);
+                lines.push(0.50 + halfBody);
             }
-            glyphs[ch] = entry;
+            return {
+                lines,
+                entryX: 0.50 - halfBody - UNIT / 2,
+                exitX: 0.50 + halfBody + UNIT / 2,
+            };
         }
-        return glyphs[ch];
-    }
-    function getStrokes(ch, v) {
-        const g = glyphs[ch];
-        if (!g || !g.variants[v]) return [];
-        return g.variants[v];
-    }
-    function setStrokes(ch, v, s) { ensureGlyph(ch).variants[v] = s; }
 
-    // ============================================================
-    //  DATA MIGRATION (old format -> new format)
-    // ============================================================
-    function migrateGlyphData(data) {
-        for (const [ch, def] of Object.entries(data)) {
-            // Always set width from hardcoded table
-            def.width = getWidth(ch);
+        const VERTICAL_LAYOUTS = {
+            0: buildVerticalLayout(0),
+            1: buildVerticalLayout(1),
+            2: buildVerticalLayout(2),
+        };
 
-            if (isLowercase(ch)) {
-                // Fix exit type from hardcoded table
-                def.exit = getExitType(ch);
-                // Ensure both variants exist
-                if (!def.variants) def.variants = {};
-                if (!def.variants['Baseline']) def.variants['Baseline'] = [];
-                if (!def.variants['High']) def.variants['High'] = [];
-                // Remove stale Default variant if present
-                delete def.variants['Default'];
-            } else {
-                // Uppercase / digit: merge old Baseline/High into Default
-                const variants = def.variants || {};
-                if (!variants['Default']) {
-                    const baselineStrokes = variants['Baseline'] || [];
-                    const highStrokes = variants['High'] || [];
-                    const merged = baselineStrokes.length > 0 ? baselineStrokes : highStrokes;
-                    def.variants = { 'Default': merged };
-                }
-                // Clean up old variant keys
-                delete def.variants['Baseline'];
-                delete def.variants['High'];
-                // Remove exit field
-                delete def.exit;
+        function isLowercase(ch) { return ch >= 'a' && ch <= 'z'; }
+        function getExitType(ch) { return isLowercase(ch) ? (EXIT_TYPES[ch] || 'Baseline') : null; }
+        function getWidth(ch) { return (ch in WIDTHS) ? WIDTHS[ch] : 1; }
+        function getVariantNames(ch) { return isLowercase(ch) ? ['Baseline', 'High'] : ['Default']; }
+
+        // ============================================================
+        //  CANVAS SETUP
+        // ============================================================
+        const MARGIN = 40;
+        const canvas = document.getElementById('drawCanvas');
+        const cc = canvas.getContext('2d');
+        const W = canvas.width, H = canvas.height;
+        const dX = MARGIN, dY = MARGIN, dW = W - 2 * MARGIN, dH = H - 2 * MARGIN;
+
+        // ============================================================
+        //  COORDINATE HELPERS
+        // ============================================================
+        function toCanvas(nx, ny) { return [dX + nx * dW, dY + ny * dH]; }
+        function toNorm(cx, cy) { return [r3((cx - dX) / dW), r3((cy - dY) / dH)]; }
+        function canvasCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            return [(e.clientX - rect.left) * (W / rect.width),
+            (e.clientY - rect.top) * (H / rect.height)];
+        }
+        function eventToNorm(e) { const [cx, cy] = canvasCoords(e); return toNorm(cx, cy); }
+        function snapToGuides(ny) {
+            let best = ny, bd = Infinity;
+            for (const g of GUIDES) { const d = Math.abs(ny - g.y); if (d < bd && d < 0.04) { bd = d; best = g.y; } }
+            return best;
+        }
+        function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+        function r3(v) { return Math.round(v * 1000) / 1000; }
+        function dist(ax, ay, bx, by) { const dx = ax - bx, dy = ay - by; return Math.sqrt(dx * dx + dy * dy); }
+        function inDrawArea(cx, cy) { return cx >= dX && cx <= dX + dW && cy >= dY && cy <= dY + dH; }
+
+        // ============================================================
+        //  BEZIER MATH
+        // ============================================================
+        function sampleBezier(b0, b1, b2, b3, t) {
+            const m = 1 - t;
+            return [
+                m * m * m * b0[0] + 3 * m * m * t * b1[0] + 3 * m * t * t * b2[0] + t * t * t * b3[0],
+                m * m * m * b0[1] + 3 * m * m * t * b1[1] + 3 * m * t * t * b2[1] + t * t * t * b3[1],
+            ];
+        }
+        function segBezier(a, b) {
+            return [
+                [a.x, a.y],
+                [a.x + a.ho[0], a.y + a.ho[1]],
+                [b.x + b.hi[0], b.y + b.hi[1]],
+                [b.x, b.y],
+            ];
+        }
+
+        // ============================================================
+        //  POLYLINE -> HANDLED STROKE (Catmull-Rom)
+        // ============================================================
+        function polylineToStroke(pts) {
+            const n = pts.length;
+            if (n === 0) return [];
+            if (n === 1) return [{ x: pts[0][0], y: pts[0][1], hi: [0, 0], ho: [0, 0] }];
+            const result = [];
+            for (let i = 0; i < n; i++) {
+                const prev = pts[Math.max(0, i - 1)];
+                const curr = pts[i];
+                const next = pts[Math.min(n - 1, i + 1)];
+                const tx = (next[0] - prev[0]) / 6;
+                const ty = (next[1] - prev[1]) / 6;
+                result.push({
+                    x: curr[0], y: curr[1],
+                    hi: (i === 0) ? [0, 0] : [r3(-tx), r3(-ty)],
+                    ho: (i === n - 1) ? [0, 0] : [r3(tx), r3(ty)],
+                });
             }
-        }
-    }
-
-    // ============================================================
-    //  LOCALSTORAGE PERSISTENCE
-    // ============================================================
-    function saveToStorage() {
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(glyphs));
-            flashSaved();
-        } catch (e) { /* storage full — silent */ }
-    }
-    function loadFromStorage() {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) return;
-            const data = JSON.parse(raw);
-            for (const [ch, def] of Object.entries(data)) {
-                if (typeof ch === 'string' && ch.length === 1) glyphs[ch] = def;
-            }
-            migrateGlyphData(glyphs);
-        } catch (e) { /* corrupt data — silent */ }
-    }
-    let savedTimeout = 0;
-    function flashSaved() {
-        const el = document.getElementById('savedIndicator');
-        el.classList.add('show');
-        clearTimeout(savedTimeout);
-        savedTimeout = setTimeout(() => el.classList.remove('show'), 1200);
-    }
-
-    // ============================================================
-    //  HIT TESTING
-    // ============================================================
-    function hitTest(nx, ny) {
-        const strokes = getStrokes(currentChar, currentVariant);
-        const [mx, my] = toCanvas(nx, ny);
-
-        if (selStroke !== null && selPoint !== null && strokes[selStroke]) {
-            const pt = strokes[selStroke][selPoint];
-            if (pt) {
-                if (selPoint > 0) {
-                    const [hx, hy] = toCanvas(pt.x + pt.hi[0], pt.y + pt.hi[1]);
-                    if (dist(mx, my, hx, hy) < HIT_RADIUS) return { type: 'hi', si: selStroke, pi: selPoint };
-                }
-                if (selPoint < strokes[selStroke].length - 1) {
-                    const [hx, hy] = toCanvas(pt.x + pt.ho[0], pt.y + pt.ho[1]);
-                    if (dist(mx, my, hx, hy) < HIT_RADIUS) return { type: 'ho', si: selStroke, pi: selPoint };
-                }
-            }
+            return result;
         }
 
-        for (let si = strokes.length - 1; si >= 0; si--) {
-            for (let pi = strokes[si].length - 1; pi >= 0; pi--) {
-                const p = strokes[si][pi];
-                const [ax, ay] = toCanvas(p.x, p.y);
-                if (dist(mx, my, ax, ay) < HIT_RADIUS) return { type: 'anchor', si, pi };
-            }
-        }
-        return null;
-    }
+        // ============================================================
+        //  BAKE STROKE
+        // ============================================================
+        function bakeStroke(stroke) {
+            if (stroke.length <= 1) return stroke.map(p => [r3(p.x), r3(p.y)]);
 
-    // ============================================================
-    //  DRAWING — indicator box helper
-    // ============================================================
-    function drawIndicatorBox(nx, ny, nw, nh, style, color, label) {
-        const [cx, cy] = toCanvas(nx, ny);
-        const bw = nw * dW;
-        const bh = nh * dH;
-        const x = cx - bw / 2;
-        const y = cy - bh / 2;
-
-        if (style === 'filled') {
-            cc.fillStyle = color + '33';
-            cc.fillRect(x, y, bw, bh);
-            cc.strokeStyle = color;
-            cc.lineWidth = 2;
-            cc.setLineDash([]);
-            cc.strokeRect(x, y, bw, bh);
-        } else {
-            cc.strokeStyle = color + '55';
-            cc.lineWidth = 1;
-            cc.setLineDash([3, 3]);
-            cc.strokeRect(x, y, bw, bh);
-            cc.setLineDash([]);
-        }
-
-        cc.fillStyle = (style === 'filled') ? color : color + '88';
-        cc.font = '9px sans-serif';
-        cc.textAlign = 'center';
-        cc.textBaseline = 'top';
-        cc.fillText(label, cx, y + bh + 2);
-    }
-
-    // ============================================================
-    //  DRAWING — main render
-    // ============================================================
-    function draw() {
-        cc.clearRect(0, 0, W, H);
-        cc.fillStyle = '#0a0a18';
-        cc.fillRect(dX, dY, dW, dH);
-
-        // Horizontal guides
-        cc.font = '11px sans-serif';
-        for (const g of GUIDES) {
-            const [, gy] = toCanvas(0, g.y);
-            cc.strokeStyle = g.color; cc.setLineDash(g.dash); cc.lineWidth = 1;
-            cc.beginPath(); cc.moveTo(dX, gy); cc.lineTo(dX+dW, gy); cc.stroke();
-            cc.setLineDash([]);
-            cc.fillStyle = g.color; cc.textAlign = 'right'; cc.textBaseline = 'middle';
-            cc.fillText(g.name, dX - 4, gy);
-        }
-        cc.setLineDash([]);
-
-        // Vertical guidelines (based on letter width)
-        const charWidth = getWidth(currentChar);
-        const vLayout = VERTICAL_LAYOUTS[charWidth];
-        cc.strokeStyle = '#2a8a8a';
-        cc.lineWidth = 1;
-        cc.setLineDash([4, 6]);
-        for (const vx of vLayout.lines) {
-            const [gx] = toCanvas(vx, 0);
-            cc.beginPath();
-            cc.moveTo(gx, dY);
-            cc.lineTo(gx, dY + dH);
-            cc.stroke();
-        }
-        cc.setLineDash([]);
-
-        // Entry/Exit indicator boxes (lowercase only)
-        if (isLowercase(currentChar)) {
-            const BOX_W = 0.06;
-            const BOX_H = 0.08;
-            const entryX = vLayout.entryX;
-            const exitX = vLayout.exitX;
-            const exitType = getExitType(currentChar);
-
-            // Entry Baseline box
-            drawIndicatorBox(entryX, 0.75, BOX_W, BOX_H,
-                currentVariant === 'Baseline' ? 'filled' : 'dim',
-                '#00dddd', 'Bse');
-            // Entry High box
-            drawIndicatorBox(entryX, 0.40, BOX_W, BOX_H,
-                currentVariant === 'High' ? 'filled' : 'dim',
-                '#cc44ff', 'Hi');
-            // Exit box
-            const exitY = (exitType === 'High') ? 0.40 : 0.75;
-            drawIndicatorBox(exitX, exitY, BOX_W, BOX_H,
-                'filled', '#f97316', 'Exit');
-        }
-
-        // Ghost of the other variant (lowercase only)
-        if (isLowercase(currentChar)) {
-            const otherV = currentVariant === 'Baseline' ? 'High' : 'Baseline';
-            const otherS = getStrokes(currentChar, otherV);
-            for (let i = 0; i < otherS.length; i++) drawStroke(otherS[i], '#553322', '#442211', 1.5, -1, false, false);
-        }
-
-        // Current variant strokes
-        const strokes = getStrokes(currentChar, currentVariant);
-        for (let i = 0; i < strokes.length; i++) {
-            const isSel = (i === selStroke);
-            drawStroke(strokes[i],
-                isSel ? '#4ade80' : '#2a7a4a',
-                isSel ? '#22c55e' : '#1a5a3a',
-                isSel ? 3 : 2,
-                i, true, isSel);
-        }
-
-        if (currentTool === 'draw' && drawingPoints.length > 0) drawPolyline();
-
-        updateUI();
-    }
-
-    // ============================================================
-    //  DRAWING — handled bezier stroke
-    // ============================================================
-    function drawStroke(stroke, lineCol, ptCol, lw, idx, showDir, showHandles) {
-        if (stroke.length === 0) return;
-
-        if (stroke.length > 1) {
-            cc.strokeStyle = lineCol; cc.lineWidth = lw;
-            cc.lineJoin = 'round'; cc.lineCap = 'round';
-            cc.beginPath();
-            const [sx, sy] = toCanvas(stroke[0].x, stroke[0].y);
-            cc.moveTo(sx, sy);
+            // 1. Build high-resolution polyline from all bezier segments
+            const SAMPLES_PER_SEG = 100;
+            const poly = [];
             for (let i = 0; i < stroke.length - 1; i++) {
-                const [, b1, b2, b3] = segBezier(stroke[i], stroke[i+1]);
-                const [cx1, cy1] = toCanvas(b1[0], b1[1]);
-                const [cx2, cy2] = toCanvas(b2[0], b2[1]);
-                const [ex, ey]   = toCanvas(b3[0], b3[1]);
-                cc.bezierCurveTo(cx1, cy1, cx2, cy2, ex, ey);
-            }
-            cc.stroke();
-        }
-
-        if (showDir && stroke.length > 1) {
-            for (let i = 0; i < stroke.length - 1; i++) {
-                const [b0, b1, b2, b3] = segBezier(stroke[i], stroke[i+1]);
-                drawArrow(b0, b1, b2, b3, 0.55, lineCol);
-            }
-        }
-
-        if (idx >= 0) {
-            const [sx, sy] = toCanvas(stroke[0].x, stroke[0].y);
-            drawNum(sx, sy, idx + 1, lineCol);
-        }
-
-        if (showHandles && selPoint !== null && stroke[selPoint]) {
-            const pt = stroke[selPoint];
-            const [ax, ay] = toCanvas(pt.x, pt.y);
-            if (selPoint > 0) {
-                const [hx, hy] = toCanvas(pt.x + pt.hi[0], pt.y + pt.hi[1]);
-                drawHandle(ax, ay, hx, hy, '#a78bfa');
-            }
-            if (selPoint < stroke.length - 1) {
-                const [hx, hy] = toCanvas(pt.x + pt.ho[0], pt.y + pt.ho[1]);
-                drawHandle(ax, ay, hx, hy, '#f97316');
-            }
-        }
-
-        for (let i = 0; i < stroke.length; i++) {
-            const pt = stroke[i];
-            const [px, py] = toCanvas(pt.x, pt.y);
-            const isSel = showHandles && selPoint === i;
-
-            if (isSel) {
-                cc.strokeStyle = '#fff'; cc.lineWidth = 2;
-                cc.beginPath(); cc.arc(px, py, 8, 0, Math.PI*2); cc.stroke();
-            }
-
-            const r = (i === 0 || i === stroke.length - 1) ? 5 : 3.5;
-            cc.fillStyle = (i === 0) ? '#fbbf24' : ptCol;
-            cc.beginPath(); cc.arc(px, py, r, 0, Math.PI*2); cc.fill();
-            cc.strokeStyle = lineCol; cc.lineWidth = 1; cc.stroke();
-
-            if (i === stroke.length - 1 && stroke.length > 1) {
-                cc.strokeStyle = '#ef4444'; cc.lineWidth = 1.5;
-                cc.strokeRect(px-4, py-4, 8, 8);
-            }
-        }
-    }
-
-    function drawHandle(ax, ay, hx, hy, color) {
-        cc.strokeStyle = color; cc.lineWidth = 1; cc.setLineDash([3, 3]);
-        cc.beginPath(); cc.moveTo(ax, ay); cc.lineTo(hx, hy); cc.stroke();
-        cc.setLineDash([]);
-        cc.fillStyle = color;
-        cc.beginPath(); cc.arc(hx, hy, 4.5, 0, Math.PI*2); cc.fill();
-        cc.strokeStyle = '#fff'; cc.lineWidth = 0.5; cc.stroke();
-    }
-
-    function drawArrow(b0, b1, b2, b3, t, color) {
-        const pos = sampleBezier(b0, b1, b2, b3, t);
-        const nxt = sampleBezier(b0, b1, b2, b3, Math.min(1, t + 0.04));
-        const [px, py] = toCanvas(pos[0], pos[1]);
-        const [nx, ny] = toCanvas(nxt[0], nxt[1]);
-        const dx = nx-px, dy = ny-py, len = Math.sqrt(dx*dx+dy*dy);
-        if (len < 0.5) return;
-        const ang = Math.atan2(dy, dx), sz = 7;
-        cc.save(); cc.translate(px, py); cc.rotate(ang);
-        cc.fillStyle = color; cc.globalAlpha = 0.8;
-        cc.beginPath(); cc.moveTo(sz, 0); cc.lineTo(-sz*.5, -sz*.5); cc.lineTo(-sz*.3, 0); cc.lineTo(-sz*.5, sz*.5);
-        cc.closePath(); cc.fill();
-        cc.globalAlpha = 1; cc.restore();
-    }
-
-    function drawNum(x, y, n, color) {
-        const r = 9, ox = -r-6, oy = -r-6;
-        cc.fillStyle = '#1a1a2e';
-        cc.beginPath(); cc.arc(x+ox, y+oy, r, 0, Math.PI*2); cc.fill();
-        cc.strokeStyle = color; cc.lineWidth = 1.5;
-        cc.beginPath(); cc.arc(x+ox, y+oy, r, 0, Math.PI*2); cc.stroke();
-        cc.fillStyle = color; cc.font = 'bold 11px sans-serif';
-        cc.textAlign = 'center'; cc.textBaseline = 'middle';
-        cc.fillText(n.toString(), x+ox, y+oy);
-    }
-
-    // ============================================================
-    //  DRAWING — polyline (Draw tool in-progress)
-    // ============================================================
-    function drawPolyline() {
-        const pts = drawingPoints;
-        cc.strokeStyle = '#4ade80'; cc.lineWidth = 2; cc.setLineDash([]);
-        cc.lineJoin = 'round'; cc.lineCap = 'round';
-        cc.beginPath();
-        const [sx, sy] = toCanvas(pts[0][0], pts[0][1]);
-        cc.moveTo(sx, sy);
-        for (let i = 1; i < pts.length; i++) {
-            const [px, py] = toCanvas(pts[i][0], pts[i][1]);
-            cc.lineTo(px, py);
-        }
-        cc.stroke();
-
-        if (mouseNorm) {
-            const last = pts[pts.length - 1];
-            const [lx, ly] = toCanvas(last[0], last[1]);
-            const [mx, my] = toCanvas(clamp01(mouseNorm[0]), clamp01(mouseNorm[1]));
-            cc.strokeStyle = 'rgba(74,222,128,0.3)'; cc.lineWidth = 1; cc.setLineDash([5,5]);
-            cc.beginPath(); cc.moveTo(lx, ly); cc.lineTo(mx, my); cc.stroke();
-            cc.setLineDash([]);
-        }
-
-        for (let i = 0; i < pts.length; i++) {
-            const [px, py] = toCanvas(pts[i][0], pts[i][1]);
-            cc.fillStyle = (i === 0) ? '#fbbf24' : '#22c55e';
-            cc.beginPath(); cc.arc(px, py, (i===0)?5:3.5, 0, Math.PI*2); cc.fill();
-            cc.strokeStyle = '#4ade80'; cc.lineWidth = 1; cc.stroke();
-        }
-    }
-
-    // ============================================================
-    //  UI STATE UPDATE
-    // ============================================================
-    function updateUI() {
-        const canDelPt = currentTool === 'edit' && selStroke !== null && selPoint !== null;
-        document.getElementById('btnDelPoint').disabled = !canDelPt;
-    }
-
-    // ============================================================
-    //  LETTER BAR
-    // ============================================================
-    function buildLetterBar() {
-        const lo = document.getElementById('lowercaseRow');
-        const up = document.getElementById('uppercaseRow');
-        const di = document.getElementById('digitRow');
-        lo.innerHTML = '<span class="row-label">a-z</span>';
-        up.innerHTML = '<span class="row-label">A-Z</span>';
-        di.innerHTML = '<span class="row-label">0-9</span>';
-        for (let i = 0; i < 26; i++) lo.appendChild(makeLetterBtn(String.fromCharCode(97+i)));
-        for (let i = 0; i < 26; i++) up.appendChild(makeLetterBtn(String.fromCharCode(65+i)));
-        for (let i = 0; i < 10; i++) di.appendChild(makeLetterBtn(String.fromCharCode(48+i)));
-    }
-    function makeLetterBtn(ch) {
-        const btn = document.createElement('button');
-        btn.className = 'letter-btn';
-        btn.textContent = ch;
-        if (ch === currentChar) btn.classList.add('active');
-        if (glyphs[ch] && Object.values(glyphs[ch].variants).some(v => v.length > 0))
-            btn.classList.add('has-data');
-        btn.addEventListener('click', () => selectChar(ch));
-        return btn;
-    }
-
-    // ============================================================
-    //  STROKE LIST
-    // ============================================================
-    function buildStrokeList() {
-        const list = document.getElementById('strokeList');
-        const strokes = getStrokes(currentChar, currentVariant);
-        list.innerHTML = '';
-        if (strokes.length === 0) {
-            list.innerHTML = '<div class="stroke-empty">No strokes yet</div>';
-            return;
-        }
-        for (let i = 0; i < strokes.length; i++) {
-            const item = document.createElement('div');
-            item.className = 'stroke-item' + (i === selStroke ? ' active' : '');
-
-            const info = document.createElement('span');
-            info.className = 'stroke-info';
-            info.textContent = (i+1) + '. Stroke (' + strokes[i].length + ' pts)';
-            info.addEventListener('click', () => { selStroke = i; selPoint = null; dragTarget = null; buildStrokeList(); draw(); });
-            item.appendChild(info);
-
-            const ctrl = document.createElement('span');
-            ctrl.style.cssText = 'display:flex;gap:2px;';
-            ctrl.appendChild(mkBtn('\u2191', i > 0, () => moveStroke(i, -1)));
-            ctrl.appendChild(mkBtn('\u2193', i < strokes.length-1, () => moveStroke(i, 1)));
-            const del = mkBtn('\u00d7', true, () => deleteStroke(i));
-            del.classList.add('del');
-            ctrl.appendChild(del);
-            item.appendChild(ctrl);
-
-            list.appendChild(item);
-        }
-    }
-    function mkBtn(text, enabled, fn) {
-        const b = document.createElement('button');
-        b.className = 'stroke-btn'; b.textContent = text; b.disabled = !enabled;
-        if (enabled) b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
-        return b;
-    }
-
-    // ============================================================
-    //  STROKE ACTIONS
-    // ============================================================
-    function moveStroke(idx, dir) {
-        const strokes = getStrokes(currentChar, currentVariant);
-        const ni = idx + dir;
-        if (ni < 0 || ni >= strokes.length) return;
-        [strokes[idx], strokes[ni]] = [strokes[ni], strokes[idx]];
-        if (selStroke === idx) selStroke = ni;
-        else if (selStroke === ni) selStroke = idx;
-        saveToStorage(); buildStrokeList(); draw();
-    }
-    function deleteStroke(idx) {
-        const strokes = getStrokes(currentChar, currentVariant);
-        strokes.splice(idx, 1);
-        if (selStroke === idx) { selStroke = null; selPoint = null; }
-        else if (selStroke !== null && selStroke > idx) selStroke--;
-        saveToStorage(); buildStrokeList(); buildLetterBar(); draw();
-    }
-    function deleteSelectedPoint() {
-        if (selStroke === null || selPoint === null) return;
-        const strokes = getStrokes(currentChar, currentVariant);
-        const stroke = strokes[selStroke];
-        if (!stroke) return;
-
-        stroke.splice(selPoint, 1);
-
-        if (stroke.length < 2) {
-            strokes.splice(selStroke, 1);
-            selStroke = null;
-            selPoint = null;
-        } else {
-            if (selPoint >= stroke.length) selPoint = stroke.length - 1;
-            stroke[0].hi = [0, 0];
-            stroke[stroke.length - 1].ho = [0, 0];
-        }
-
-        saveToStorage(); buildStrokeList(); buildLetterBar(); draw();
-    }
-    function commitDrawing() {
-        if (drawingPoints.length < 2) { drawingPoints = []; draw(); return; }
-        const stroke = polylineToStroke(drawingPoints);
-        const strokes = getStrokes(currentChar, currentVariant);
-        strokes.push(stroke);
-        setStrokes(currentChar, currentVariant, strokes);
-        drawingPoints = [];
-        saveToStorage(); buildLetterBar(); buildStrokeList(); draw();
-    }
-
-    // ============================================================
-    //  TOOL & LETTER SWITCHING
-    // ============================================================
-    function switchTool(tool) {
-        if (currentTool === tool) return;
-        if (currentTool === 'draw') commitDrawing();
-        currentTool = tool;
-        selStroke = null; selPoint = null; dragTarget = null; isDragging = false;
-        document.getElementById('btnDraw').classList.toggle('active', tool === 'draw');
-        document.getElementById('btnEdit').classList.toggle('active', tool === 'edit');
-        canvas.style.cursor = (tool === 'draw') ? 'crosshair' : 'default';
-        draw();
-    }
-
-    function selectChar(ch) {
-        if (currentTool === 'draw') commitDrawing();
-        currentChar = ch;
-        selStroke = null; selPoint = null;
-
-        // Set variant to valid value for this character type
-        const variantSelect = document.getElementById('variantSelect');
-        if (isLowercase(ch)) {
-            if (currentVariant !== 'Baseline' && currentVariant !== 'High') {
-                currentVariant = 'Baseline';
-            }
-            // Rebuild dropdown options if needed (switching from uppercase/digit)
-            if (variantSelect.options.length !== 2 || variantSelect.options[0].value !== 'Baseline') {
-                variantSelect.innerHTML = '<option value="Baseline">Baseline</option><option value="High">High</option>';
-            }
-            variantSelect.value = currentVariant;
-            variantSelect.disabled = false;
-        } else {
-            currentVariant = 'Default';
-            variantSelect.innerHTML = '<option value="Default">Default</option>';
-            variantSelect.value = 'Default';
-            variantSelect.disabled = true;
-        }
-
-        // Update exit display
-        const exitGroup = document.getElementById('exitGroup');
-        const exitDisplay = document.getElementById('exitDisplay');
-        if (isLowercase(ch)) {
-            exitGroup.style.display = '';
-            const exitType = getExitType(ch);
-            exitDisplay.textContent = exitType;
-            exitDisplay.style.color = (exitType === 'High') ? '#f97316' : '#888';
-        } else {
-            exitGroup.style.display = 'none';
-        }
-
-        // Update width display
-        document.getElementById('widthDisplay').textContent = getWidth(ch).toString();
-
-        document.getElementById('currentLetterDisplay').textContent = ch;
-        ensureGlyph(ch);
-        buildLetterBar(); buildStrokeList(); draw();
-    }
-
-    // ============================================================
-    //  CANVAS EVENTS
-    // ============================================================
-    function addDrawPoint(e) {
-        const [cx, cy] = canvasCoords(e);
-        if (!inDrawArea(cx, cy)) return;
-        let [nx, ny] = toNorm(cx, cy);
-        if (e.shiftKey) ny = snapToGuides(ny);
-        drawingPoints.push([clamp01(nx), clamp01(ny)]);
-        draw();
-    }
-    function startEdit(e) {
-        const [nx, ny] = eventToNorm(e);
-        const hit = hitTest(nx, ny);
-        if (!hit) {
-            selStroke = null; selPoint = null; dragTarget = null;
-            buildStrokeList(); draw(); return;
-        }
-        if (hit.type === 'anchor') {
-            selStroke = hit.si; selPoint = hit.pi; dragTarget = 'anchor'; isDragging = true;
-        } else {
-            selStroke = hit.si; selPoint = hit.pi; dragTarget = hit.type; isDragging = true;
-        }
-        buildStrokeList(); draw();
-    }
-    function handleDrag(e) {
-        if (!isDragging || selStroke === null || selPoint === null) return;
-        const strokes = getStrokes(currentChar, currentVariant);
-        const stroke = strokes[selStroke]; if (!stroke) return;
-        const pt = stroke[selPoint]; if (!pt) return;
-        let [nx, ny] = eventToNorm(e);
-        if (e.shiftKey) ny = snapToGuides(ny);
-        nx = clamp01(nx); ny = clamp01(ny);
-
-        if (dragTarget === 'anchor') { pt.x = r3(nx); pt.y = r3(ny); }
-        else if (dragTarget === 'hi') { pt.hi = [r3(nx - pt.x), r3(ny - pt.y)]; }
-        else if (dragTarget === 'ho') { pt.ho = [r3(nx - pt.x), r3(ny - pt.y)]; }
-        draw();
-    }
-    function endDrag() {
-        if (isDragging) saveToStorage();
-        isDragging = false;
-    }
-
-    // ============================================================
-    //  UNDO / CLEAR
-    // ============================================================
-    function undo() {
-        if (currentTool === 'draw' && drawingPoints.length > 0) { drawingPoints.pop(); draw(); }
-    }
-    function clearVariant() {
-        if (currentTool === 'draw') drawingPoints = [];
-        setStrokes(currentChar, currentVariant, []);
-        selStroke = null; selPoint = null;
-        saveToStorage(); buildLetterBar(); buildStrokeList(); draw();
-    }
-    function clearLetter() {
-        if (currentTool === 'draw') drawingPoints = [];
-        if (glyphs[currentChar]) {
-            if (isLowercase(currentChar)) {
-                glyphs[currentChar].variants = { 'Baseline': [], 'High': [] };
-            } else {
-                glyphs[currentChar].variants = { 'Default': [] };
-            }
-        }
-        selStroke = null; selPoint = null;
-        saveToStorage(); buildLetterBar(); buildStrokeList(); draw();
-    }
-
-    // ============================================================
-    //  EXPORT (file download) / IMPORT
-    // ============================================================
-    function buildExportData(mode) {
-        const keys = Object.keys(glyphs).sort((a, b) => {
-            const al = a >= 'a' && a <= 'z', bl = b >= 'a' && b <= 'z';
-            const au = a >= 'A' && a <= 'Z', bu = b >= 'A' && b <= 'Z';
-            const ao = al ? 0 : au ? 1 : 2;
-            const bo = bl ? 0 : bu ? 1 : 2;
-            if (ao !== bo) return ao - bo;
-            return a.localeCompare(b);
-        });
-
-        if (mode === 'baked') {
-            // Build meta section
-            const highExitLetters = Object.keys(EXIT_TYPES).sort();
-            const widths = {};
-            for (const ch of keys) widths[ch] = getWidth(ch);
-
-            const glyphsOut = {};
-            for (const ch of keys) {
-                const g = glyphs[ch];
-                if (!Object.values(g.variants).some(v => v.length > 0)) continue;
-                const entry = { width: getWidth(ch), variants: {} };
-                if (isLowercase(ch)) entry.exit = getExitType(ch);
-                for (const [v, strokes] of Object.entries(g.variants)) {
-                    if (strokes.length > 0) {
-                        entry.variants[v] = strokes.map(s => bakeStroke(s));
-                    }
+                const [b0, b1, b2, b3] = segBezier(stroke[i], stroke[i + 1]);
+                const startJ = (i === 0) ? 0 : 1;
+                for (let j = startJ; j <= SAMPLES_PER_SEG; j++) {
+                    poly.push(sampleBezier(b0, b1, b2, b3, j / SAMPLES_PER_SEG));
                 }
-                glyphsOut[ch] = entry;
             }
 
-            return { meta: { highExitLetters, widths }, glyphs: glyphsOut };
-        } else {
-            // Edit JSON — flat structure
-            const out = {};
-            for (const ch of keys) {
-                const g = glyphs[ch];
-                if (!Object.values(g.variants).some(v => v.length > 0)) continue;
-                const entry = { width: getWidth(ch), variants: {} };
-                if (isLowercase(ch)) entry.exit = getExitType(ch);
-                for (const [v, strokes] of Object.entries(g.variants)) {
-                    if (strokes.length > 0) {
-                        entry.variants[v] = strokes;
-                    }
-                }
-                out[ch] = entry;
+            // 2. Compute cumulative arc lengths
+            const cumLen = [0];
+            for (let i = 1; i < poly.length; i++) {
+                const dx = poly[i][0] - poly[i - 1][0];
+                const dy = poly[i][1] - poly[i - 1][1];
+                cumLen.push(cumLen[i - 1] + Math.sqrt(dx * dx + dy * dy));
             }
+            const totalLen = cumLen[cumLen.length - 1];
+
+            if (totalLen < BAKE_STEP * 0.5) {
+                return [[r3(poly[0][0]), r3(poly[0][1])]];
+            }
+
+            // 3. Resample at constant arc-length intervals
+            const out = [[r3(poly[0][0]), r3(poly[0][1])]];
+            let nextDist = BAKE_STEP;
+            let pi = 1;
+
+            while (nextDist < totalLen) {
+                while (pi < poly.length && cumLen[pi] < nextDist) pi++;
+                if (pi >= poly.length) break;
+
+                const segStart = cumLen[pi - 1];
+                const segEnd = cumLen[pi];
+                const t = (segEnd > segStart) ? (nextDist - segStart) / (segEnd - segStart) : 0;
+
+                const x = poly[pi - 1][0] + t * (poly[pi][0] - poly[pi - 1][0]);
+                const y = poly[pi - 1][1] + t * (poly[pi][1] - poly[pi - 1][1]);
+                out.push([r3(x), r3(y)]);
+
+                nextDist += BAKE_STEP;
+            }
+
+            // Always include the end point
+            const last = poly[poly.length - 1];
+            const lastOut = out[out.length - 1];
+            if (lastOut[0] !== r3(last[0]) || lastOut[1] !== r3(last[1])) {
+                out.push([r3(last[0]), r3(last[1])]);
+            }
+
             return out;
         }
-    }
 
-    function downloadFile(content, filename) {
-        const blob = new Blob([content], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
-    function exportEditJSON() {
-        if (currentTool === 'draw') commitDrawing();
-        const data = buildExportData('edit');
-        downloadFile(JSON.stringify(data, null, 2), 'glyphs-edit.json');
-    }
-    function exportBakedJSON() {
-        if (currentTool === 'draw') commitDrawing();
-        const data = buildExportData('baked');
-        downloadFile(JSON.stringify(data, null, 2), 'glyphs-baked.json');
-    }
-
-    function importJSON() {
-        const text = document.getElementById('importArea').value.trim();
-        if (!text) return;
-        try {
-            let data = JSON.parse(text);
-
-            // Handle baked format with meta+glyphs wrapper
-            if (data.meta && data.glyphs) {
-                data = data.glyphs;
-            }
-
-            let count = 0;
-            for (const [ch, def] of Object.entries(data)) {
-                if (typeof ch !== 'string' || ch.length !== 1) continue;
-
+        // ============================================================
+        //  GLYPH DATA HELPERS
+        // ============================================================
+        function ensureGlyph(ch) {
+            if (!glyphs[ch]) {
                 const entry = { width: getWidth(ch), variants: {} };
-                if (isLowercase(ch)) entry.exit = getExitType(ch);
+                if (isLowercase(ch)) {
+                    entry.exit = getExitType(ch);
+                    entry.variants = { 'Baseline': [], 'High': [] };
+                } else {
+                    entry.variants = { 'Default': [] };
+                }
+                glyphs[ch] = entry;
+            }
+            return glyphs[ch];
+        }
+        function getStrokes(ch, v) {
+            const g = glyphs[ch];
+            if (!g || !g.variants[v]) return [];
+            return g.variants[v];
+        }
+        function setStrokes(ch, v, s) { ensureGlyph(ch).variants[v] = s; }
 
-                if (def.variants) {
-                    const validVariants = getVariantNames(ch);
+        // ============================================================
+        //  DATA MIGRATION (old format -> new format)
+        // ============================================================
+        function migrateGlyphData(data) {
+            for (const [ch, def] of Object.entries(data)) {
+                // Always set width from hardcoded table
+                def.width = getWidth(ch);
 
-                    if (!isLowercase(ch) && !def.variants['Default']) {
-                        // Old format: uppercase/digit has Baseline/High, merge into Default
-                        const baselineStrokes = def.variants['Baseline'] || [];
-                        const highStrokes = def.variants['High'] || [];
+                if (isLowercase(ch)) {
+                    // Fix exit type from hardcoded table
+                    def.exit = getExitType(ch);
+                    // Ensure both variants exist
+                    if (!def.variants) def.variants = {};
+                    if (!def.variants['Baseline']) def.variants['Baseline'] = [];
+                    if (!def.variants['High']) def.variants['High'] = [];
+                    // Remove stale Default variant if present
+                    delete def.variants['Default'];
+                } else {
+                    // Uppercase / digit: merge old Baseline/High into Default
+                    const variants = def.variants || {};
+                    if (!variants['Default']) {
+                        const baselineStrokes = variants['Baseline'] || [];
+                        const highStrokes = variants['High'] || [];
                         const merged = baselineStrokes.length > 0 ? baselineStrokes : highStrokes;
-                        entry.variants['Default'] = convertImportStrokes(merged);
-                    } else {
-                        for (const [v, strokes] of Object.entries(def.variants)) {
-                            if (!validVariants.includes(v)) continue;
-                            if (!Array.isArray(strokes)) continue;
-                            entry.variants[v] = convertImportStrokes(strokes);
-                        }
+                        def.variants = { 'Default': merged };
+                    }
+                    // Clean up old variant keys
+                    delete def.variants['Baseline'];
+                    delete def.variants['High'];
+                    // Remove exit field
+                    delete def.exit;
+                }
+            }
+        }
+
+        // ============================================================
+        //  LOCALSTORAGE PERSISTENCE
+        // ============================================================
+        function saveToStorage() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(glyphs));
+                flashSaved();
+            } catch (e) { /* storage full — silent */ }
+        }
+        function loadFromStorage() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return;
+                const data = JSON.parse(raw);
+                for (const [ch, def] of Object.entries(data)) {
+                    if (typeof ch === 'string' && ch.length === 1) glyphs[ch] = def;
+                }
+                migrateGlyphData(glyphs);
+            } catch (e) { /* corrupt data — silent */ }
+        }
+        let savedTimeout = 0;
+        function flashSaved() {
+            const el = document.getElementById('savedIndicator');
+            el.classList.add('show');
+            clearTimeout(savedTimeout);
+            savedTimeout = setTimeout(() => el.classList.remove('show'), 1200);
+        }
+
+        // ============================================================
+        //  HIT TESTING
+        // ============================================================
+        function hitTest(nx, ny) {
+            const strokes = getStrokes(currentChar, currentVariant);
+            const [mx, my] = toCanvas(nx, ny);
+
+            if (selStroke !== null && selPoint !== null && strokes[selStroke]) {
+                const pt = strokes[selStroke][selPoint];
+                if (pt) {
+                    if (selPoint > 0) {
+                        const [hx, hy] = toCanvas(pt.x + pt.hi[0], pt.y + pt.hi[1]);
+                        if (dist(mx, my, hx, hy) < HIT_RADIUS) return { type: 'hi', si: selStroke, pi: selPoint };
+                    }
+                    if (selPoint < strokes[selStroke].length - 1) {
+                        const [hx, hy] = toCanvas(pt.x + pt.ho[0], pt.y + pt.ho[1]);
+                        if (dist(mx, my, hx, hy) < HIT_RADIUS) return { type: 'ho', si: selStroke, pi: selPoint };
                     }
                 }
-
-                // Ensure all valid variants exist
-                for (const v of getVariantNames(ch)) {
-                    if (!entry.variants[v]) entry.variants[v] = [];
-                }
-
-                glyphs[ch] = entry;
-                count++;
             }
 
-            drawingPoints = []; selStroke = null; selPoint = null;
-            selectChar(currentChar);
-            saveToStorage();
-            document.getElementById('importArea').value = '';
-            alert('Imported ' + count + ' glyphs.');
-        } catch (e) {
-            alert('Invalid JSON: ' + e.message);
+            for (let si = strokes.length - 1; si >= 0; si--) {
+                for (let pi = strokes[si].length - 1; pi >= 0; pi--) {
+                    const p = strokes[si][pi];
+                    const [ax, ay] = toCanvas(p.x, p.y);
+                    if (dist(mx, my, ax, ay) < HIT_RADIUS) return { type: 'anchor', si, pi };
+                }
+            }
+            return null;
         }
-    }
 
-    function convertImportStrokes(strokes) {
-        return strokes.map(stroke => {
-            if (stroke.length > 0 && Array.isArray(stroke[0]))
-                return polylineToStroke(stroke);
-            return stroke;
+        // ============================================================
+        //  DRAWING — indicator box helper
+        // ============================================================
+        function drawIndicatorBox(nx, ny, nw, nh, style, color, label) {
+            const [cx, cy] = toCanvas(nx, ny);
+            const bw = nw * dW;
+            const bh = nh * dH;
+            const x = cx - bw / 2;
+            const y = cy - bh / 2;
+
+            if (style === 'filled') {
+                cc.fillStyle = color + '33';
+                cc.fillRect(x, y, bw, bh);
+                cc.strokeStyle = color;
+                cc.lineWidth = 2;
+                cc.setLineDash([]);
+                cc.strokeRect(x, y, bw, bh);
+            } else {
+                cc.strokeStyle = color + '55';
+                cc.lineWidth = 1;
+                cc.setLineDash([3, 3]);
+                cc.strokeRect(x, y, bw, bh);
+                cc.setLineDash([]);
+            }
+
+            cc.fillStyle = (style === 'filled') ? color : color + '88';
+            cc.font = '9px sans-serif';
+            cc.textAlign = 'center';
+            cc.textBaseline = 'top';
+            cc.fillText(label, cx, y + bh + 2);
+        }
+
+        // ============================================================
+        //  DRAWING — main render
+        // ============================================================
+        function draw() {
+            cc.clearRect(0, 0, W, H);
+            cc.fillStyle = '#0a0a18';
+            cc.fillRect(dX, dY, dW, dH);
+
+            // Horizontal guides
+            cc.font = '11px sans-serif';
+            for (const g of GUIDES) {
+                const [, gy] = toCanvas(0, g.y);
+                cc.strokeStyle = g.color; cc.setLineDash(g.dash); cc.lineWidth = 1;
+                cc.beginPath(); cc.moveTo(dX, gy); cc.lineTo(dX + dW, gy); cc.stroke();
+                cc.setLineDash([]);
+                cc.fillStyle = g.color; cc.textAlign = 'right'; cc.textBaseline = 'middle';
+                cc.fillText(g.name, dX - 4, gy);
+            }
+            cc.setLineDash([]);
+
+            // Vertical guidelines (based on letter width)
+            const charWidth = getWidth(currentChar);
+            const vLayout = VERTICAL_LAYOUTS[charWidth];
+            cc.strokeStyle = '#2a8a8a';
+            cc.lineWidth = 1;
+            cc.setLineDash([4, 6]);
+            for (const vx of vLayout.lines) {
+                const [gx] = toCanvas(vx, 0);
+                cc.beginPath();
+                cc.moveTo(gx, dY);
+                cc.lineTo(gx, dY + dH);
+                cc.stroke();
+            }
+            cc.setLineDash([]);
+
+            // Entry/Exit indicator boxes (lowercase only)
+            if (isLowercase(currentChar)) {
+                const BOX_W = 0.06;
+                const BOX_H = 0.08;
+                const entryX = vLayout.entryX;
+                const exitX = vLayout.exitX;
+                const exitType = getExitType(currentChar);
+
+                // Entry Baseline box
+                drawIndicatorBox(entryX, 0.75, BOX_W, BOX_H,
+                    currentVariant === 'Baseline' ? 'filled' : 'dim',
+                    '#00dddd', 'Bse');
+                // Entry High box
+                drawIndicatorBox(entryX, 0.40, BOX_W, BOX_H,
+                    currentVariant === 'High' ? 'filled' : 'dim',
+                    '#cc44ff', 'Hi');
+                // Exit box
+                const exitY = (exitType === 'High') ? 0.40 : 0.75;
+                drawIndicatorBox(exitX, exitY, BOX_W, BOX_H,
+                    'filled', '#f97316', 'Exit');
+            }
+
+            // Ghost of the other variant (lowercase only)
+            if (isLowercase(currentChar)) {
+                const otherV = currentVariant === 'Baseline' ? 'High' : 'Baseline';
+                const otherS = getStrokes(currentChar, otherV);
+                for (let i = 0; i < otherS.length; i++) drawStroke(otherS[i], '#553322', '#442211', 1.5, -1, false, false);
+            }
+
+            // Current variant strokes
+            const strokes = getStrokes(currentChar, currentVariant);
+            for (let i = 0; i < strokes.length; i++) {
+                const isSel = (i === selStroke);
+                drawStroke(strokes[i],
+                    isSel ? '#4ade80' : '#2a7a4a',
+                    isSel ? '#22c55e' : '#1a5a3a',
+                    isSel ? 3 : 2,
+                    i, true, isSel);
+            }
+
+            if (currentTool === 'draw' && drawingPoints.length > 0) drawPolyline();
+
+            updateUI();
+        }
+
+        // ============================================================
+        //  DRAWING — handled bezier stroke
+        // ============================================================
+        function drawStroke(stroke, lineCol, ptCol, lw, idx, showDir, showHandles) {
+            if (stroke.length === 0) return;
+
+            if (stroke.length > 1) {
+                cc.strokeStyle = lineCol; cc.lineWidth = lw;
+                cc.lineJoin = 'round'; cc.lineCap = 'round';
+                cc.beginPath();
+                const [sx, sy] = toCanvas(stroke[0].x, stroke[0].y);
+                cc.moveTo(sx, sy);
+                for (let i = 0; i < stroke.length - 1; i++) {
+                    const [, b1, b2, b3] = segBezier(stroke[i], stroke[i + 1]);
+                    const [cx1, cy1] = toCanvas(b1[0], b1[1]);
+                    const [cx2, cy2] = toCanvas(b2[0], b2[1]);
+                    const [ex, ey] = toCanvas(b3[0], b3[1]);
+                    cc.bezierCurveTo(cx1, cy1, cx2, cy2, ex, ey);
+                }
+                cc.stroke();
+            }
+
+            if (showDir && stroke.length > 1) {
+                for (let i = 0; i < stroke.length - 1; i++) {
+                    const [b0, b1, b2, b3] = segBezier(stroke[i], stroke[i + 1]);
+                    drawArrow(b0, b1, b2, b3, 0.55, lineCol);
+                }
+            }
+
+            if (idx >= 0) {
+                const [sx, sy] = toCanvas(stroke[0].x, stroke[0].y);
+                drawNum(sx, sy, idx + 1, lineCol);
+            }
+
+            if (showHandles && selPoint !== null && stroke[selPoint]) {
+                const pt = stroke[selPoint];
+                const [ax, ay] = toCanvas(pt.x, pt.y);
+                if (selPoint > 0) {
+                    const [hx, hy] = toCanvas(pt.x + pt.hi[0], pt.y + pt.hi[1]);
+                    drawHandle(ax, ay, hx, hy, '#a78bfa');
+                }
+                if (selPoint < stroke.length - 1) {
+                    const [hx, hy] = toCanvas(pt.x + pt.ho[0], pt.y + pt.ho[1]);
+                    drawHandle(ax, ay, hx, hy, '#f97316');
+                }
+            }
+
+            for (let i = 0; i < stroke.length; i++) {
+                const pt = stroke[i];
+                const [px, py] = toCanvas(pt.x, pt.y);
+                const isSel = showHandles && selPoint === i;
+
+                if (isSel) {
+                    cc.strokeStyle = '#fff'; cc.lineWidth = 2;
+                    cc.beginPath(); cc.arc(px, py, 8, 0, Math.PI * 2); cc.stroke();
+                }
+
+                const r = (i === 0 || i === stroke.length - 1) ? 5 : 3.5;
+                cc.fillStyle = (i === 0) ? '#fbbf24' : ptCol;
+                cc.beginPath(); cc.arc(px, py, r, 0, Math.PI * 2); cc.fill();
+                cc.strokeStyle = lineCol; cc.lineWidth = 1; cc.stroke();
+
+                if (i === stroke.length - 1 && stroke.length > 1) {
+                    cc.strokeStyle = '#ef4444'; cc.lineWidth = 1.5;
+                    cc.strokeRect(px - 4, py - 4, 8, 8);
+                }
+            }
+        }
+
+        function drawHandle(ax, ay, hx, hy, color) {
+            cc.strokeStyle = color; cc.lineWidth = 1; cc.setLineDash([3, 3]);
+            cc.beginPath(); cc.moveTo(ax, ay); cc.lineTo(hx, hy); cc.stroke();
+            cc.setLineDash([]);
+            cc.fillStyle = color;
+            cc.beginPath(); cc.arc(hx, hy, 4.5, 0, Math.PI * 2); cc.fill();
+            cc.strokeStyle = '#fff'; cc.lineWidth = 0.5; cc.stroke();
+        }
+
+        function drawArrow(b0, b1, b2, b3, t, color) {
+            const pos = sampleBezier(b0, b1, b2, b3, t);
+            const nxt = sampleBezier(b0, b1, b2, b3, Math.min(1, t + 0.04));
+            const [px, py] = toCanvas(pos[0], pos[1]);
+            const [nx, ny] = toCanvas(nxt[0], nxt[1]);
+            const dx = nx - px, dy = ny - py, len = Math.sqrt(dx * dx + dy * dy);
+            if (len < 0.5) return;
+            const ang = Math.atan2(dy, dx), sz = 7;
+            cc.save(); cc.translate(px, py); cc.rotate(ang);
+            cc.fillStyle = color; cc.globalAlpha = 0.8;
+            cc.beginPath(); cc.moveTo(sz, 0); cc.lineTo(-sz * .5, -sz * .5); cc.lineTo(-sz * .3, 0); cc.lineTo(-sz * .5, sz * .5);
+            cc.closePath(); cc.fill();
+            cc.globalAlpha = 1; cc.restore();
+        }
+
+        function drawNum(x, y, n, color) {
+            const r = 9, ox = -r - 6, oy = -r - 6;
+            cc.fillStyle = '#1a1a2e';
+            cc.beginPath(); cc.arc(x + ox, y + oy, r, 0, Math.PI * 2); cc.fill();
+            cc.strokeStyle = color; cc.lineWidth = 1.5;
+            cc.beginPath(); cc.arc(x + ox, y + oy, r, 0, Math.PI * 2); cc.stroke();
+            cc.fillStyle = color; cc.font = 'bold 11px sans-serif';
+            cc.textAlign = 'center'; cc.textBaseline = 'middle';
+            cc.fillText(n.toString(), x + ox, y + oy);
+        }
+
+        // ============================================================
+        //  DRAWING — polyline (Draw tool in-progress)
+        // ============================================================
+        function drawPolyline() {
+            const pts = drawingPoints;
+            cc.strokeStyle = '#4ade80'; cc.lineWidth = 2; cc.setLineDash([]);
+            cc.lineJoin = 'round'; cc.lineCap = 'round';
+            cc.beginPath();
+            const [sx, sy] = toCanvas(pts[0][0], pts[0][1]);
+            cc.moveTo(sx, sy);
+            for (let i = 1; i < pts.length; i++) {
+                const [px, py] = toCanvas(pts[i][0], pts[i][1]);
+                cc.lineTo(px, py);
+            }
+            cc.stroke();
+
+            if (mouseNorm) {
+                const last = pts[pts.length - 1];
+                const [lx, ly] = toCanvas(last[0], last[1]);
+                const [mx, my] = toCanvas(clamp01(mouseNorm[0]), clamp01(mouseNorm[1]));
+                cc.strokeStyle = 'rgba(74,222,128,0.3)'; cc.lineWidth = 1; cc.setLineDash([5, 5]);
+                cc.beginPath(); cc.moveTo(lx, ly); cc.lineTo(mx, my); cc.stroke();
+                cc.setLineDash([]);
+            }
+
+            for (let i = 0; i < pts.length; i++) {
+                const [px, py] = toCanvas(pts[i][0], pts[i][1]);
+                cc.fillStyle = (i === 0) ? '#fbbf24' : '#22c55e';
+                cc.beginPath(); cc.arc(px, py, (i === 0) ? 5 : 3.5, 0, Math.PI * 2); cc.fill();
+                cc.strokeStyle = '#4ade80'; cc.lineWidth = 1; cc.stroke();
+            }
+        }
+
+        // ============================================================
+        //  UI STATE UPDATE
+        // ============================================================
+        function updateUI() {
+            const canDelPt = currentTool === 'edit' && selStroke !== null && selPoint !== null;
+            document.getElementById('btnDelPoint').disabled = !canDelPt;
+        }
+
+        // ============================================================
+        //  LETTER BAR
+        // ============================================================
+        function buildLetterBar() {
+            const lo = document.getElementById('lowercaseRow');
+            const up = document.getElementById('uppercaseRow');
+            const di = document.getElementById('digitRow');
+            lo.innerHTML = '<span class="row-label">a-z</span>';
+            up.innerHTML = '<span class="row-label">A-Z</span>';
+            di.innerHTML = '<span class="row-label">0-9</span>';
+            for (let i = 0; i < 26; i++) lo.appendChild(makeLetterBtn(String.fromCharCode(97 + i)));
+            for (let i = 0; i < 26; i++) up.appendChild(makeLetterBtn(String.fromCharCode(65 + i)));
+            for (let i = 0; i < 10; i++) di.appendChild(makeLetterBtn(String.fromCharCode(48 + i)));
+        }
+        function makeLetterBtn(ch) {
+            const btn = document.createElement('button');
+            btn.className = 'letter-btn';
+            btn.textContent = ch;
+            if (ch === currentChar) btn.classList.add('active');
+            if (glyphs[ch] && Object.values(glyphs[ch].variants).some(v => v.length > 0))
+                btn.classList.add('has-data');
+            btn.addEventListener('click', () => selectChar(ch));
+            return btn;
+        }
+
+        // ============================================================
+        //  STROKE LIST
+        // ============================================================
+        function buildStrokeList() {
+            const list = document.getElementById('strokeList');
+            const strokes = getStrokes(currentChar, currentVariant);
+            list.innerHTML = '';
+            if (strokes.length === 0) {
+                list.innerHTML = '<div class="stroke-empty">No strokes yet</div>';
+                return;
+            }
+            for (let i = 0; i < strokes.length; i++) {
+                const item = document.createElement('div');
+                item.className = 'stroke-item' + (i === selStroke ? ' active' : '');
+
+                const info = document.createElement('span');
+                info.className = 'stroke-info';
+                info.textContent = (i + 1) + '. Stroke (' + strokes[i].length + ' pts)';
+                info.addEventListener('click', () => { selStroke = i; selPoint = null; dragTarget = null; buildStrokeList(); draw(); });
+                item.appendChild(info);
+
+                const ctrl = document.createElement('span');
+                ctrl.style.cssText = 'display:flex;gap:2px;';
+                ctrl.appendChild(mkBtn('\u2191', i > 0, () => moveStroke(i, -1)));
+                ctrl.appendChild(mkBtn('\u2193', i < strokes.length - 1, () => moveStroke(i, 1)));
+                const del = mkBtn('\u00d7', true, () => deleteStroke(i));
+                del.classList.add('del');
+                ctrl.appendChild(del);
+                item.appendChild(ctrl);
+
+                list.appendChild(item);
+            }
+        }
+        function mkBtn(text, enabled, fn) {
+            const b = document.createElement('button');
+            b.className = 'stroke-btn'; b.textContent = text; b.disabled = !enabled;
+            if (enabled) b.addEventListener('click', (e) => { e.stopPropagation(); fn(); });
+            return b;
+        }
+
+        // ============================================================
+        //  STROKE ACTIONS
+        // ============================================================
+        function moveStroke(idx, dir) {
+            const strokes = getStrokes(currentChar, currentVariant);
+            const ni = idx + dir;
+            if (ni < 0 || ni >= strokes.length) return;
+            [strokes[idx], strokes[ni]] = [strokes[ni], strokes[idx]];
+            if (selStroke === idx) selStroke = ni;
+            else if (selStroke === ni) selStroke = idx;
+            saveToStorage(); buildStrokeList(); draw();
+        }
+        function deleteStroke(idx) {
+            const strokes = getStrokes(currentChar, currentVariant);
+            strokes.splice(idx, 1);
+            if (selStroke === idx) { selStroke = null; selPoint = null; }
+            else if (selStroke !== null && selStroke > idx) selStroke--;
+            saveToStorage(); buildStrokeList(); buildLetterBar(); draw();
+        }
+        function deleteSelectedPoint() {
+            if (selStroke === null || selPoint === null) return;
+            const strokes = getStrokes(currentChar, currentVariant);
+            const stroke = strokes[selStroke];
+            if (!stroke) return;
+
+            stroke.splice(selPoint, 1);
+
+            if (stroke.length < 2) {
+                strokes.splice(selStroke, 1);
+                selStroke = null;
+                selPoint = null;
+            } else {
+                if (selPoint >= stroke.length) selPoint = stroke.length - 1;
+                stroke[0].hi = [0, 0];
+                stroke[stroke.length - 1].ho = [0, 0];
+            }
+
+            saveToStorage(); buildStrokeList(); buildLetterBar(); draw();
+        }
+        function commitDrawing() {
+            if (drawingPoints.length < 2) { drawingPoints = []; draw(); return; }
+            const stroke = polylineToStroke(drawingPoints);
+            const strokes = getStrokes(currentChar, currentVariant);
+            strokes.push(stroke);
+            setStrokes(currentChar, currentVariant, strokes);
+            drawingPoints = [];
+            saveToStorage(); buildLetterBar(); buildStrokeList(); draw();
+        }
+
+        // ============================================================
+        //  TOOL & LETTER SWITCHING
+        // ============================================================
+        function switchTool(tool) {
+            if (currentTool === tool) return;
+            if (currentTool === 'draw') commitDrawing();
+            currentTool = tool;
+            selStroke = null; selPoint = null; dragTarget = null; isDragging = false;
+            document.getElementById('btnDraw').classList.toggle('active', tool === 'draw');
+            document.getElementById('btnEdit').classList.toggle('active', tool === 'edit');
+            canvas.style.cursor = (tool === 'draw') ? 'crosshair' : 'default';
+            draw();
+        }
+
+        function selectChar(ch) {
+            if (currentTool === 'draw') commitDrawing();
+            currentChar = ch;
+            selStroke = null; selPoint = null;
+
+            // Set variant to valid value for this character type
+            const variantSelect = document.getElementById('variantSelect');
+            if (isLowercase(ch)) {
+                if (currentVariant !== 'Baseline' && currentVariant !== 'High') {
+                    currentVariant = 'Baseline';
+                }
+                // Rebuild dropdown options if needed (switching from uppercase/digit)
+                if (variantSelect.options.length !== 2 || variantSelect.options[0].value !== 'Baseline') {
+                    variantSelect.innerHTML = '<option value="Baseline">Baseline</option><option value="High">High</option>';
+                }
+                variantSelect.value = currentVariant;
+                variantSelect.disabled = false;
+            } else {
+                currentVariant = 'Default';
+                variantSelect.innerHTML = '<option value="Default">Default</option>';
+                variantSelect.value = 'Default';
+                variantSelect.disabled = true;
+            }
+
+            // Update exit display
+            const exitGroup = document.getElementById('exitGroup');
+            const exitDisplay = document.getElementById('exitDisplay');
+            if (isLowercase(ch)) {
+                exitGroup.style.display = '';
+                const exitType = getExitType(ch);
+                exitDisplay.textContent = exitType;
+                exitDisplay.style.color = (exitType === 'High') ? '#f97316' : '#888';
+            } else {
+                exitGroup.style.display = 'none';
+            }
+
+            // Update width display
+            document.getElementById('widthDisplay').textContent = getWidth(ch).toString();
+
+            document.getElementById('currentLetterDisplay').textContent = ch;
+            ensureGlyph(ch);
+            buildLetterBar(); buildStrokeList(); draw();
+        }
+
+        // ============================================================
+        //  CANVAS EVENTS
+        // ============================================================
+        function addDrawPoint(e) {
+            const [cx, cy] = canvasCoords(e);
+            if (!inDrawArea(cx, cy)) return;
+            let [nx, ny] = toNorm(cx, cy);
+            if (e.shiftKey) ny = snapToGuides(ny);
+            drawingPoints.push([clamp01(nx), clamp01(ny)]);
+            draw();
+        }
+        function startEdit(e) {
+            const [nx, ny] = eventToNorm(e);
+            const hit = hitTest(nx, ny);
+            if (!hit) {
+                selStroke = null; selPoint = null; dragTarget = null;
+                buildStrokeList(); draw(); return;
+            }
+            if (hit.type === 'anchor') {
+                selStroke = hit.si; selPoint = hit.pi; dragTarget = 'anchor'; isDragging = true;
+            } else {
+                selStroke = hit.si; selPoint = hit.pi; dragTarget = hit.type; isDragging = true;
+            }
+            buildStrokeList(); draw();
+        }
+        function handleDrag(e) {
+            if (!isDragging || selStroke === null || selPoint === null) return;
+            const strokes = getStrokes(currentChar, currentVariant);
+            const stroke = strokes[selStroke]; if (!stroke) return;
+            const pt = stroke[selPoint]; if (!pt) return;
+            let [nx, ny] = eventToNorm(e);
+            if (e.shiftKey) ny = snapToGuides(ny);
+            nx = clamp01(nx); ny = clamp01(ny);
+
+            if (dragTarget === 'anchor') { pt.x = r3(nx); pt.y = r3(ny); }
+            else if (dragTarget === 'hi') { pt.hi = [r3(nx - pt.x), r3(ny - pt.y)]; }
+            else if (dragTarget === 'ho') { pt.ho = [r3(nx - pt.x), r3(ny - pt.y)]; }
+            draw();
+        }
+        function endDrag() {
+            if (isDragging) saveToStorage();
+            isDragging = false;
+        }
+
+        // ============================================================
+        //  UNDO / CLEAR
+        // ============================================================
+        function undo() {
+            if (currentTool === 'draw' && drawingPoints.length > 0) { drawingPoints.pop(); draw(); }
+        }
+        function clearVariant() {
+            if (currentTool === 'draw') drawingPoints = [];
+            setStrokes(currentChar, currentVariant, []);
+            selStroke = null; selPoint = null;
+            saveToStorage(); buildLetterBar(); buildStrokeList(); draw();
+        }
+        function clearLetter() {
+            if (currentTool === 'draw') drawingPoints = [];
+            if (glyphs[currentChar]) {
+                if (isLowercase(currentChar)) {
+                    glyphs[currentChar].variants = { 'Baseline': [], 'High': [] };
+                } else {
+                    glyphs[currentChar].variants = { 'Default': [] };
+                }
+            }
+            selStroke = null; selPoint = null;
+            saveToStorage(); buildLetterBar(); buildStrokeList(); draw();
+        }
+
+        // ============================================================
+        //  EXPORT (file download) / IMPORT
+        // ============================================================
+        function buildExportData(mode) {
+            const keys = Object.keys(glyphs).sort((a, b) => {
+                const al = a >= 'a' && a <= 'z', bl = b >= 'a' && b <= 'z';
+                const au = a >= 'A' && a <= 'Z', bu = b >= 'A' && b <= 'Z';
+                const ao = al ? 0 : au ? 1 : 2;
+                const bo = bl ? 0 : bu ? 1 : 2;
+                if (ao !== bo) return ao - bo;
+                return a.localeCompare(b);
+            });
+
+            if (mode === 'baked') {
+                // Build meta section
+                const highExitLetters = Object.keys(EXIT_TYPES).sort();
+                const widths = {};
+                for (const ch of keys) widths[ch] = getWidth(ch);
+
+                const glyphsOut = {};
+                for (const ch of keys) {
+                    const g = glyphs[ch];
+                    if (!Object.values(g.variants).some(v => v.length > 0)) continue;
+                    const entry = { width: getWidth(ch), variants: {} };
+                    if (isLowercase(ch)) entry.exit = getExitType(ch);
+                    for (const [v, strokes] of Object.entries(g.variants)) {
+                        if (strokes.length > 0) {
+                            entry.variants[v] = strokes.map(s => bakeStroke(s));
+                        }
+                    }
+                    glyphsOut[ch] = entry;
+                }
+
+                return { meta: { highExitLetters, widths }, glyphs: glyphsOut };
+            } else {
+                // Edit JSON — flat structure
+                const out = {};
+                for (const ch of keys) {
+                    const g = glyphs[ch];
+                    if (!Object.values(g.variants).some(v => v.length > 0)) continue;
+                    const entry = { width: getWidth(ch), variants: {} };
+                    if (isLowercase(ch)) entry.exit = getExitType(ch);
+                    for (const [v, strokes] of Object.entries(g.variants)) {
+                        if (strokes.length > 0) {
+                            entry.variants[v] = strokes;
+                        }
+                    }
+                    out[ch] = entry;
+                }
+                return out;
+            }
+        }
+
+        function downloadFile(content, filename) {
+            const blob = new Blob([content], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function exportEditJSON() {
+            if (currentTool === 'draw') commitDrawing();
+            const data = buildExportData('edit');
+            downloadFile(JSON.stringify(data, null, 2), 'glyphs-edit.json');
+        }
+        function exportBakedJSON() {
+            if (currentTool === 'draw') commitDrawing();
+            const data = buildExportData('baked');
+            downloadFile(JSON.stringify(data, null, 2), 'glyphs-baked.json');
+        }
+
+        function importJSON() {
+            const text = document.getElementById('importArea').value.trim();
+            if (!text) return;
+            try {
+                let data = JSON.parse(text);
+
+                // Handle baked format with meta+glyphs wrapper
+                if (data.meta && data.glyphs) {
+                    data = data.glyphs;
+                }
+
+                let count = 0;
+                for (const [ch, def] of Object.entries(data)) {
+                    if (typeof ch !== 'string' || ch.length !== 1) continue;
+
+                    const entry = { width: getWidth(ch), variants: {} };
+                    if (isLowercase(ch)) entry.exit = getExitType(ch);
+
+                    if (def.variants) {
+                        const validVariants = getVariantNames(ch);
+
+                        if (!isLowercase(ch) && !def.variants['Default']) {
+                            // Old format: uppercase/digit has Baseline/High, merge into Default
+                            const baselineStrokes = def.variants['Baseline'] || [];
+                            const highStrokes = def.variants['High'] || [];
+                            const merged = baselineStrokes.length > 0 ? baselineStrokes : highStrokes;
+                            entry.variants['Default'] = convertImportStrokes(merged);
+                        } else {
+                            for (const [v, strokes] of Object.entries(def.variants)) {
+                                if (!validVariants.includes(v)) continue;
+                                if (!Array.isArray(strokes)) continue;
+                                entry.variants[v] = convertImportStrokes(strokes);
+                            }
+                        }
+                    }
+
+                    // Ensure all valid variants exist
+                    for (const v of getVariantNames(ch)) {
+                        if (!entry.variants[v]) entry.variants[v] = [];
+                    }
+
+                    glyphs[ch] = entry;
+                    count++;
+                }
+
+                drawingPoints = []; selStroke = null; selPoint = null;
+                selectChar(currentChar);
+                saveToStorage();
+                document.getElementById('importArea').value = '';
+                alert('Imported ' + count + ' glyphs.');
+            } catch (e) {
+                alert('Invalid JSON: ' + e.message);
+            }
+        }
+
+        function convertImportStrokes(strokes) {
+            return strokes.map(stroke => {
+                if (stroke.length > 0 && Array.isArray(stroke[0]))
+                    return polylineToStroke(stroke);
+                return stroke;
+            });
+        }
+
+        // ============================================================
+        //  EVENT LISTENERS
+        // ============================================================
+        canvas.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            if (currentTool === 'draw') addDrawPoint(e);
+            else if (currentTool === 'edit') startEdit(e);
         });
-    }
-
-    // ============================================================
-    //  EVENT LISTENERS
-    // ============================================================
-    canvas.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        if (currentTool === 'draw') addDrawPoint(e);
-        else if (currentTool === 'edit') startEdit(e);
-    });
-    canvas.addEventListener('mousemove', (e) => {
-        mouseNorm = eventToNorm(e);
-        if (currentTool === 'edit' && isDragging) handleDrag(e);
-        draw();
-    });
-    canvas.addEventListener('mouseup', () => {
-        if (currentTool === 'edit' && isDragging) endDrag();
-    });
-    canvas.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        if (currentTool === 'draw') commitDrawing();
-    });
-    canvas.addEventListener('dblclick', (e) => {
-        e.preventDefault();
-        if (currentTool === 'draw') commitDrawing();
-    });
-    canvas.addEventListener('mouseleave', () => { mouseNorm = null; draw(); });
-
-    document.getElementById('btnDraw').addEventListener('click', () => switchTool('draw'));
-    document.getElementById('btnEdit').addEventListener('click', () => switchTool('edit'));
-
-    document.getElementById('variantSelect').addEventListener('change', (e) => {
-        if (!isLowercase(currentChar)) return;
-        if (currentTool === 'draw') commitDrawing();
-        currentVariant = e.target.value;
-        selStroke = null; selPoint = null;
-        buildStrokeList(); draw();
-    });
-
-    document.getElementById('btnUndo').addEventListener('click', undo);
-    document.getElementById('btnDelPoint').addEventListener('click', deleteSelectedPoint);
-    document.getElementById('btnClearVariant').addEventListener('click', clearVariant);
-    document.getElementById('btnClearLetter').addEventListener('click', clearLetter);
-    document.getElementById('btnExportEdit').addEventListener('click', exportEditJSON);
-    document.getElementById('btnExportBaked').addEventListener('click', exportBakedJSON);
-    document.getElementById('btnImport').addEventListener('click', importJSON);
-
-    document.addEventListener('keydown', (e) => {
-        if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
-
-        if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
-        if (e.key === 'Enter') { e.preventDefault(); if (currentTool === 'draw') commitDrawing(); return; }
-        if (e.key === 'Escape') {
+        canvas.addEventListener('mousemove', (e) => {
+            mouseNorm = eventToNorm(e);
+            if (currentTool === 'edit' && isDragging) handleDrag(e);
+            draw();
+        });
+        canvas.addEventListener('mouseup', () => {
+            if (currentTool === 'edit' && isDragging) endDrag();
+        });
+        canvas.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            if (currentTool === 'draw') { drawingPoints = []; draw(); }
-            else { selStroke = null; selPoint = null; buildStrokeList(); draw(); }
-            return;
-        }
-        if ((e.key === 'Delete' || e.key === 'Backspace') && currentTool === 'edit') {
+            if (currentTool === 'draw') commitDrawing();
+        });
+        canvas.addEventListener('dblclick', (e) => {
             e.preventDefault();
-            if (selPoint !== null) deleteSelectedPoint();
-            else if (selStroke !== null) deleteStroke(selStroke);
-            return;
-        }
+            if (currentTool === 'draw') commitDrawing();
+        });
+        canvas.addEventListener('mouseleave', () => { mouseNorm = null; draw(); });
 
-        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        document.getElementById('btnDraw').addEventListener('click', () => switchTool('draw'));
+        document.getElementById('btnEdit').addEventListener('click', () => switchTool('edit'));
 
-        const key = e.key;
-        if (key.length === 1 && ((key >= 'A' && key <= 'Z') || (key >= 'a' && key <= 'z') || (key >= '0' && key <= '9'))) {
-            selectChar(key);
-        }
-    });
+        document.getElementById('variantSelect').addEventListener('change', (e) => {
+            if (!isLowercase(currentChar)) return;
+            if (currentTool === 'draw') commitDrawing();
+            currentVariant = e.target.value;
+            selStroke = null; selPoint = null;
+            buildStrokeList(); draw();
+        });
 
-    // ============================================================
-    //  INIT
-    // ============================================================
-    loadFromStorage();
-    ensureGlyph(currentChar);
-    buildLetterBar();
-    selectChar(currentChar);
+        document.getElementById('btnUndo').addEventListener('click', undo);
+        document.getElementById('btnDelPoint').addEventListener('click', deleteSelectedPoint);
+        document.getElementById('btnClearVariant').addEventListener('click', clearVariant);
+        document.getElementById('btnClearLetter').addEventListener('click', clearLetter);
+        document.getElementById('btnExportEdit').addEventListener('click', exportEditJSON);
+        document.getElementById('btnExportBaked').addEventListener('click', exportBakedJSON);
+        document.getElementById('btnImport').addEventListener('click', importJSON);
+
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
+            if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); undo(); return; }
+            if (e.key === 'Enter') { e.preventDefault(); if (currentTool === 'draw') commitDrawing(); return; }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                if (currentTool === 'draw') { drawingPoints = []; draw(); }
+                else { selStroke = null; selPoint = null; buildStrokeList(); draw(); }
+                return;
+            }
+            if ((e.key === 'Delete' || e.key === 'Backspace') && currentTool === 'edit') {
+                e.preventDefault();
+                if (selPoint !== null) deleteSelectedPoint();
+                else if (selStroke !== null) deleteStroke(selStroke);
+                return;
+            }
+
+            if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+            const key = e.key;
+            if (key.length === 1 && ((key >= 'A' && key <= 'Z') || (key >= 'a' && key <= 'z') || (key >= '0' && key <= '9'))) {
+                selectChar(key);
+            }
+        });
+
+        // ============================================================
+        //  INIT
+        // ============================================================
+        loadFromStorage();
+        ensureGlyph(currentChar);
+        buildLetterBar();
+        selectChar(currentChar);
     </script>
 </body>
+
 </html>
