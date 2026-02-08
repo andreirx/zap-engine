@@ -32,6 +32,7 @@ export default defineConfig({
         'chemistry-lab': resolve(__dirname, 'examples/chemistry-lab/index.html'),
         'zapzap-mini': resolve(__dirname, 'examples/zapzap-mini/index.html'),
         'glypher': resolve(__dirname, 'examples/glypher/index.html'),
+        'flag-parade': resolve(__dirname, 'examples/flag-parade/index.html'),
       },
     },
   },

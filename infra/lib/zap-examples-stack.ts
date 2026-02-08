@@ -3,6 +3,7 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import { Construct } from 'constructs';
 
 export class ZapExamplesStack extends cdk.Stack {
@@ -39,8 +40,15 @@ export class ZapExamplesStack extends cdk.Stack {
       },
     });
 
+    // SSL certificate for custom domain (created in us-east-1, required by CloudFront)
+    const certificate = acm.Certificate.fromCertificateArn(this, 'ZapEngCert',
+      'arn:aws:acm:us-east-1:324037297014:certificate/ebf61d12-27e2-4585-b8b3-84972a12b07a',
+    );
+
     // CloudFront distribution
     const distribution = new cloudfront.Distribution(this, 'ZapExamplesDist', {
+      domainNames: ['zapengine.bijup.com'],
+      certificate,
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(siteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,

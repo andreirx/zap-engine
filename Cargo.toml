@@ -8,5 +8,6 @@ members = [
     "examples/chemistry-lab",
     "examples/zapzap-mini",
     "examples/glypher",
+    "examples/flag-parade",
 ]
 resolver = "2"
