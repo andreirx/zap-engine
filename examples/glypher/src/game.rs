@@ -36,8 +36,8 @@ const FAIL_FADE_TIME: f32 = 0.5;
 
 /// Size of miniature glyphs in top zone.
 const HINT_GLYPH_SCALE: f32 = 0.12;
-/// Hint zone row height.
-const HINT_ROW_H: f32 = 30.0;
+/// Hint zone row height — must exceed GLYPH_BASE_H * HINT_GLYPH_SCALE (≈58) to avoid overlap.
+const HINT_ROW_H: f32 = 65.0;
 /// Top margin — must be >= half hint glyph height so glyphs don't clip above visible area.
 /// GLYPH_BASE_H * HINT_GLYPH_SCALE / 2 ≈ 29, plus padding.
 const HINT_TOP_MARGIN: f32 = 35.0;
@@ -202,21 +202,22 @@ impl Glypher {
     }
 
     /// Uniform scale factor for the main traced glyph.
-    /// On portrait, the glyph grows proportionally (both width AND height)
-    /// so it fills more of the screen without distorting the aspect ratio.
-    /// Width is constrained by the widest letter's STROKE extent (not box extent),
-    /// allowing the glyph box to extend off-screen while strokes stay visible.
+    /// Proportional scaling (both width AND height) without distortion.
+    /// Constrained so the widest glyph box fits within the visible area,
+    /// and the tallest glyph fits within the draw zone.
     fn glyph_scale(&self) -> f32 {
         let max_h = self.draw_zone_h() * 0.85;
         let scale_h = max_h / GLYPH_BASE_H;
 
-        // Constrain width so widest letters' strokes fit within visible area.
-        // Width-2 (m, w): box = 1.3 × BASE_W, strokes span 62% of box.
-        let max_stroke_w = self.visible_w * 0.95;
-        let widest_stroke_base = GLYPH_BASE_W * 1.3 * Self::glyph_span(2);
-        let scale_w = max_stroke_w / widest_stroke_base;
+        // Constrain by full glyph box width (not stroke span) so ALL strokes
+        // stay on-screen, even for wide letters like uppercase W/M whose
+        // strokes extend close to the box edges (x ≈ 0.13).
+        let max_w = self.visible_w * 0.90;
+        let widest_box_base = GLYPH_BASE_W * 1.3; // width-2 box
+        let scale_w = max_w / widest_box_base;
 
-        scale_w.min(scale_h).max(1.0)
+        // No .max(1.0) — must allow downscaling on narrow/short viewports
+        scale_w.min(scale_h)
     }
 
     /// Effective glyph height — scales proportionally with glyph_scale().
@@ -231,7 +232,7 @@ impl Glypher {
 
     /// Center of the glyph drawing area.
     fn glyph_center(&self) -> Vec2 {
-        Vec2::new(WORLD_W / 2.0, self.glyph_origin_y() + self.glyph_h() / 2.0)
+        Vec2::new(self.visible_w / 2.0, self.glyph_origin_y() + self.glyph_h() / 2.0)
     }
 
     /// Glyph box width for a given width class.
@@ -248,7 +249,7 @@ impl Glypher {
     fn glyph_to_world(&self, gx: f32, gy: f32, width: u8) -> Vec2 {
         let scale = self.glyph_scale();
         let w = Self::glyph_box_width(width) * scale;
-        let origin_x = (WORLD_W - w) / 2.0;
+        let origin_x = (self.visible_w - w) / 2.0;
         Vec2::new(
             gx * w + origin_x,
             gy * self.glyph_h() + self.glyph_origin_y(),
@@ -553,7 +554,7 @@ impl Glypher {
     /// Draw saying-complete golden light (no glyph strokes — just the light).
     fn draw_saying_celebration_light(&self, ctx: &mut EngineContext) {
         let t = (self.celebrate_timer / SAYING_CELEBRATE_DURATION).clamp(0.0, 1.0);
-        let center = Vec2::new(WORLD_W / 2.0, self.visible_h / 2.0);
+        let center = Vec2::new(self.visible_w / 2.0, self.visible_h / 2.0);
         ctx.lights.add(
             PointLight::new(center, [1.0, 0.85, 0.3], 10.0 * t, 400.0)
         );
@@ -645,7 +646,7 @@ impl Glypher {
     /// Draw word hints at the top of the visible screen (with wrapping).
     fn draw_word_hints(&self, ctx: &mut EngineContext) {
         let scale = HINT_GLYPH_SCALE;
-        let max_width = WORLD_W * 0.95;
+        let max_width = self.visible_w * 0.95;
         let lines = self.wrap_words_at_scale(scale, max_width);
         let gap = self.word_gap_at_scale(scale);
         let hint_top = HINT_TOP_MARGIN;
@@ -654,7 +655,7 @@ impl Glypher {
             let y = hint_top + HINT_ROW_H * 0.5 + row as f32 * HINT_ROW_H;
             if y > hint_top + TOP_ZONE_H { break; } // Don't draw below hint zone
 
-            let mut cursor_x = (WORLD_W - line_w) / 2.0;
+            let mut cursor_x = (self.visible_w - line_w) / 2.0;
 
             for &wi in word_indices {
                 let word = &self.words[wi];
@@ -719,7 +720,7 @@ impl Glypher {
         let scale = min_scale + (max_scale - min_scale) * eased;
 
         let stroke_w = 1.5 + 3.0 * eased;
-        let max_width = WORLD_W * 0.90;
+        let max_width = self.visible_w * 0.90;
         let lines = self.wrap_words_at_scale(scale, max_width);
         let gap = self.word_gap_at_scale(scale);
         let line_h = GLYPH_BASE_H * scale * 1.1;
@@ -735,7 +736,7 @@ impl Glypher {
 
         for (row, (word_indices, line_w)) in lines.iter().enumerate() {
             let y = start_y + row as f32 * line_h;
-            let mut cursor_x = (WORLD_W - line_w) / 2.0;
+            let mut cursor_x = (self.visible_w - line_w) / 2.0;
 
             for &wi in word_indices {
                 let word = &self.words[wi];
@@ -807,6 +808,11 @@ impl Glypher {
                                         b: self.letter_idx as f32,
                                         c: 0.0,
                                     });
+                                } else {
+                                    // User's finger is still down — auto-start
+                                    // the next stroke so multi-stroke letters
+                                    // can be drawn in one continuous motion.
+                                    self.tracer.on_pointer_down(pos);
                                 }
                             }
                             _ => {}
@@ -833,9 +839,12 @@ impl Glypher {
                         self.phase = GamePhase::PickSaying;
                     } else if *kind == CUSTOM_VIEWPORT {
                         // Worker sends visible world dimensions on viewport resize
+                        let new_w = *a;
                         let new_h = *b;
-                        if (new_h - self.visible_h).abs() > 1.0 {
-                            self.visible_w = *a;
+                        if (new_w - self.visible_w).abs() > 1.0
+                            || (new_h - self.visible_h).abs() > 1.0
+                        {
+                            self.visible_w = new_w;
                             self.visible_h = new_h;
                             self.on_viewport_change();
                         }
@@ -973,7 +982,7 @@ impl Game for Glypher {
         // Soft fill light so background texture is faintly visible across the whole viewport
         ctx.lights.add(
             PointLight::new(
-                Vec2::new(WORLD_W / 2.0, self.visible_h / 2.0),
+                Vec2::new(self.visible_w / 2.0, self.visible_h / 2.0),
                 [0.12, 0.10, 0.14],
                 1.5,
                 self.visible_h * 0.7,

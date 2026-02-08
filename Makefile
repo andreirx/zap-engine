@@ -13,6 +13,7 @@ wasm-all:
 	wasm-pack build examples/zapzap-mini --target web --out-dir pkg
 	wasm-pack build examples/glypher --target web --out-dir pkg
 	wasm-pack build examples/flag-parade --target web --out-dir pkg
+	wasm-pack build examples/solar-system --target web --out-dir pkg
 
 # Install npm dependencies
 install:
@@ -55,3 +56,4 @@ clean:
 	rm -rf examples/zapzap-mini/pkg
 	rm -rf examples/glypher/pkg
 	rm -rf examples/flag-parade/pkg
+	rm -rf examples/solar-system/pkg

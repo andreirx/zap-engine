@@ -9,5 +9,6 @@ members = [
     "examples/zapzap-mini",
     "examples/glypher",
     "examples/flag-parade",
+    "examples/solar-system",
 ]
 resolver = "2"

@@ -33,6 +33,7 @@ export default defineConfig({
         'zapzap-mini': resolve(__dirname, 'examples/zapzap-mini/index.html'),
         'glypher': resolve(__dirname, 'examples/glypher/index.html'),
         'flag-parade': resolve(__dirname, 'examples/flag-parade/index.html'),
+        'solar-system': resolve(__dirname, 'examples/solar-system/index.html'),
       },
     },
   },
