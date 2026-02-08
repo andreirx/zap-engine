@@ -1,0 +1,19 @@
+{
+  "name": "zap-examples-infra",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "cdk": "cdk",
+    "deploy": "npx cdk deploy",
+    "destroy": "npx cdk destroy"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.180.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.180.0",
+    "typescript": "~5.7.0"
+  }
+}

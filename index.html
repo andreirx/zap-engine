@@ -3,19 +3,110 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ZapEngine — Basic Demo</title>
+    <title>ZapEngine Examples</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { background: #0a0a1a; overflow: hidden; }
-      canvas {
-        display: block;
-        width: 100vw;
-        height: 100vh;
+      body {
+        background: #0a0a1a;
+        color: #e0e0e8;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 60px 24px;
+      }
+      h1 {
+        font-size: 2.4rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #7af, #fa7);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 8px;
+      }
+      .subtitle {
+        color: rgba(255,255,255,0.4);
+        font-family: monospace;
+        font-size: 0.9rem;
+        margin-bottom: 48px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 20px;
+        max-width: 960px;
+        width: 100%;
+      }
+      .card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 24px;
+        text-decoration: none;
+        color: inherit;
+        transition: border-color 0.2s, background 0.2s;
+      }
+      .card:hover {
+        border-color: rgba(100,180,255,0.3);
+        background: rgba(100,180,255,0.06);
+      }
+      .card h2 {
+        font-size: 1.2rem;
+        color: #7af;
+        margin-bottom: 8px;
+      }
+      .card p {
+        font-size: 0.85rem;
+        color: rgba(255,255,255,0.5);
+        line-height: 1.5;
+      }
+      .tag {
+        display: inline-block;
+        font-family: monospace;
+        font-size: 0.7rem;
+        padding: 2px 8px;
+        border-radius: 4px;
+        background: rgba(100,180,255,0.12);
+        color: #7af;
+        margin-top: 12px;
+        margin-right: 4px;
       }
     </style>
   </head>
   <body>
-    <canvas id="game-canvas"></canvas>
-    <script type="module" src="/examples/basic-demo/main.ts"></script>
+    <h1>ZapEngine</h1>
+    <div class="subtitle">Rust/WASM + WebGPU game engine examples</div>
+    <div class="grid">
+      <a class="card" href="/examples/physics-playground/index.html">
+        <h2>Physics Playground</h2>
+        <p>Angry Birds-style slingshot with Rapier2D physics. Fling projectiles at stacked towers.</p>
+        <span class="tag">physics</span><span class="tag">sprites</span>
+      </a>
+      <a class="card" href="/examples/chemistry-lab/index.html">
+        <h2>Chemistry Lab</h2>
+        <p>Molecule builder with SDF-rendered atoms and capsule bonds. Spring joints hold molecules together.</p>
+        <span class="tag">SDF</span><span class="tag">joints</span>
+      </a>
+      <a class="card" href="/examples/zapzap-mini/index.html">
+        <h2>ZapZap Mini</h2>
+        <p>8x8 circuit puzzle with dynamic lighting and normal maps. Tap tiles to rotate and connect pins.</p>
+        <span class="tag">lighting</span><span class="tag">normal maps</span>
+      </a>
+      <a class="card" href="/examples/glypher/index.html">
+        <h2>Glypher</h2>
+        <p>Handwriting-tracing game with dynamic lighting. Trace letter strokes to spell out proverbs.</p>
+        <span class="tag">vectors</span><span class="tag">lighting</span>
+      </a>
+      <a class="card" href="/examples/zap-engine-template/index.html">
+        <h2>Engine Template</h2>
+        <p>Minimal canvas-only starter template. Shows the raw engine loop without React.</p>
+        <span class="tag">canvas</span><span class="tag">template</span>
+      </a>
+      <a class="card" href="/examples/react-demo/index.html">
+        <h2>React Demo</h2>
+        <p>Minimal React integration using the useZapEngine hook. Starting point for React apps.</p>
+        <span class="tag">react</span><span class="tag">hook</span>
+      </a>
+    </div>
   </body>
 </html>
