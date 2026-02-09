@@ -742,3 +742,234 @@ The package uses source-level exports (`.ts` files in the `exports` field) — n
 - **Pro:** Package boundary enforces separation between engine and game code
 - **Pro:** Ready for future npm publishing if desired
 - **Con:** Requires Vite aliases in root config (or a build step) for consumers
+
+---
+
+## ADR-024: `export_game!` Macro
+
+**Date:** 2026-02-09
+**Status:** Accepted
+
+### Context
+Each game crate contained ~244 lines of boilerplate in `lib.rs`: a `thread_local!` RUNNER storage, a `with_runner()` helper, and 40+ `#[wasm_bindgen]` exports for lifecycle functions, buffer pointers, capacities, SDF accessors, vector accessors, layer batches, bake state, and lighting state. This was duplicated across all 8 example games.
+
+### Decision
+Create an `export_game!` macro in `zap-web/src/lib.rs` that generates all boilerplate from a single invocation:
+
+```rust
+// Before: ~244 lines of boilerplate
+// After:
+zap_web::export_game!(MyGame, "my-game", vectors);
+```
+
+**Key design choices:**
+
+1. **`macro_rules!` over proc-macro**: Simpler to implement, no separate crate needed, attributes like `#[wasm_bindgen]` expand correctly at the call site.
+
+2. **Two variants**: Base variant generates core exports. Adding `, vectors` enables vector accessor exports (guarded by the `vectors` feature).
+
+3. **`new()` convention**: The macro expects `$game_type::new()` to construct the game. Games don't implement `Default`; they explicitly define their constructor.
+
+4. **Feature-gated exports**: Vector exports only generated when the `vectors` feature is enabled and the `, vectors` variant is used.
+
+### Consequences
+- **Pro:** 8 games reduced from ~1,952 lines total to ~64 lines total (97% reduction)
+- **Pro:** New games get correct exports automatically — no copy-paste errors
+- **Pro:** Protocol changes only require updating the macro, not all games
+- **Pro:** `macro_rules!` is simpler than proc-macro and compiles faster
+- **Con:** Error messages from macro expansion can be harder to debug
+- **Con:** IDE support (go-to-definition) may not work inside macro-generated code
+
+---
+
+## ADR-025: Effects Module Decomposition
+
+**Date:** 2026-02-09
+**Status:** Accepted
+
+### Context
+`systems/effects.rs` had grown to 570 lines containing RNG, color lookup, geometry generation, electric arcs, particles, debug lines, and the `EffectsState` facade. The file was hard to navigate and had unrelated concerns mixed together.
+
+### Decision
+Split `effects.rs` into a `systems/effects/` directory with 7 focused submodules:
+
+| File | Responsibility | Lines |
+|------|----------------|-------|
+| `rng.rs` | Xorshift64 RNG | ~30 |
+| `segment_color.rs` | Arc color enum + UV lookup | ~80 |
+| `geometry.rs` | Strip vertex generation | ~100 |
+| `electric_arc.rs` | Midpoint-displacement arcs | ~80 |
+| `particle.rs` | Particle struct + physics | ~65 |
+| `debug_line.rs` | Debug line strip | ~10 |
+| `mod.rs` | `EffectsState` facade + re-exports | ~160 |
+
+Tests moved to their respective submodule files.
+
+### Consequences
+- **Pro:** Each file has a single responsibility (SRP)
+- **Pro:** Easier to find and modify specific behavior
+- **Pro:** Tests live next to the code they test
+- **Pro:** No API changes — `lib.rs` imports unchanged
+- **Con:** More files to navigate (7 vs 1)
+- **Con:** Submodule re-exports add a small amount of boilerplate
+
+---
+
+## ADR-026: GameConfig-Driven Initialization
+
+**Date:** 2026-02-09
+**Status:** Accepted
+
+### Context
+Subsystems (`Scene`, `EffectsState`, `VectorState`, `LightState`) were initialized with hardcoded default capacities. `GameConfig` contained capacity settings but they weren't flowing to all subsystems.
+
+### Decision
+Add `with_capacity()` constructors to all subsystems and wire them through `EngineContext::with_config()`:
+
+**New `GameConfig` fields:**
+- `max_entities: usize` (default 512)
+- `effects_seed: u64` (default 42)
+
+**New constructors:**
+- `Scene::with_capacity(cap)`
+- `VectorState::with_capacity(max_vertices)`
+- `LightState::with_capacity(max_lights)`
+- `EffectsState::with_capacity(seed, max_vertices)`
+
+**`EngineContext::with_config(&GameConfig)`** wires all capacities:
+```rust
+Self {
+    scene: Scene::with_capacity(config.max_entities),
+    effects: EffectsState::with_capacity(config.effects_seed, config.max_effects_vertices),
+    lights: LightState::with_capacity(config.max_lights),
+    vectors: VectorState::with_capacity(config.max_vector_vertices),
+    // ...
+}
+```
+
+### Consequences
+- **Pro:** Single source of truth — `GameConfig` controls all allocations
+- **Pro:** Games can tune memory usage (puzzle: small buffers, bullet-hell: large)
+- **Pro:** Deterministic RNG seed for reproducible effects
+- **Pro:** Backward compatible — `EngineContext::new()` still works with defaults
+- **Con:** Config struct grows as new subsystems are added
+
+---
+
+## ADR-027: EngineContext Reorganization
+
+**Date:** 2026-02-09
+**Status:** Accepted
+
+### Context
+`EngineContext` was a large struct mixing fields and methods without clear organization. Bake state was spread across two fields (`baked_layers: u8`, `bake_generation: u32`). Camera was only used internally, not exposed to games.
+
+### Decision
+Reorganize `EngineContext` with three improvements:
+
+**1. Extract `BakeState` struct:**
+```rust
+#[derive(Debug, Clone, Default)]
+pub struct BakeState {
+    mask: u8,
+    generation: u32,
+}
+
+impl BakeState {
+    pub fn bake(&mut self, layer: RenderLayer);
+    pub fn invalidate(&mut self, layer: RenderLayer);
+    pub fn unbake(&mut self, layer: RenderLayer);
+    pub fn mask(&self) -> u8;
+    pub fn generation(&self) -> u32;
+    pub fn encode(&self) -> f32;
+}
+```
+
+**2. Add public `Camera2D` field:**
+```rust
+pub camera: Camera2D  // Initialized from GameConfig world dimensions
+```
+
+**3. Organize with section comments:**
+```rust
+pub struct EngineContext {
+    // Core state
+    pub scene: Scene,
+    pub effects: EffectsState,
+    pub sounds: Vec<SoundEvent>,
+    pub events: Vec<GameEvent>,
+
+    // Rendering state
+    pub camera: Camera2D,
+    pub lights: LightState,
+    pub bake: BakeState,
+
+    // Optional systems
+    #[cfg(feature = "vectors")]
+    pub vectors: VectorState,
+    #[cfg(feature = "physics")]
+    pub physics: PhysicsWorld,
+
+    // Private state
+    next_id: u32,
+    sprite_registry: SpriteRegistry,
+    // ...
+}
+```
+
+**Kept facade pattern:** `EngineContext` remains a facade because methods like `spawn_with_body()` and `despawn()` coordinate multiple subsystems atomically. Splitting into separate context types would fragment the API.
+
+### Consequences
+- **Pro:** `BakeState` is reusable and testable in isolation
+- **Pro:** Games can access camera for pan/zoom (future integration)
+- **Pro:** Code organization is clearer with section comments
+- **Pro:** Backward compatible — existing methods still work
+- **Con:** One more type to understand (`BakeState`)
+
+---
+
+## ADR-028: SAB Frame Reader Extraction
+
+**Date:** 2026-02-09
+**Status:** Accepted
+
+### Context
+SharedArrayBuffer parsing logic was embedded in `useZapEngine.ts` (~100 lines inside `drawFromBuffer()`). This made it:
+1. Hard to test in isolation
+2. Unavailable to non-React consumers (vanilla TS, Svelte)
+3. Mixed with rendering concerns
+
+### Decision
+Extract SAB parsing into a standalone utility in `worker/frame-reader.ts`:
+
+```typescript
+export interface FrameState {
+  instanceData: Float32Array;
+  instanceCount: number;
+  atlasSplit: number;
+  effectsData?: Float32Array;
+  effectsVertexCount: number;
+  sdfData?: Float32Array;
+  sdfInstanceCount: number;
+  vectorData?: Float32Array;
+  vectorVertexCount: number;
+  layerBatches?: LayerBatchDescriptor[];
+  bakeState?: BakeState;
+  lightingState?: LightingState;
+}
+
+export function readFrameState(
+  buf: Float32Array,
+  layout: ProtocolLayout
+): FrameState | null;
+```
+
+**Key design choice:** Reads stay in the UI thread. The whole point of SharedArrayBuffer is zero-copy access. Moving parsing to a worker would add `postMessage` latency and defeat the purpose.
+
+### Consequences
+- **Pro:** SAB parsing is testable in isolation
+- **Pro:** Non-React consumers can import `readFrameState` directly
+- **Pro:** `useZapEngine.ts` is simpler — focuses on React lifecycle
+- **Pro:** Type-safe `FrameState` interface documents the frame contract
+- **Con:** One more module to maintain
+- **Con:** Import path is longer (`@zap/web` vs direct file)

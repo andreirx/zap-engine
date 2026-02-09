@@ -49,6 +49,11 @@ export {
   VECTOR_VERTEX_FLOATS,
   LAYER_BATCH_FLOATS,
   LIGHT_FLOATS,
+  INSTANCE_STRIDE_BYTES,
+  EFFECTS_VERTEX_BYTES,
+  SDF_INSTANCE_STRIDE_BYTES,
+  VECTOR_VERTEX_BYTES,
+  LIGHT_STRIDE_BYTES,
   DEFAULT_MAX_LAYER_BATCHES,
   DEFAULT_MAX_LIGHTS,
   ProtocolLayout,
@@ -56,6 +61,8 @@ export {
 
 export { SEGMENT_COLORS, SEGMENT_COLORS_RGB8, packColorsForGPU } from './renderer/constants';
 export { computeProjection, buildProjectionMatrix } from './renderer/camera';
+export { readFrameState } from './worker/frame-reader';
+export type { FrameState } from './worker/frame-reader';
 
 /** Create an engine worker instance. Works with any Vite-based bundler. */
 export function createEngineWorker(): Worker {

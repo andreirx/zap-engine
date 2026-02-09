@@ -12,20 +12,19 @@ import type { Renderer, RenderTier, LayerBatchDescriptor, BakeState, LightingSta
 import type { AssetManifest, GPUTextureAsset } from '../assets/manifest';
 import { createGPUTextureFromBlob } from '../assets/loader';
 import { LayerCompositor } from './compositor';
+import {
+  INSTANCE_STRIDE_BYTES,
+  EFFECTS_VERTEX_FLOATS,
+  EFFECTS_VERTEX_BYTES,
+  SDF_INSTANCE_FLOATS,
+  SDF_INSTANCE_STRIDE_BYTES,
+  VECTOR_VERTEX_FLOATS,
+  VECTOR_VERTEX_BYTES,
+} from '../worker/protocol';
 
-// Bytes per RenderInstance: 8 × f32 = 32 bytes
-const INSTANCE_STRIDE = 32;
-// Effects vertex: 5 floats = 20 bytes
-const EFFECTS_VERTEX_FLOATS = 5;
-const EFFECTS_VERTEX_BYTES = EFFECTS_VERTEX_FLOATS * 4;
-
-// SDF instance: 12 floats = 48 bytes
-const SDF_INSTANCE_FLOATS = 12;
-const SDF_INSTANCE_STRIDE = SDF_INSTANCE_FLOATS * 4;
-
-// Vector vertex: 6 floats = 24 bytes (x, y, r, g, b, a)
-const VECTOR_VERTEX_FLOATS = 6;
-const VECTOR_VERTEX_BYTES = VECTOR_VERTEX_FLOATS * 4;
+// Aliases for backward compatibility within this file
+const INSTANCE_STRIDE = INSTANCE_STRIDE_BYTES;
+const SDF_INSTANCE_STRIDE = SDF_INSTANCE_STRIDE_BYTES;
 
 // Default capacities (matching GameConfig::default())
 const DEFAULT_MAX_INSTANCES = 512;

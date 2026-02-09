@@ -42,14 +42,12 @@ impl<G: Game> GameRunner<G> {
         let sound_buffer = Vec::with_capacity(config.max_sounds);
         let layer_batch_buffer = Vec::with_capacity(config.max_layer_batches * LAYER_BATCH_FLOATS);
 
+        // Use with_config to wire capacity settings through all subsystems
+        let mut ctx = EngineContext::with_config(&config);
         #[cfg(feature = "physics")]
-        let ctx = {
-            let mut c = EngineContext::with_gravity(config.gravity);
-            c.physics.set_dt(config.fixed_dt);
-            c
-        };
-        #[cfg(not(feature = "physics"))]
-        let ctx = EngineContext::new();
+        {
+            ctx.physics.set_dt(config.fixed_dt);
+        }
 
         Self {
             game,

@@ -172,6 +172,16 @@ impl VectorState {
         }
     }
 
+    /// Create a VectorState with a specific vertex capacity.
+    pub fn with_capacity(max_vertices: usize) -> Self {
+        Self {
+            fill_tess: FillTessellator::new(),
+            stroke_tess: StrokeTessellator::new(),
+            geometry: VertexBuffers::new(),
+            buffer: Vec::with_capacity(max_vertices * VectorVertex::FLOATS),
+        }
+    }
+
     /// Clear the vertex buffer. Called at the start of each frame.
     pub fn clear(&mut self) {
         self.buffer.clear();

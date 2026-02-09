@@ -77,6 +77,14 @@ impl LightState {
         }
     }
 
+    /// Create a LightState with a specific light capacity.
+    pub fn with_capacity(max_lights: usize) -> Self {
+        Self {
+            lights: Vec::with_capacity(max_lights),
+            ambient: [1.0, 1.0, 1.0],
+        }
+    }
+
     /// Add a point light to the scene.
     pub fn add(&mut self, light: PointLight) {
         self.lights.push(light);

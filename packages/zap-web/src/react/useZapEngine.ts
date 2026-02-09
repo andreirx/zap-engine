@@ -11,30 +11,12 @@ import {
   loadManifest,
   loadAssetBlobs,
   loadNormalMapBlobs,
-  HEADER_INSTANCE_COUNT,
-  HEADER_ATLAS_SPLIT,
-  HEADER_EFFECTS_VERTEX_COUNT,
-  HEADER_SDF_INSTANCE_COUNT,
-  HEADER_VECTOR_VERTEX_COUNT,
-  HEADER_LAYER_BATCH_COUNT,
-  HEADER_BAKE_STATE,
-  HEADER_LIGHT_COUNT,
-  HEADER_AMBIENT_R,
-  HEADER_AMBIENT_G,
-  HEADER_AMBIENT_B,
-  HEADER_WORLD_WIDTH,
-  HEADER_WORLD_HEIGHT,
-  INSTANCE_FLOATS,
-  EFFECTS_VERTEX_FLOATS,
-  SDF_INSTANCE_FLOATS,
-  VECTOR_VERTEX_FLOATS,
-  LAYER_BATCH_FLOATS,
-  LIGHT_FLOATS,
   ProtocolLayout,
   SoundManager,
   createEngineWorker,
+  readFrameState,
 } from '../index';
-import type { Renderer, SoundConfig, LayerBatchDescriptor, BakeState, LightingState } from '../index';
+import type { Renderer, SoundConfig } from '../index';
 
 /** Game event forwarded from the worker. */
 export interface GameEvent {
@@ -309,97 +291,23 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       const layout = layoutRef.current;
       if (!renderer || !layout) return;
 
-      const instanceCount = buf[HEADER_INSTANCE_COUNT];
-      const atlasSplit = buf[HEADER_ATLAS_SPLIT];
-      const effectsVertexCount = buf[HEADER_EFFECTS_VERTEX_COUNT];
-      const sdfInstanceCount = buf[HEADER_SDF_INSTANCE_COUNT];
-      const vectorVertexCount = buf[HEADER_VECTOR_VERTEX_COUNT];
-      const layerBatchCount = buf[HEADER_LAYER_BATCH_COUNT] ?? 0;
+      const frame = readFrameState(buf, layout);
+      if (!frame) return;
 
-      if (instanceCount > 0 || sdfInstanceCount > 0 || vectorVertexCount > 0) {
-        const instanceData = buf.subarray(
-          layout.instanceDataOffset,
-          layout.instanceDataOffset + instanceCount * INSTANCE_FLOATS,
-        );
-
-        let effectsData: Float32Array | undefined;
-        if (effectsVertexCount > 0) {
-          effectsData = buf.subarray(
-            layout.effectsDataOffset,
-            layout.effectsDataOffset + effectsVertexCount * EFFECTS_VERTEX_FLOATS,
-          );
-        }
-
-        let sdfData: Float32Array | undefined;
-        if (sdfInstanceCount > 0) {
-          sdfData = buf.subarray(
-            layout.sdfDataOffset,
-            layout.sdfDataOffset + sdfInstanceCount * SDF_INSTANCE_FLOATS,
-          );
-        }
-
-        let vectorData: Float32Array | undefined;
-        if (vectorVertexCount > 0) {
-          vectorData = buf.subarray(
-            layout.vectorDataOffset,
-            layout.vectorDataOffset + vectorVertexCount * VECTOR_VERTEX_FLOATS,
-          );
-        }
-
-        // Decode layer batches from SAB
-        let layerBatches: LayerBatchDescriptor[] | undefined;
-        if (layerBatchCount > 0) {
-          layerBatches = [];
-          for (let i = 0; i < layerBatchCount; i++) {
-            const base = layout.layerBatchDataOffset + i * LAYER_BATCH_FLOATS;
-            layerBatches.push({
-              layerId: buf[base],
-              start: buf[base + 1],
-              end: buf[base + 2],
-              atlasSplit: buf[base + 3],
-            });
-          }
-        }
-
-        // Decode bake state from SAB header
-        let bakeState: BakeState | undefined;
-        const rawBakeState = buf[HEADER_BAKE_STATE];
-        if (rawBakeState > 0) {
-          const raw = Math.floor(rawBakeState);
-          bakeState = {
-            bakedMask: raw & 0x3F,
-            bakeGen: raw >>> 6,
-          };
-        }
-
-        // Decode lighting state from SAB
-        let lightingState: LightingState | undefined;
-        const lightCount = buf[HEADER_LIGHT_COUNT] ?? 0;
-        if (lightCount > 0) {
-          lightingState = {
-            lightData: buf.subarray(
-              layout.lightDataOffset,
-              layout.lightDataOffset + lightCount * LIGHT_FLOATS,
-            ),
-            lightCount,
-            ambient: [buf[HEADER_AMBIENT_R], buf[HEADER_AMBIENT_G], buf[HEADER_AMBIENT_B]],
-          };
-        } else {
-          // Even with no lights, pass ambient if it's not default white
-          const ar = buf[HEADER_AMBIENT_R] ?? 1.0;
-          const ag = buf[HEADER_AMBIENT_G] ?? 1.0;
-          const ab = buf[HEADER_AMBIENT_B] ?? 1.0;
-          if (ar < 1.0 || ag < 1.0 || ab < 1.0) {
-            lightingState = {
-              lightData: new Float32Array(0),
-              lightCount: 0,
-              ambient: [ar, ag, ab],
-            };
-          }
-        }
-
-        renderer.draw(instanceData, instanceCount, atlasSplit, effectsData, effectsVertexCount, sdfData, sdfInstanceCount, vectorData, vectorVertexCount, layerBatches, bakeState, lightingState);
-      }
+      renderer.draw(
+        frame.instanceData,
+        frame.instanceCount,
+        frame.atlasSplit,
+        frame.effectsData,
+        frame.effectsVertexCount,
+        frame.sdfData,
+        frame.sdfInstanceCount,
+        frame.vectorData,
+        frame.vectorVertexCount,
+        frame.layerBatches,
+        frame.bakeState,
+        frame.lightingState,
+      );
     }
 
     // --- Render loop ---

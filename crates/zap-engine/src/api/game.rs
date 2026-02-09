@@ -2,6 +2,7 @@ use crate::core::scene::Scene;
 use crate::api::types::{EntityId, SoundEvent, GameEvent};
 use crate::input::queue::InputQueue;
 use crate::renderer::instance::RenderBuffer;
+use crate::renderer::camera::Camera2D;
 use crate::systems::effects::EffectsState;
 use crate::systems::text::{FontConfig, build_text_entities, despawn_text};
 use crate::assets::manifest::AssetManifest;
@@ -21,6 +22,10 @@ use crate::components::entity::Entity;
 #[cfg(feature = "vectors")]
 use crate::systems::vector::VectorState;
 
+// ============================================================================
+// GameConfig
+// ============================================================================
+
 /// Configuration for the engine, provided by the game.
 #[derive(Debug, Clone)]
 pub struct GameConfig {
@@ -30,6 +35,8 @@ pub struct GameConfig {
     pub world_width: f32,
     /// World height in game units.
     pub world_height: f32,
+    /// Maximum number of entities in the scene (default: 512).
+    pub max_entities: usize,
     /// Maximum number of render instances (default: 512).
     pub max_instances: usize,
     /// Maximum number of effects vertices (default: 16384).
@@ -47,6 +54,8 @@ pub struct GameConfig {
     pub max_layer_batches: usize,
     /// Maximum number of point lights (default: 64).
     pub max_lights: usize,
+    /// Seed for effects RNG (default: 42). Change for different random sequences.
+    pub effects_seed: u64,
     /// Gravity vector for physics simulation. Default: zero (no gravity).
     /// For Y-down coordinate systems, use positive Y for downward gravity.
     #[cfg(feature = "physics")]
@@ -59,6 +68,7 @@ impl Default for GameConfig {
             fixed_dt: 1.0 / 60.0,
             world_width: 800.0,
             world_height: 600.0,
+            max_entities: 512,
             max_instances: 512,
             max_effects_vertices: 16384,
             max_sounds: 32,
@@ -68,11 +78,16 @@ impl Default for GameConfig {
             max_vector_vertices: 16384,
             max_layer_batches: DEFAULT_MAX_LAYER_BATCHES,
             max_lights: DEFAULT_MAX_LIGHTS,
+            effects_seed: 42,
             #[cfg(feature = "physics")]
             gravity: glam::Vec2::ZERO,
         }
     }
 }
+
+// ============================================================================
+// Game Trait
+// ============================================================================
 
 /// The core contract every game must fulfill.
 pub trait Game {
@@ -91,28 +106,101 @@ pub trait Game {
     fn render(&self, _ctx: &mut RenderContext) {}
 }
 
+// ============================================================================
+// BakeState
+// ============================================================================
+
+/// Manages layer baking state for render caching.
+///
+/// Layers can be "baked" to an intermediate texture and reused across frames
+/// for static content (e.g., terrain). The generation counter tracks changes
+/// so the renderer knows when to refresh cached textures.
+#[derive(Debug, Clone, Default)]
+pub struct BakeState {
+    /// Bitmask of layers marked for baking (bits 0-5 correspond to RenderLayer variants).
+    mask: u8,
+    /// Monotonic counter incremented on every bake/invalidate call.
+    generation: u32,
+}
+
+impl BakeState {
+    /// Create a new BakeState with no baked layers.
+    pub fn new() -> Self {
+        Self { mask: 0, generation: 0 }
+    }
+
+    /// Mark a layer for baking. The renderer will cache this layer's contents
+    /// to an intermediate texture and reuse it until `invalidate()` is called.
+    pub fn bake(&mut self, layer: RenderLayer) {
+        self.mask |= 1 << layer.as_u8();
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// Mark a baked layer as dirty, signaling the renderer to re-render
+    /// this layer's cached texture on the next frame.
+    pub fn invalidate(&mut self, _layer: RenderLayer) {
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// Remove a layer from baking — it will be rendered live every frame.
+    pub fn unbake(&mut self, layer: RenderLayer) {
+        self.mask &= !(1 << layer.as_u8());
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// Get the baked layers bitmask (bits 0-5 correspond to RenderLayer variants).
+    pub fn mask(&self) -> u8 {
+        self.mask
+    }
+
+    /// Get the bake generation counter (monotonically increasing).
+    pub fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// Encode bake state as a single f32 for the SAB header.
+    /// Format: `baked_mask | (bake_generation << 6)` stored as f32.
+    /// f32 can represent integers up to 2^24 exactly, giving ~262k generations.
+    pub fn encode(&self) -> f32 {
+        let encoded = (self.mask as u32) | (self.generation << 6);
+        encoded as f32
+    }
+}
+
+// ============================================================================
+// EngineContext
+// ============================================================================
+
 /// Mutable access to engine state, passed to Game::init and Game::update.
 pub struct EngineContext {
+    // -- Core state --
     pub scene: Scene,
     pub effects: EffectsState,
     pub sounds: Vec<SoundEvent>,
     pub events: Vec<GameEvent>,
-    next_id: u32,
-    sprite_registry: SpriteRegistry,
+
+    // -- Rendering state --
+    /// Camera for 2D projection. Games can modify for pan/zoom.
+    pub camera: Camera2D,
     /// Dynamic lighting state — persistent lights and ambient color.
     pub lights: LightState,
-    /// Bitmask of layers marked for baking (bits 0-5 correspond to RenderLayer variants).
-    baked_layers: u8,
-    /// Monotonic counter incremented on every bake/invalidate call.
-    /// Used by the renderer to detect when cached textures need refreshing.
-    bake_generation: u32,
+    /// Layer baking state for render caching.
+    pub bake: BakeState,
+
+    // -- Optional systems --
     #[cfg(feature = "vectors")]
     pub vectors: VectorState,
     #[cfg(feature = "physics")]
     pub physics: PhysicsWorld,
+
+    // -- Private state --
+    next_id: u32,
+    sprite_registry: SpriteRegistry,
     #[cfg(feature = "physics")]
     collision_events: Vec<CollisionPair>,
 }
+
+// -- Constructors --
 
 impl EngineContext {
     pub fn new() -> Self {
@@ -121,15 +209,37 @@ impl EngineContext {
             effects: EffectsState::new(42),
             sounds: Vec::new(),
             events: Vec::new(),
+            camera: Camera2D::new(800.0, 600.0),
+            lights: LightState::new(),
+            bake: BakeState::new(),
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
-            lights: LightState::new(),
-            baked_layers: 0,
-            bake_generation: 0,
             #[cfg(feature = "vectors")]
             vectors: VectorState::new(),
             #[cfg(feature = "physics")]
             physics: PhysicsWorld::new(Vec2::ZERO),
+            #[cfg(feature = "physics")]
+            collision_events: Vec::new(),
+        }
+    }
+
+    /// Create an EngineContext configured from a GameConfig.
+    /// This wires capacity settings to all subsystems.
+    pub fn with_config(config: &GameConfig) -> Self {
+        Self {
+            scene: Scene::with_capacity(config.max_entities),
+            effects: EffectsState::with_capacity(config.effects_seed, config.max_effects_vertices),
+            sounds: Vec::with_capacity(config.max_sounds),
+            events: Vec::with_capacity(config.max_events),
+            camera: Camera2D::new(config.world_width, config.world_height),
+            lights: LightState::with_capacity(config.max_lights),
+            bake: BakeState::new(),
+            next_id: 1,
+            sprite_registry: SpriteRegistry::new(),
+            #[cfg(feature = "vectors")]
+            vectors: VectorState::with_capacity(config.max_vector_vertices),
+            #[cfg(feature = "physics")]
+            physics: PhysicsWorld::new(config.gravity),
             #[cfg(feature = "physics")]
             collision_events: Vec::new(),
         }
@@ -143,18 +253,22 @@ impl EngineContext {
             effects: EffectsState::new(42),
             sounds: Vec::new(),
             events: Vec::new(),
+            camera: Camera2D::new(800.0, 600.0),
+            lights: LightState::new(),
+            bake: BakeState::new(),
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
-            lights: LightState::new(),
-            baked_layers: 0,
-            bake_generation: 0,
             #[cfg(feature = "vectors")]
             vectors: VectorState::new(),
             physics: PhysicsWorld::new(gravity),
             collision_events: Vec::new(),
         }
     }
+}
 
+// -- Core methods --
+
+impl EngineContext {
     /// Generate the next unique entity ID.
     pub fn next_id(&mut self) -> EntityId {
         let id = EntityId(self.next_id);
@@ -195,9 +309,11 @@ impl EngineContext {
         #[cfg(feature = "physics")]
         self.collision_events.clear();
     }
+}
 
-    // -- Layer baking methods --
+// -- Layer baking methods (delegate to BakeState) --
 
+impl EngineContext {
     /// Mark a layer for baking. The renderer will cache this layer's contents
     /// to an intermediate texture and reuse it until `invalidate_layer()` is called.
     ///
@@ -205,42 +321,41 @@ impl EngineContext {
     /// After modifying entities on a baked layer, call `invalidate_layer()` then
     /// `bake_layer()` again to refresh the cache.
     pub fn bake_layer(&mut self, layer: RenderLayer) {
-        self.baked_layers |= 1 << layer.as_u8();
-        self.bake_generation = self.bake_generation.wrapping_add(1);
+        self.bake.bake(layer);
     }
 
     /// Mark a baked layer as dirty, signaling the renderer to re-render
     /// this layer's cached texture on the next frame.
-    pub fn invalidate_layer(&mut self, _layer: RenderLayer) {
-        self.bake_generation = self.bake_generation.wrapping_add(1);
+    pub fn invalidate_layer(&mut self, layer: RenderLayer) {
+        self.bake.invalidate(layer);
     }
 
     /// Remove a layer from baking — it will be rendered live every frame.
     pub fn unbake_layer(&mut self, layer: RenderLayer) {
-        self.baked_layers &= !(1 << layer.as_u8());
-        self.bake_generation = self.bake_generation.wrapping_add(1);
+        self.bake.unbake(layer);
     }
 
     /// Get the baked layers bitmask (bits 0-5 correspond to RenderLayer variants).
     pub fn baked_layers_mask(&self) -> u8 {
-        self.baked_layers
+        self.bake.mask()
     }
 
     /// Get the bake generation counter (monotonically increasing).
     pub fn bake_generation(&self) -> u32 {
-        self.bake_generation
+        self.bake.generation()
     }
 
     /// Encode bake state as a single f32 for the SAB header.
     /// Format: `baked_mask | (bake_generation << 6)` stored as f32.
     /// f32 can represent integers up to 2^24 exactly, giving ~262k generations.
     pub fn bake_state_encoded(&self) -> f32 {
-        let encoded = (self.baked_layers as u32) | (self.bake_generation << 6);
-        encoded as f32
+        self.bake.encode()
     }
+}
 
-    // -- Text convenience methods --
+// -- Text convenience methods --
 
+impl EngineContext {
     /// Spawn text as a series of character entities.
     ///
     /// Each printable character becomes an Entity with a SpriteComponent.
@@ -278,12 +393,14 @@ impl EngineContext {
     pub fn despawn_text(&mut self, tag: &str) {
         despawn_text(&mut self.scene, tag);
     }
+}
 
-    // -- Physics convenience methods --
+// -- Physics convenience methods --
 
+#[cfg(feature = "physics")]
+impl EngineContext {
     /// Spawn an entity with a physics body. Returns the EntityId.
     /// The entity's position is set from the BodyDesc.
-    #[cfg(feature = "physics")]
     pub fn spawn_with_body(
         &mut self,
         entity: Entity,
@@ -298,7 +415,6 @@ impl EngineContext {
     }
 
     /// Despawn an entity, cleaning up its physics body if present.
-    #[cfg(feature = "physics")]
     pub fn despawn(&mut self, id: EntityId) {
         if let Some(entity) = self.scene.despawn(id) {
             if let Some(body) = &entity.body {
@@ -308,7 +424,6 @@ impl EngineContext {
     }
 
     /// Apply a continuous force to an entity's physics body.
-    #[cfg(feature = "physics")]
     pub fn apply_force(&mut self, id: EntityId, force: Vec2) {
         if let Some(entity) = self.scene.get(id) {
             if let Some(body) = &entity.body {
@@ -318,7 +433,6 @@ impl EngineContext {
     }
 
     /// Apply an instantaneous impulse to an entity's physics body.
-    #[cfg(feature = "physics")]
     pub fn apply_impulse(&mut self, id: EntityId, impulse: Vec2) {
         if let Some(entity) = self.scene.get(id) {
             if let Some(body) = &entity.body {
@@ -328,7 +442,6 @@ impl EngineContext {
     }
 
     /// Set the linear velocity of an entity's physics body.
-    #[cfg(feature = "physics")]
     pub fn set_velocity(&mut self, id: EntityId, vel: Vec2) {
         if let Some(entity) = self.scene.get(id) {
             if let Some(body) = &entity.body {
@@ -338,7 +451,6 @@ impl EngineContext {
     }
 
     /// Get the linear velocity of an entity's physics body.
-    #[cfg(feature = "physics")]
     pub fn velocity(&self, id: EntityId) -> Vec2 {
         self.scene
             .get(id)
@@ -349,7 +461,6 @@ impl EngineContext {
 
     /// Create a joint between two entities' physics bodies.
     /// Returns None if either entity lacks a physics body.
-    #[cfg(feature = "physics")]
     pub fn create_joint(
         &mut self,
         entity_a: EntityId,
@@ -362,20 +473,17 @@ impl EngineContext {
     }
 
     /// Remove a joint from the simulation.
-    #[cfg(feature = "physics")]
     pub fn remove_joint(&mut self, handle: JointHandle) {
         self.physics.remove_joint(handle);
     }
 
     /// Get collision events from the most recent physics step.
-    #[cfg(feature = "physics")]
     pub fn collisions(&self) -> &[CollisionPair] {
         &self.collision_events
     }
 
     /// Step the physics simulation and sync positions back to entities.
     /// Called automatically by the game runner after `Game::update()`.
-    #[cfg(feature = "physics")]
     pub fn step_physics(&mut self) {
         self.collision_events.clear();
         self.physics.step_into(&mut self.collision_events);
@@ -397,10 +505,18 @@ impl Default for EngineContext {
     }
 }
 
+// ============================================================================
+// RenderContext
+// ============================================================================
+
 /// Render context for optional custom render commands.
 pub struct RenderContext<'a> {
     pub render_buffer: &'a mut RenderBuffer,
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[cfg(test)]
 mod sprite_registry_tests {
@@ -426,6 +542,53 @@ mod sprite_registry_tests {
         assert_eq!(hero.row, 5.0);
         assert_eq!(hero.cell_span, 2.0);
         assert!(ctx.sprite("nonexistent").is_none());
+    }
+}
+
+#[cfg(test)]
+mod bake_state_tests {
+    use super::*;
+
+    #[test]
+    fn bake_state_new_is_empty() {
+        let bake = BakeState::new();
+        assert_eq!(bake.mask(), 0);
+        assert_eq!(bake.generation(), 0);
+        assert_eq!(bake.encode(), 0.0);
+    }
+
+    #[test]
+    fn bake_state_bake_sets_bit() {
+        let mut bake = BakeState::new();
+        bake.bake(RenderLayer::Terrain);
+        assert_eq!(bake.mask(), 0b00_0010); // bit 1
+        assert_eq!(bake.generation(), 1);
+    }
+
+    #[test]
+    fn bake_state_unbake_clears_bit() {
+        let mut bake = BakeState::new();
+        bake.bake(RenderLayer::Background);
+        bake.bake(RenderLayer::Terrain);
+        assert_eq!(bake.mask(), 0b00_0011);
+
+        bake.unbake(RenderLayer::Terrain);
+        assert_eq!(bake.mask(), 0b00_0001); // only Background
+    }
+
+    #[test]
+    fn bake_state_encode_round_trip() {
+        let mut bake = BakeState::new();
+        bake.bake(RenderLayer::Terrain);   // mask = 0b10, gen = 1
+        bake.bake(RenderLayer::Foreground); // mask = 0b1010, gen = 2
+
+        let encoded = bake.encode();
+        let raw = encoded as u32;
+        let decoded_mask = raw & 0x3F;
+        let decoded_gen = raw >> 6;
+
+        assert_eq!(decoded_mask, 0b00_1010); // Terrain(1) + Foreground(3)
+        assert_eq!(decoded_gen, 2);
     }
 }
 
@@ -497,6 +660,22 @@ mod bake_tests {
 
         assert_eq!(decoded_mask, 0b00_1010); // Terrain(1) + Foreground(3)
         assert_eq!(decoded_gen, 2);
+    }
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+
+    #[test]
+    fn with_config_initializes_camera() {
+        let mut config = GameConfig::default();
+        config.world_width = 1920.0;
+        config.world_height = 1080.0;
+
+        let ctx = EngineContext::with_config(&config);
+        assert_eq!(ctx.camera.width, 1920.0);
+        assert_eq!(ctx.camera.height, 1080.0);
     }
 }
 

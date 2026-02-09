@@ -10,7 +10,9 @@ Example games built with ZapEngine, demonstrating the engine's capabilities.
 | `physics-playground/` | Angry Birds-style sling + tower with rapier2d physics, sprites, custom events |
 | `chemistry-lab/` | SDF molecule builder: atoms as raymarched spheres, spring-joint bonds, zero-gravity |
 | `zapzap-mini/` | 8x8 circuit puzzle with dynamic lighting, normal maps, and electric arcs |
-| `glypher/` | New game built on ZapEngine (in development) |
+| `solar-system/` | Interactive orrery: Keplerian orbits, pan/zoom camera, SDF planets, orbit trails |
+| `flag-parade/` | Animated flag cloth simulation using spring joints with country flag patterns |
+| `glypher/` | Handwriting-tracing game: dynamic lighting, viewport-adaptive layout, cursive letters |
 
 ## Structure
 

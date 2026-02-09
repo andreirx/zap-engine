@@ -64,6 +64,29 @@ export const LAYER_BATCH_FLOATS = 4;
 /** Floats per point light: x, y, r, g, b, intensity, radius, layer_mask. */
 export const LIGHT_FLOATS = 8;
 
+// ============================================================================
+// Byte Strides (for buffer layout calculations)
+// ============================================================================
+
+/** Bytes per render instance (8 floats × 4 bytes). */
+export const INSTANCE_STRIDE_BYTES = INSTANCE_FLOATS * 4; // 32
+
+/** Bytes per effects vertex (5 floats × 4 bytes). */
+export const EFFECTS_VERTEX_BYTES = EFFECTS_VERTEX_FLOATS * 4; // 20
+
+/** Bytes per SDF instance (12 floats × 4 bytes). */
+export const SDF_INSTANCE_STRIDE_BYTES = SDF_INSTANCE_FLOATS * 4; // 48
+
+/** Bytes per vector vertex (6 floats × 4 bytes). */
+export const VECTOR_VERTEX_BYTES = VECTOR_VERTEX_FLOATS * 4; // 24
+
+/** Bytes per point light (8 floats × 4 bytes). */
+export const LIGHT_STRIDE_BYTES = LIGHT_FLOATS * 4; // 32
+
+// ============================================================================
+// Defaults
+// ============================================================================
+
 /** Default maximum layer batches (one per RenderLayer). */
 export const DEFAULT_MAX_LAYER_BATCHES = 6;
 

@@ -8,7 +8,7 @@ pub mod input;
 pub mod assets;
 
 // Re-export key types at crate root for convenience
-pub use api::game::{Game, GameConfig, EngineContext, RenderContext};
+pub use api::game::{Game, GameConfig, EngineContext, RenderContext, BakeState};
 pub use api::types::{EntityId, SoundEvent, GameEvent};
 pub use components::entity::Entity;
 pub use components::layer::RenderLayer;

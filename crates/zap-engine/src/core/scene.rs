@@ -14,6 +14,13 @@ impl Scene {
         }
     }
 
+    /// Create a scene with a specific entity capacity.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            entities: Vec::with_capacity(capacity),
+        }
+    }
+
     /// Add an entity to the scene.
     pub fn spawn(&mut self, entity: Entity) {
         self.entities.push(entity);

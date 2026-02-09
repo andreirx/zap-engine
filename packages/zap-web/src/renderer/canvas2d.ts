@@ -6,11 +6,12 @@ import { SEGMENT_COLORS_RGB8 } from './constants';
 import type { Renderer, LayerBatchDescriptor, BakeState, LightingState } from './types';
 import type { AssetManifest } from '../assets/manifest';
 import { createImageFromBlob } from '../assets/loader';
-
-const INSTANCE_FLOATS = 8;
-const EFFECTS_VERTEX_FLOATS = 5;
-const SDF_INSTANCE_FLOATS = 12;
-const VECTOR_VERTEX_FLOATS = 6;
+import {
+  INSTANCE_FLOATS,
+  EFFECTS_VERTEX_FLOATS,
+  SDF_INSTANCE_FLOATS,
+  VECTOR_VERTEX_FLOATS,
+} from '../worker/protocol';
 
 export interface Canvas2DRendererConfig {
   canvas: HTMLCanvasElement;
