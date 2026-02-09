@@ -52,6 +52,8 @@ pub struct PhysicsPlayground {
     settled_counter: u32,
     flight_timer: u32,
     score: u32,
+    /// Whether drag arc exists (for smooth arc animation)
+    has_drag_arc: bool,
 }
 
 impl PhysicsPlayground {
@@ -66,6 +68,7 @@ impl PhysicsPlayground {
             settled_counter: 0,
             flight_timer: 0,
             score: 0,
+            has_drag_arc: false,
         }
     }
 
@@ -168,6 +171,7 @@ impl PhysicsPlayground {
         self.dragging = false;
         self.settled_counter = 0;
         self.score = 0;
+        self.has_drag_arc = false;
 
         self.build_tower(ctx);
     }
@@ -229,7 +233,19 @@ impl PhysicsPlayground {
         if self.dragging {
             let origin = [SLING_X, SLING_Y];
             let target = [self.drag_current.x, self.drag_current.y];
-            ctx.effects.add_arc(origin, target, 2.0, SegmentColor::White, 4);
+            if !self.has_drag_arc {
+                // Create arc on drag start
+                ctx.effects.add_arc(origin, target, 2.0, SegmentColor::White, 4);
+                self.has_drag_arc = true;
+            } else if let Some((arc, _, _)) = ctx.effects.arcs.first_mut() {
+                // Update arc endpoints — let tick() handle smooth twitching
+                arc.start = origin;
+                arc.end = target;
+            }
+        } else if self.has_drag_arc {
+            // Clear arc when drag ends
+            ctx.effects.arcs.clear();
+            self.has_drag_arc = false;
         }
     }
 }
@@ -270,9 +286,6 @@ impl Game for PhysicsPlayground {
     }
 
     fn update(&mut self, ctx: &mut EngineContext, input: &InputQueue) {
-        // Clear previous frame's arcs (arcs persist in EffectsState)
-        ctx.effects.arcs.clear();
-
         // Handle input events
         for event in input.iter() {
             match event {

@@ -32,6 +32,8 @@ pub struct ChemistryLab {
     drag_from: Option<EntityId>,
     drag_active: bool,
     drag_pos: Vec2,
+    /// Whether drag arc exists (for smooth arc animation)
+    has_drag_arc: bool,
 }
 
 impl ChemistryLab {
@@ -42,6 +44,7 @@ impl ChemistryLab {
             drag_from: None,
             drag_active: false,
             drag_pos: Vec2::ZERO,
+            has_drag_arc: false,
         }
     }
 
@@ -230,6 +233,7 @@ impl ChemistryLab {
         self.molecule = MoleculeState::new();
         self.drag_from = None;
         self.drag_active = false;
+        self.has_drag_arc = false;
     }
 }
 
@@ -308,16 +312,27 @@ impl Game for ChemistryLab {
             }
         }
 
-        // Clear previous frame's arcs and draw drag arc
-        ctx.effects.arcs.clear();
+        // Handle drag arc with smooth animation
         if self.drag_active {
             if let Some(from_id) = self.drag_from {
                 if let Some(from_entity) = ctx.scene.get(from_id) {
                     let start = [from_entity.pos.x, from_entity.pos.y];
                     let end = [self.drag_pos.x, self.drag_pos.y];
-                    ctx.effects.add_arc(start, end, 3.0, SegmentColor::Cyan, 4);
+                    if !self.has_drag_arc {
+                        // Create arc on drag start
+                        ctx.effects.add_arc(start, end, 3.0, SegmentColor::Cyan, 4);
+                        self.has_drag_arc = true;
+                    } else if let Some((arc, _, _)) = ctx.effects.arcs.first_mut() {
+                        // Update arc endpoints — let tick() handle smooth twitching
+                        arc.start = start;
+                        arc.end = end;
+                    }
                 }
             }
+        } else if self.has_drag_arc {
+            // Clear arc when drag ends
+            ctx.effects.arcs.clear();
+            self.has_drag_arc = false;
         }
 
         // Update bond visuals to match physics positions

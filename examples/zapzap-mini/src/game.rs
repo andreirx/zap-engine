@@ -33,6 +33,18 @@ enum GamePhase {
     FreezeDuringZap,
 }
 
+/// Whether arcs need to be built (only once per zap phase, not every frame).
+/// Arcs persist and get smoothly twitched by effects.tick() in the runner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArcState {
+    /// No arcs needed (waiting for input, falling tiles, etc.)
+    None,
+    /// Arcs need to be built this frame (just entered zap phase)
+    NeedsBuild,
+    /// Arcs are active and being twitched by the engine
+    Active,
+}
+
 pub struct ZapZapMini {
     board: GameBoard,
     anims: AnimationState,
@@ -42,6 +54,8 @@ pub struct ZapZapMini {
     pending_check: bool,
     /// Frame counter for per-frame light wiggle randomness
     frame: u32,
+    /// Arc lifecycle state — arcs are built once, then twitched smoothly
+    arc_state: ArcState,
 }
 
 impl ZapZapMini {
@@ -53,6 +67,7 @@ impl ZapZapMini {
             score: 0,
             pending_check: false,
             frame: 0,
+            arc_state: ArcState::None,
         }
     }
 
@@ -86,9 +101,10 @@ impl ZapZapMini {
     }
 
     /// Build arcs for all marked tiles using the engine's effects system.
+    /// Called ONCE when entering the zap phase — arcs then persist and get
+    /// smoothly twitched by effects.tick() each frame (midpoint displacement evolution).
     fn build_arcs(&self, effects: &mut EffectsState) {
-        // Clear previous frame's arcs — arcs persist in EffectsState and must be
-        // rebuilt each frame (they naturally twitch, giving the electric flicker effect).
+        // Clear any old arcs before building new ones
         effects.arcs.clear();
 
         let left_pin_x = GRID_OFFSET_X - TILE_SIZE + TILE_SIZE * 0.5;
@@ -323,12 +339,14 @@ impl ZapZapMini {
         }
     }
 
-    fn new_game(&mut self) {
+    fn new_game(&mut self, ctx: &mut EngineContext) {
         self.board = GameBoard::new(BOARD_WIDTH, BOARD_HEIGHT, MISSING_LINKS_PERCENT, self.board.rng.next_u64());
         self.anims.clear();
         self.phase = GamePhase::WaitingForInput;
         self.score = 0;
         self.pending_check = false;
+        self.arc_state = ArcState::None;
+        ctx.effects.arcs.clear();
     }
 }
 
@@ -346,6 +364,7 @@ impl Game for ZapZapMini {
     fn init(&mut self, ctx: &mut EngineContext) {
         // Run initial connection check so markings are visible from the start
         self.board.check_connections();
+        self.arc_state = ArcState::NeedsBuild;
         self.sync_entities(ctx);
     }
 
@@ -357,8 +376,9 @@ impl Game for ZapZapMini {
         for event in input.iter() {
             if let InputEvent::Custom { kind, .. } = event {
                 if *kind == CUSTOM_NEW_GAME {
-                    self.new_game();
+                    self.new_game(ctx);
                     self.board.check_connections();
+                    self.arc_state = ArcState::NeedsBuild;
                     ctx.emit_event(GameEvent { kind: EVENT_SCORE, a: 0.0, b: 0.0, c: 0.0 });
                 }
             }
@@ -384,6 +404,7 @@ impl Game for ZapZapMini {
                     if self.pending_check {
                         self.pending_check = false;
                         let connected = self.board.check_connections();
+                        self.arc_state = ArcState::NeedsBuild;
                         if connected > 0 {
                             // Score the connected tiles
                             let zapped = self.board.count_ok_tiles() as u32;
@@ -414,6 +435,7 @@ impl Game for ZapZapMini {
                             // Freeze to show arcs before removing tiles
                             self.anims.freeze_timer = FREEZE_ZAP_DURATION;
                             self.phase = GamePhase::FreezeDuringZap;
+                            self.arc_state = ArcState::NeedsBuild;
                         } else {
                             self.phase = GamePhase::WaitingForInput;
                         }
@@ -425,7 +447,9 @@ impl Game for ZapZapMini {
 
             GamePhase::FreezeDuringZap => {
                 if self.anims.tick_freeze(dt) {
-                    // Freeze ended — remove tiles and start gravity
+                    // Freeze ended — clear arcs, remove tiles, start gravity
+                    self.arc_state = ArcState::None;
+                    ctx.effects.arcs.clear();
                     let _falls = self.board.remove_and_shift();
 
                     // Create fall animations for all tiles (simple: everything shifts)
@@ -445,6 +469,7 @@ impl Game for ZapZapMini {
                     self.phase = GamePhase::FallingTiles;
                     // Re-check after removal
                     self.board.check_connections();
+                    self.arc_state = ArcState::NeedsBuild;
                 }
             }
 
@@ -453,13 +478,18 @@ impl Game for ZapZapMini {
                 if !self.anims.has_fall_anims() {
                     // Falling complete — check for new connections
                     self.board.check_connections();
+                    self.arc_state = ArcState::NeedsBuild;
                     self.phase = GamePhase::WaitingForInput;
                 }
             }
         }
 
-        // Always rebuild arcs for any marked tiles (arcs twitch naturally each frame)
-        self.build_arcs(&mut ctx.effects);
+        // Build arcs ONCE when entering zap phase — they then persist and get
+        // smoothly twitched by effects.tick() in the runner (midpoint displacement)
+        if self.arc_state == ArcState::NeedsBuild {
+            self.build_arcs(&mut ctx.effects);
+            self.arc_state = ArcState::Active;
+        }
 
         // Rebuild lights if we have marked tiles
         self.build_lights(&mut ctx.lights);
