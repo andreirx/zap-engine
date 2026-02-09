@@ -1,36 +1,62 @@
-// WebGPU renderer — reads simulation state from SharedArrayBuffer and draws.
+// WebGPU renderer — orchestration facade.
+// Reads simulation state from SharedArrayBuffer and draws.
 // Configures rgba16float + display-p3 + extended tone mapping for HDR/EDR.
 // Manifest-driven: accepts N atlases, creates one pipeline per atlas.
 
-import shaderSource from './shaders.wgsl?raw';
-import sdfShaderSource from './molecule.wgsl?raw';
-import vectorShaderSource from './vector.wgsl?raw';
-import lightingShaderSource from './lighting.wgsl?raw';
 import { buildProjectionMatrix, computeProjection } from './camera';
-import { packColorsForGPU } from './constants';
-import type { Renderer, RenderTier, LayerBatchDescriptor, BakeState, LightingState } from './types';
-import type { AssetManifest, GPUTextureAsset } from '../assets/manifest';
-import { createGPUTextureFromBlob } from '../assets/loader';
+import type { Renderer, LayerBatchDescriptor, BakeState, LightingState } from './types';
+import type { AssetManifest } from '../assets/manifest';
 import { LayerCompositor } from './compositor';
-import {
-  INSTANCE_STRIDE_BYTES,
-  EFFECTS_VERTEX_FLOATS,
-  EFFECTS_VERTEX_BYTES,
-  SDF_INSTANCE_FLOATS,
-  SDF_INSTANCE_STRIDE_BYTES,
-  VECTOR_VERTEX_FLOATS,
-  VECTOR_VERTEX_BYTES,
-} from '../worker/protocol';
 
-// Aliases for backward compatibility within this file
-const INSTANCE_STRIDE = INSTANCE_STRIDE_BYTES;
-const SDF_INSTANCE_STRIDE = SDF_INSTANCE_STRIDE_BYTES;
+// Device and resources
+import { initDevice, resizeContext, GLOW_MULT } from './webgpu/device';
+import {
+  loadAtlasTextures,
+  loadNormalTextures,
+  createSampler,
+  createFlatNormalTexture,
+  createFallbackTexture,
+  createLayouts,
+  createBuffers,
+  createBindGroups,
+  createTextureBindGroups,
+  createNormalTextureBindGroups,
+  INSTANCE_STRIDE_BYTES,
+  EFFECTS_VERTEX_BYTES,
+  SDF_INSTANCE_STRIDE_BYTES,
+  VECTOR_VERTEX_BYTES,
+} from './webgpu/resources';
+
+// Pipelines
+import {
+  createSpritePipelineLayout,
+  createEffectsPipelineLayout,
+  createSdfPipelineLayout,
+  createVectorPipelineLayout,
+} from './webgpu/pipelines/common';
+import { createSpriteShaderModule, createSpritePipelines, createNormalPipelines } from './webgpu/pipelines/sprite';
+import { createEffectsPipeline } from './webgpu/pipelines/effects';
+import { createSdfPipeline } from './webgpu/pipelines/sdf';
+import { createVectorPipeline } from './webgpu/pipelines/vector';
+import { createLightingPipeline, createLightingBindGroup, LIGHT_FLOATS } from './webgpu/pipelines/lighting';
+
+// Passes
+import { encodeBakePass } from './webgpu/passes/bake';
+import {
+  createDrawBatchFn,
+  createDrawNormalBatchFn,
+  encodeScenePass,
+  encodeNormalPass,
+  encodeLightingPass,
+  type ScenePassConfig,
+} from './webgpu/passes/scene';
 
 // Default capacities (matching GameConfig::default())
 const DEFAULT_MAX_INSTANCES = 512;
 const DEFAULT_MAX_EFFECTS_VERTICES = 16384;
 const DEFAULT_MAX_SDF_INSTANCES = 128;
 const DEFAULT_MAX_VECTOR_VERTICES = 16384;
+const DEFAULT_MAX_LIGHTS = 64;
 
 export interface WebGPURendererConfig {
   canvas: HTMLCanvasElement;
@@ -64,458 +90,94 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     maxVectorVertices = DEFAULT_MAX_VECTOR_VERTICES,
   } = config;
 
-  // ---- GPU Init ----
-  if (!navigator.gpu) {
-    throw new Error('WebGPU not supported');
-  }
+  // ---- Phase 1: Device initialization ----
+  const { device, context, format, tier } = await initDevice(canvas);
+  const glowMult = GLOW_MULT[tier as Exclude<typeof tier, 'canvas2d'>];
 
-  const adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) {
-    throw new Error('No WebGPU adapter found');
-  }
-
-  const device = await adapter.requestDevice();
-  const context = canvas.getContext('webgpu');
-  if (!context) {
-    throw new Error('Failed to get WebGPU context');
-  }
-
-  // Progressive configure — try full HDR/EDR, then basic rgba16float, then preferred format.
-  let format: GPUTextureFormat = 'rgba16float';
-  let tier: RenderTier = 'sdr';
-
-  try {
-    context.configure({
-      device,
-      format: 'rgba16float',
-      colorSpace: 'display-p3',
-      toneMapping: { mode: 'extended' },
-      alphaMode: 'premultiplied',
-    });
-    tier = 'hdr-edr';
-  } catch {
-    try {
-      context.configure({
-        device,
-        format: 'rgba16float',
-        alphaMode: 'premultiplied',
-      });
-      tier = 'hdr-srgb';
-    } catch {
-      format = navigator.gpu.getPreferredCanvasFormat();
-      context.configure({
-        device,
-        format,
-        alphaMode: 'premultiplied',
-      });
-      tier = 'sdr';
-    }
-  }
-
-  // Per-tier glow multipliers for shader override constants.
-  const GLOW_MULT: Record<Exclude<RenderTier, 'canvas2d'>, { effects: number; sdf: number }> = {
-    'hdr-edr':  { effects: 6.4, sdf: 5.4 },
-    'hdr-srgb': { effects: 3.0, sdf: 2.5 },
-    'sdr':      { effects: 1.0, sdf: 0.5 },
-  };
-
-  console.info(`[renderer] WebGPU tier: ${tier} (format: ${format})`);
-
-  // ---- Load textures from manifest ----
-  const textures: GPUTextureAsset[] = [];
-  for (const atlas of manifest.atlases) {
-    const blob = atlasBlobs.get(atlas.name);
-    if (!blob) {
-      throw new Error(`Missing blob for atlas: ${atlas.name}`);
-    }
-    textures.push(await createGPUTextureFromBlob(device, blob));
-  }
-
-  // ---- Load normal map textures (optional, per-atlas) ----
-  // normalTextures[i] is the normal map for atlas i, or null if none.
-  // Normal maps are loaded WITHOUT premultiplied alpha to preserve raw normal values.
-  const normalTextures: (GPUTextureAsset | null)[] = [];
-  for (const atlas of manifest.atlases) {
-    const normalBlob = normalMapBlobs?.get(atlas.name);
-    if (normalBlob) {
-      normalTextures.push(await createGPUTextureFromBlob(device, normalBlob, false));
-    } else {
-      normalTextures.push(null);
-    }
-  }
+  // ---- Phase 2: Load textures ----
+  const textures = await loadAtlasTextures(device, manifest, atlasBlobs);
+  const normalTextures = await loadNormalTextures(device, manifest, normalMapBlobs);
   const hasNormalMaps = normalTextures.some((t) => t !== null);
 
-  // ---- Shader Module ----
-  const shaderModule = device.createShaderModule({ code: shaderSource });
+  const sampler = createSampler(device);
+  const flatNormalView = createFlatNormalTexture(device);
+  const fallbackTex = createFallbackTexture(device);
 
-  // ---- Camera Uniform ----
-  const cameraBuffer = device.createBuffer({
-    size: 64,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
+  // ---- Phase 3: Create layouts and buffers ----
+  const layouts = createLayouts(device);
+  const buffers = createBuffers(
+    device,
+    maxInstances,
+    maxEffectsVertices,
+    maxSdfInstances,
+    maxVectorVertices,
+    DEFAULT_MAX_LIGHTS,
+  );
+  const bindGroups = createBindGroups(device, layouts, buffers);
 
-  const cameraBindGroupLayout = device.createBindGroupLayout({
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.VERTEX,
-      buffer: { type: 'uniform' },
-    }],
-  });
-
-  const cameraBindGroup = device.createBindGroup({
-    layout: cameraBindGroupLayout,
-    entries: [{ binding: 0, resource: { buffer: cameraBuffer } }],
-  });
-
-  // ---- Segment Colors UBO ----
-  const colorsData = packColorsForGPU();
-  const colorsBuffer = device.createBuffer({
-    size: colorsData.byteLength,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-  device.queue.writeBuffer(colorsBuffer, 0, colorsData);
-
-  const colorsBindGroupLayout = device.createBindGroupLayout({
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.FRAGMENT,
-      buffer: { type: 'uniform' },
-    }],
-  });
-
-  const colorsBindGroup = device.createBindGroup({
-    layout: colorsBindGroupLayout,
-    entries: [{ binding: 0, resource: { buffer: colorsBuffer } }],
-  });
-
-  // ---- Texture Bind Group Layout ----
-  const textureBindGroupLayout = device.createBindGroupLayout({
-    entries: [
-      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-    ],
-  });
-
-  const sampler = device.createSampler({
-    magFilter: 'linear',
-    minFilter: 'linear',
-    mipmapFilter: 'linear',
-  });
-
-  // Create a bind group per atlas
-  const textureBindGroups: GPUBindGroup[] = textures.map((tex) =>
-    device.createBindGroup({
-      layout: textureBindGroupLayout,
-      entries: [
-        { binding: 0, resource: tex.view },
-        { binding: 1, resource: sampler },
-      ],
-    })
+  // Create texture bind groups
+  const textureBindGroups = createTextureBindGroups(device, layouts.textureBindGroupLayout, textures, sampler);
+  const normalTextureBindGroups = createNormalTextureBindGroups(
+    device,
+    layouts.textureBindGroupLayout,
+    normalTextures,
+    flatNormalView,
+    sampler,
   );
 
-  // Fallback 1×1 white texture for effects when no atlases exist
-  const fallbackTex = device.createTexture({
-    size: [1, 1],
-    format: 'rgba8unorm',
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  });
-  device.queue.writeTexture(
-    { texture: fallbackTex },
-    new Uint8Array([255, 255, 255, 255]),
-    { bytesPerRow: 4 },
-    [1, 1],
-  );
+  // Fallback texture bind group
   const fallbackTextureBindGroup = device.createBindGroup({
-    layout: textureBindGroupLayout,
+    layout: layouts.textureBindGroupLayout,
     entries: [
       { binding: 0, resource: fallbackTex.createView() },
       { binding: 1, resource: sampler },
     ],
   });
 
-  // ---- Instance Storage Buffer ----
-  const instanceBuffer = device.createBuffer({
-    size: INSTANCE_STRIDE * maxInstances,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
+  // ---- Phase 4: Create pipelines ----
+  const spritePipelineLayout = createSpritePipelineLayout(device, layouts);
+  const effectsPipelineLayout = createEffectsPipelineLayout(device, layouts);
+  const sdfPipelineLayout = createSdfPipelineLayout(device, layouts);
+  const vectorPipelineLayout = createVectorPipelineLayout(device, layouts);
 
-  const instanceBindGroupLayout = device.createBindGroupLayout({
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.VERTEX,
-      buffer: { type: 'read-only-storage' },
-    }],
-  });
-
-  const instanceBindGroup = device.createBindGroup({
-    layout: instanceBindGroupLayout,
-    entries: [{ binding: 0, resource: { buffer: instanceBuffer } }],
-  });
-
-  // ---- Effects Vertex Buffer ----
-  const effectsBuffer = device.createBuffer({
-    size: EFFECTS_VERTEX_BYTES * maxEffectsVertices,
-    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-  });
-
-  // ---- Vector Vertex Buffer ----
-  const vectorBuffer = device.createBuffer({
-    size: VECTOR_VERTEX_BYTES * maxVectorVertices,
-    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-  });
-
-  // ---- Pipeline Layouts ----
-  const tilePipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [cameraBindGroupLayout, textureBindGroupLayout, instanceBindGroupLayout],
-  });
-
-  const emptyBindGroupLayout = device.createBindGroupLayout({ entries: [] });
-  const emptyBindGroup = device.createBindGroup({ layout: emptyBindGroupLayout, entries: [] });
-
-  const effectsPipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [cameraBindGroupLayout, textureBindGroupLayout, emptyBindGroupLayout, colorsBindGroupLayout],
-  });
-
-  // Alpha blend targets
-  const alphaBlendTargets: GPUColorTargetState[] = [{
-    format,
-    blend: {
-      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-    },
-  }];
-
-  // ---- Create one alpha pipeline per atlas ----
-  const alphaPipelines: GPURenderPipeline[] = manifest.atlases.map((atlas) =>
-    device.createRenderPipeline({
-      layout: tilePipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: 'vs_main',
-        constants: { ATLAS_COLS: atlas.cols, ATLAS_ROWS: atlas.rows },
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: 'fs_main',
-        targets: alphaBlendTargets,
-      },
-      primitive: { topology: 'triangle-list' },
-    })
+  const spriteShaderModule = createSpriteShaderModule(device);
+  const alphaPipelines = createSpritePipelines(
+    { device, layout: spritePipelineLayout, format, manifest },
+    spriteShaderModule,
+  );
+  const normalPipelines = createNormalPipelines(
+    { device, layout: spritePipelineLayout, format, manifest },
+    spriteShaderModule,
   );
 
-  // ---- Additive Pipeline (effects) ----
-  const additivePipeline = device.createRenderPipeline({
+  const additivePipeline = createEffectsPipeline({
+    device,
     layout: effectsPipelineLayout,
-    vertex: {
-      module: shaderModule,
-      entryPoint: 'vs_effects',
-      buffers: [{
-        arrayStride: EFFECTS_VERTEX_BYTES,
-        attributes: [
-          { shaderLocation: 0, offset: 0, format: 'float32x3' },
-          { shaderLocation: 1, offset: 12, format: 'float32x2' },
-        ],
-      }],
-    },
-    fragment: {
-      module: shaderModule,
-      entryPoint: 'fs_additive',
-      constants: { EFFECTS_HDR_MULT: GLOW_MULT[tier as Exclude<RenderTier, 'canvas2d'>].effects },
-      targets: [{
-        format,
-        blend: {
-          color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
-          alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
-        },
-      }],
-    },
-    primitive: { topology: 'triangle-list' },
+    format,
+    glowMult: glowMult.effects,
   });
 
-  // ---- SDF Pipeline (molecule rendering) ----
-  const sdfShaderModule = device.createShaderModule({ code: sdfShaderSource });
-
-  const sdfStorageBuffer = device.createBuffer({
-    size: SDF_INSTANCE_STRIDE * maxSdfInstances,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
-
-  const sdfBindGroupLayout = device.createBindGroupLayout({
-    entries: [{
-      binding: 0,
-      visibility: GPUShaderStage.VERTEX,
-      buffer: { type: 'read-only-storage' },
-    }],
-  });
-
-  const sdfBindGroup = device.createBindGroup({
-    layout: sdfBindGroupLayout,
-    entries: [{ binding: 0, resource: { buffer: sdfStorageBuffer } }],
-  });
-
-  const sdfPipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [cameraBindGroupLayout, sdfBindGroupLayout],
-  });
-
-  const sdfPipeline = device.createRenderPipeline({
+  const sdfPipeline = createSdfPipeline({
+    device,
     layout: sdfPipelineLayout,
-    vertex: {
-      module: sdfShaderModule,
-      entryPoint: 'vs_sdf',
-    },
-    fragment: {
-      module: sdfShaderModule,
-      entryPoint: 'fs_sdf',
-      constants: { SDF_EMISSIVE_MULT: GLOW_MULT[tier as Exclude<RenderTier, 'canvas2d'>].sdf },
-      targets: [{
-        format,
-        blend: {
-          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-        },
-      }],
-    },
-    primitive: { topology: 'triangle-list' },
+    format,
+    emissiveMult: glowMult.sdf,
   });
 
-  // ---- Vector Pipeline (Lyon-tessellated geometry) ----
-  const vectorShaderModule = device.createShaderModule({ code: vectorShaderSource });
-
-  const vectorPipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [cameraBindGroupLayout],
-  });
-
-  const vectorPipeline = device.createRenderPipeline({
+  const vectorPipeline = createVectorPipeline({
+    device,
     layout: vectorPipelineLayout,
-    vertex: {
-      module: vectorShaderModule,
-      entryPoint: 'vs_vector',
-      buffers: [{
-        arrayStride: VECTOR_VERTEX_BYTES,
-        attributes: [
-          { shaderLocation: 0, offset: 0, format: 'float32x2' },   // position
-          { shaderLocation: 1, offset: 8, format: 'float32x4' },   // color
-        ],
-      }],
-    },
-    fragment: {
-      module: vectorShaderModule,
-      entryPoint: 'fs_vector',
-      constants: { VECTOR_HDR_MULT: GLOW_MULT[tier as Exclude<RenderTier, 'canvas2d'>].effects },
-      targets: alphaBlendTargets,
-    },
-    primitive: { topology: 'triangle-list' },
+    format,
+    glowMult: glowMult.vector,
   });
 
-  // ---- Flat normal placeholder (1×1 RGBA: 128,128,255,255 → tangent-space (0,0,1)) ----
-  const flatNormalTexture = device.createTexture({
-    size: { width: 1, height: 1 },
-    format: 'rgba8unorm',
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-  });
-  device.queue.writeTexture(
-    { texture: flatNormalTexture },
-    new Uint8Array([128, 128, 255, 255]),
-    { bytesPerRow: 4 },
-    { width: 1, height: 1 },
-  );
-  const flatNormalView = flatNormalTexture.createView();
+  const lighting = createLightingPipeline({ device, format });
 
-  // Resolve the "active" normal map view per atlas: real normal or flat fallback
-  const normalMapViews: GPUTextureView[] = normalTextures.map(
-    (nt) => nt?.view ?? flatNormalView,
-  );
-
-  // ---- Normal-map pipelines (render to rgba8unorm normal buffer) ----
-  const normalBlendTargets: GPUColorTargetState[] = [{
-    format: 'rgba8unorm',
-    blend: {
-      color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-      alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' },
-    },
-  }];
-
-  const normalPipelines: GPURenderPipeline[] = manifest.atlases.map((atlas) =>
-    device.createRenderPipeline({
-      layout: tilePipelineLayout,
-      vertex: {
-        module: shaderModule,
-        entryPoint: 'vs_main',
-        constants: { ATLAS_COLS: atlas.cols, ATLAS_ROWS: atlas.rows },
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: 'fs_normal',
-        targets: normalBlendTargets,
-      },
-      primitive: { topology: 'triangle-list' },
-    })
-  );
-
-  const normalTextureBindGroups: GPUBindGroup[] = normalMapViews.map((view) =>
-    device.createBindGroup({
-      layout: textureBindGroupLayout,
-      entries: [
-        { binding: 0, resource: view },
-        { binding: 1, resource: sampler },
-      ],
-    })
-  );
-
-  // ---- Layer Compositor (for baked layers) ----
+  // ---- Phase 5: Create compositor and scratch textures ----
   let compositor = new LayerCompositor(device, format, canvas.width, canvas.height);
 
-  // ---- Lighting Pipeline (fullscreen post-process) ----
-  const LIGHT_FLOATS = 8;
-  const MAX_LIGHTS_GPU = 64;
-
-  const lightingShaderModule = device.createShaderModule({ code: lightingShaderSource });
-
-  // Uniform buffer: LightUniforms = 2 × vec4<f32> = 32 bytes
-  const lightUniformBuffer = device.createBuffer({
-    size: 32,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-  });
-
-  // Storage buffer: array<PointLight>, each 8 × f32 = 32 bytes
-  const lightStorageBuffer = device.createBuffer({
-    size: MAX_LIGHTS_GPU * LIGHT_FLOATS * 4,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
-
-  const lightingBindGroupLayout = device.createBindGroupLayout({
-    entries: [
-      { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
-      { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
-      { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
-      { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
-    ],
-  });
-
-  const lightingPipeline = device.createRenderPipeline({
-    layout: device.createPipelineLayout({ bindGroupLayouts: [lightingBindGroupLayout] }),
-    vertex: {
-      module: lightingShaderModule,
-      entryPoint: 'vs_lighting',
-    },
-    fragment: {
-      module: lightingShaderModule,
-      entryPoint: 'fs_lighting',
-      targets: [{ format }],
-    },
-    primitive: { topology: 'triangle-list' },
-  });
-
-  const lightingSampler = device.createSampler({
-    magFilter: 'linear',
-    minFilter: 'linear',
-  });
-
-  // Scratch texture for scene render (created on demand, resized with canvas)
   let scratchTexture: GPUTexture | null = null;
   let scratchView: GPUTextureView | null = null;
-  // Normal buffer for deferred normal-map sampling (same resolution as scratch)
   let normalBuffer: GPUTexture | null = null;
   let normalBufferView: GPUTextureView | null = null;
   let lightingBindGroup: GPUBindGroup | null = null;
@@ -530,99 +192,50 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     scratchView = scratchTexture.createView();
-    // Normal buffer: rgba8unorm (stores tangent-space normals encoded as [0,1])
     normalBuffer = device.createTexture({
       size: { width: w, height: h },
       format: 'rgba8unorm',
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     normalBufferView = normalBuffer.createView();
-    // Recreate bind group with new texture views
-    lightingBindGroup = device.createBindGroup({
-      layout: lightingBindGroupLayout,
-      entries: [
-        { binding: 0, resource: scratchView },
-        { binding: 1, resource: lightingSampler },
-        { binding: 2, resource: { buffer: lightUniformBuffer } },
-        { binding: 3, resource: { buffer: lightStorageBuffer } },
-        { binding: 4, resource: normalBufferView },
-      ],
-    });
+    lightingBindGroup = createLightingBindGroup(
+      device,
+      lighting.bindGroupLayout,
+      scratchView,
+      normalBufferView,
+      lighting.sampler,
+      buffers,
+    );
   }
 
-  // ---- Camera Projection ----
+  // ---- Phase 6: Camera setup ----
   function updateCamera(width: number, height: number) {
-    device.queue.writeBuffer(cameraBuffer, 0, buildProjectionMatrix(width, height, gameWidth, gameHeight));
+    device.queue.writeBuffer(buffers.cameraBuffer, 0, buildProjectionMatrix(width, height, gameWidth, gameHeight));
   }
-
   updateCamera(canvas.width, canvas.height);
 
-  // ---- Helper: draw a range of instances using the correct atlas pipeline ----
-  function drawBatchInstances(
-    pass: GPURenderPassEncoder,
-    batchStart: number,
-    batchEnd: number,
-    batchAtlasSplit: number,
-  ) {
-    // Atlas 0 portion: [batchStart..batchAtlasSplit)
-    const atlas0Count = batchAtlasSplit - batchStart;
-    if (atlas0Count > 0 && alphaPipelines.length > 0) {
-      pass.setPipeline(alphaPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas0Count, 0, batchStart);
-    }
+  // ---- Create scene pass config ----
+  const sceneConfig: ScenePassConfig = {
+    alphaPipelines,
+    normalPipelines,
+    vectorPipeline,
+    sdfPipeline,
+    additivePipeline,
+    cameraBindGroup: bindGroups.cameraBindGroup,
+    textureBindGroups,
+    normalTextureBindGroups,
+    instanceBindGroup: bindGroups.instanceBindGroup,
+    sdfBindGroup: bindGroups.sdfBindGroup,
+    colorsBindGroup: bindGroups.colorsBindGroup,
+    emptyBindGroup: bindGroups.emptyBindGroup,
+    fallbackTextureBindGroup,
+    effectsBuffer: buffers.effectsBuffer,
+    vectorBuffer: buffers.vectorBuffer,
+    compositor,
+  };
 
-    // Atlas 1+ portion: [batchAtlasSplit..batchEnd)
-    const atlas1Count = batchEnd - batchAtlasSplit;
-    if (atlas1Count > 0 && alphaPipelines.length > 1) {
-      pass.setPipeline(alphaPipelines[1]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[1]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
-    } else if (atlas1Count > 0 && alphaPipelines.length === 1) {
-      // Single atlas: draw remaining with same pipeline
-      pass.setPipeline(alphaPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
-    }
-  }
-
-  // ---- Helper: draw a range of instances using normal-map pipelines ----
-  function drawNormalBatchInstances(
-    pass: GPURenderPassEncoder,
-    batchStart: number,
-    batchEnd: number,
-    batchAtlasSplit: number,
-  ) {
-    const atlas0Count = batchAtlasSplit - batchStart;
-    if (atlas0Count > 0 && normalPipelines.length > 0) {
-      pass.setPipeline(normalPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, normalTextureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas0Count, 0, batchStart);
-    }
-
-    const atlas1Count = batchEnd - batchAtlasSplit;
-    if (atlas1Count > 0 && normalPipelines.length > 1) {
-      pass.setPipeline(normalPipelines[1]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, normalTextureBindGroups[1]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
-    } else if (atlas1Count > 0 && normalPipelines.length === 1) {
-      pass.setPipeline(normalPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, normalTextureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
-    }
-  }
+  const drawBatchInstances = createDrawBatchFn(sceneConfig);
+  const drawNormalBatchInstances = createDrawNormalBatchFn(sceneConfig);
 
   // ---- Draw Function ----
   function draw(
@@ -639,83 +252,66 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     bakeState?: BakeState,
     lightingState?: LightingState,
   ) {
-    const byteLen = instanceCount * INSTANCE_STRIDE;
-    device.queue.writeBuffer(instanceBuffer, 0, instanceData.buffer, instanceData.byteOffset, byteLen);
+    // Upload instance data
+    const byteLen = instanceCount * INSTANCE_STRIDE_BYTES;
+    device.queue.writeBuffer(buffers.instanceBuffer, 0, instanceData.buffer, instanceData.byteOffset, byteLen);
 
+    // Upload effects data
     const hasEffects = effectsData && effectsVertexCount && effectsVertexCount > 0;
     if (hasEffects) {
       const effectsByteLen = effectsVertexCount * EFFECTS_VERTEX_BYTES;
-      device.queue.writeBuffer(effectsBuffer, 0, effectsData.buffer, effectsData.byteOffset, effectsByteLen);
+      device.queue.writeBuffer(buffers.effectsBuffer, 0, effectsData.buffer, effectsData.byteOffset, effectsByteLen);
     }
 
+    // Upload SDF data
     const hasSdf = sdfData && sdfInstanceCount && sdfInstanceCount > 0;
     if (hasSdf) {
-      const sdfByteLen = sdfInstanceCount * SDF_INSTANCE_STRIDE;
-      device.queue.writeBuffer(sdfStorageBuffer, 0, sdfData.buffer, sdfData.byteOffset, sdfByteLen);
+      const sdfByteLen = sdfInstanceCount * SDF_INSTANCE_STRIDE_BYTES;
+      device.queue.writeBuffer(buffers.sdfStorageBuffer, 0, sdfData.buffer, sdfData.byteOffset, sdfByteLen);
     }
 
+    // Upload vector data
     const hasVectors = vectorData && vectorVertexCount && vectorVertexCount > 0;
     if (hasVectors) {
       const vectorByteLen = vectorVertexCount * VECTOR_VERTEX_BYTES;
-      device.queue.writeBuffer(vectorBuffer, 0, vectorData.buffer, vectorData.byteOffset, vectorByteLen);
+      device.queue.writeBuffer(buffers.vectorBuffer, 0, vectorData.buffer, vectorData.byteOffset, vectorByteLen);
     }
 
     // Determine if lighting post-process is needed
     const hasLighting = !!lightingState;
 
-    // Upload light data to GPU when active
+    // Upload light data when active
     if (hasLighting) {
       const { projWidth, projHeight } = computeProjection(canvas.width, canvas.height, gameWidth, gameHeight);
-      // LightUniforms: ambient_and_count (vec4), proj_size (vec4) = 32 bytes
       const uniforms = new Float32Array([
         lightingState.ambient[0], lightingState.ambient[1], lightingState.ambient[2],
         lightingState.lightCount,
         projWidth, projHeight, 0, 0,
       ]);
-      device.queue.writeBuffer(lightUniformBuffer, 0, uniforms);
+      device.queue.writeBuffer(buffers.lightUniformBuffer, 0, uniforms);
 
       if (lightingState.lightCount > 0) {
         device.queue.writeBuffer(
-          lightStorageBuffer, 0,
+          buffers.lightStorageBuffer, 0,
           lightingState.lightData.buffer,
           lightingState.lightData.byteOffset,
           lightingState.lightCount * LIGHT_FLOATS * 4,
         );
       }
 
-      // Ensure scratch texture exists at correct size
       ensureScratchTexture(canvas.width, canvas.height);
     }
 
     const encoder = device.createCommandEncoder();
     const hasBaking = bakeState && bakeState.bakedMask !== 0 && layerBatches && layerBatches.length > 0;
 
-    // ---- Phase 1: Render baked+dirty layers to intermediate textures ----
+    // ---- Phase 1: Bake pass (render dirty baked layers to textures) ----
     if (hasBaking) {
-      for (const batch of layerBatches) {
-        if (!LayerCompositor.isLayerBaked(bakeState.bakedMask, batch.layerId)) continue;
-        if (!compositor.needsRefresh(batch.layerId, bakeState.bakeGen)) continue;
-
-        // Render this layer's instances to an intermediate texture
-        const { view: targetView } = compositor.getOrCreateTarget(batch.layerId);
-        const layerPass = encoder.beginRenderPass({
-          colorAttachments: [{
-            view: targetView,
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
-            loadOp: 'clear',
-            storeOp: 'store',
-          }],
-        });
-        drawBatchInstances(layerPass, batch.start, batch.end, batch.atlasSplit);
-        layerPass.end();
-
-        compositor.markClean(batch.layerId, bakeState.bakeGen);
-      }
+      encodeBakePass(encoder, compositor, layerBatches, bakeState, drawBatchInstances);
     }
 
     // ---- Phase 2: Main scene render ----
-    // When lighting is active, render to scratch texture; otherwise render directly to screen.
-    const screenView = context!.getCurrentTexture().createView();
+    const screenView = context.getCurrentTexture().createView();
     const sceneTarget = hasLighting ? scratchView! : screenView;
 
     const pass = encoder.beginRenderPass({
@@ -727,53 +323,18 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       }],
     });
 
-    // Draw sprite instances — layered with baking support
-    if (layerBatches && layerBatches.length > 0) {
-      for (const batch of layerBatches) {
-        if (hasBaking && LayerCompositor.isLayerBaked(bakeState!.bakedMask, batch.layerId)) {
-          // Blit cached texture for this layer
-          const bindGroup = compositor.getBindGroup(batch.layerId);
-          if (bindGroup) {
-            pass.setPipeline(compositor.getPipeline());
-            pass.setBindGroup(0, bindGroup);
-            pass.draw(3); // Fullscreen triangle
-          }
-        } else {
-          // Live layer: render instances directly
-          drawBatchInstances(pass, batch.start, batch.end, batch.atlasSplit);
-        }
-      }
-    } else {
-      // Legacy path: single atlas split (no baking possible without layer batches)
-      drawBatchInstances(pass, 0, instanceCount, atlasSplit);
-    }
-
-    // Vector geometry (alpha blend, drawn between sprites and SDF)
-    if (hasVectors) {
-      pass.setPipeline(vectorPipeline);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setVertexBuffer(0, vectorBuffer);
-      pass.draw(vectorVertexCount!);
-    }
-
-    // SDF molecules (alpha blend, drawn between vectors and effects)
-    if (hasSdf) {
-      pass.setPipeline(sdfPipeline);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, sdfBindGroup);
-      pass.draw(6, sdfInstanceCount!);
-    }
-
-    // Effects (additive blend)
-    if (hasEffects) {
-      pass.setPipeline(additivePipeline);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[0] ?? fallbackTextureBindGroup);
-      pass.setBindGroup(2, emptyBindGroup);
-      pass.setBindGroup(3, colorsBindGroup);
-      pass.setVertexBuffer(0, effectsBuffer);
-      pass.draw(effectsVertexCount!);
-    }
+    encodeScenePass(
+      pass,
+      sceneConfig,
+      drawBatchInstances,
+      instanceCount,
+      atlasSplit,
+      layerBatches,
+      bakeState,
+      hasEffects ? effectsVertexCount! : 0,
+      hasSdf ? sdfInstanceCount! : 0,
+      hasVectors ? vectorVertexCount! : 0,
+    );
 
     pass.end();
 
@@ -782,23 +343,13 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       const normalPass = encoder.beginRenderPass({
         colorAttachments: [{
           view: normalBufferView,
-          // Clear to flat normal: (0.5, 0.5, 1.0) = tangent-space (0,0,1)
           clearValue: { r: 0.502, g: 0.502, b: 1.0, a: 1.0 },
           loadOp: 'clear',
           storeOp: 'store',
         }],
       });
 
-      // Render sprites using normal atlas textures
-      if (layerBatches && layerBatches.length > 0) {
-        for (const batch of layerBatches) {
-          // Skip baked layers for normal pass (baked layer normals not cached yet)
-          drawNormalBatchInstances(normalPass, batch.start, batch.end, batch.atlasSplit);
-        }
-      } else {
-        drawNormalBatchInstances(normalPass, 0, instanceCount, atlasSplit);
-      }
-
+      encodeNormalPass(normalPass, drawNormalBatchInstances, instanceCount, atlasSplit, layerBatches);
       normalPass.end();
     }
 
@@ -812,24 +363,17 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
           storeOp: 'store',
         }],
       });
-      lightPass.setPipeline(lightingPipeline);
-      lightPass.setBindGroup(0, lightingBindGroup);
-      lightPass.draw(3); // Fullscreen triangle
+
+      encodeLightingPass(lightPass, lighting.pipeline, lightingBindGroup);
       lightPass.end();
     }
 
     device.queue.submit([encoder.finish()]);
   }
 
+  // ---- Resize Function ----
   function resize(width: number, height: number) {
-    canvas.width = width;
-    canvas.height = height;
-    const configOpts: GPUCanvasConfiguration = { device, format, alphaMode: 'premultiplied' };
-    if (tier === 'hdr-edr') {
-      configOpts.colorSpace = 'display-p3';
-      configOpts.toneMapping = { mode: 'extended' };
-    }
-    context!.configure(configOpts);
+    resizeContext(canvas, context, device, format, tier, width, height);
     updateCamera(width, height);
     compositor.resize(width, height);
   }

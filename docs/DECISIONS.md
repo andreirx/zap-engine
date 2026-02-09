@@ -973,3 +973,69 @@ export function readFrameState(
 - **Pro:** Type-safe `FrameState` interface documents the frame contract
 - **Con:** One more module to maintain
 - **Con:** Import path is longer (`@zap/web` vs direct file)
+
+---
+
+## ADR-029: WebGPU Modular Architecture
+
+**Date:** 2026-02-09
+**Status:** Accepted
+
+### Context
+`webgpu.ts` had grown to ~840 lines mixing four distinct concerns:
+1. **Device initialization**: GPU probe, adapter/device request, tier detection, context configuration
+2. **Resource management**: Texture loading, buffer creation, bind group assembly
+3. **Pipeline configuration**: 6 different render pipelines (sprite, effects, SDF, vector, normal, lighting)
+4. **Frame execution**: Multi-pass render graph (bake → scene → normal → lighting)
+
+Adding a new render pass (e.g., Bloom) would require surgical changes interlaced with unrelated logic.
+
+### Decision
+Decompose `webgpu.ts` into a `webgpu/` directory with focused modules:
+
+```
+renderer/webgpu/
+├── device.ts              # Device init, tier detection, context config
+├── resources.ts           # Textures, buffers, bind groups
+├── pipelines/
+│   ├── common.ts          # Shared layouts, blend targets
+│   ├── sprite.ts          # Sprite + normal pipelines
+│   ├── effects.ts         # Additive effects pipeline
+│   ├── sdf.ts             # SDF molecule pipeline
+│   ├── vector.ts          # Vector geometry pipeline
+│   └── lighting.ts        # Post-process lighting
+└── passes/
+    ├── bake.ts            # Layer baking pass
+    └── scene.ts           # Scene + normal + lighting passes
+```
+
+`webgpu.ts` becomes a thin facade that imports from submodules and wires them together, preserving the original public API.
+
+**Key design choices:**
+
+1. **Pipelines as factories**: Each pipeline module exports a `create*Pipeline(config)` function. This makes dependencies explicit and enables tree-shaking.
+
+2. **Passes as encoders**: Each pass module exports an `encode*Pass(encoder, ...)` function. The frame graph orchestration stays in the facade.
+
+3. **Facade pattern**: `webgpu.ts` remains the entry point. External code imports `initWebGPURenderer()` unchanged — no breaking API changes.
+
+4. **Index re-exports**: `webgpu/index.ts` and `pipelines/index.ts` provide clean import paths for internal use.
+
+### File Metrics
+
+| Before | After |
+|--------|-------|
+| 1 file, 839 lines | 12 files, ~700 lines total |
+| Single 200-line `initWebGPURenderer()` | 6 focused init phases |
+| Inline pipeline creation | Factory functions per pipeline type |
+| Inline pass encoding | Extracted `encode*Pass()` functions |
+
+### Consequences
+- **Pro:** Single Responsibility — each module has one job
+- **Pro:** Adding Bloom = new `pipelines/bloom.ts` + `passes/bloom.ts`
+- **Pro:** Testable in isolation — pipeline factories can be unit tested
+- **Pro:** Navigable — find lighting code in `pipelines/lighting.ts`
+- **Pro:** No API changes — external code unchanged
+- **Con:** More files to navigate (12 vs 1)
+- **Con:** Import chains are longer (facade → submodule → helper)
+- **Con:** Some duplication in type imports across modules
