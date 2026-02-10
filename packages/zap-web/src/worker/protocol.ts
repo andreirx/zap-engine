@@ -38,7 +38,8 @@ export const HEADER_LIGHT_COUNT = 23;
 export const HEADER_AMBIENT_R = 24;
 export const HEADER_AMBIENT_G = 25;
 export const HEADER_AMBIENT_B = 26;
-export const HEADER_RESERVED_27 = 27;
+/** WASM tick execution time in microseconds (written each frame by worker). */
+export const HEADER_WASM_TIME_US = 27;
 
 /** Protocol version written into the header. */
 export const PROTOCOL_VERSION = 4.0;

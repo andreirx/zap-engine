@@ -2,7 +2,7 @@
 // Drag near the sling to aim, release to launch. Reset button to try again.
 
 import { useState, useCallback } from 'react';
-import { useZapEngine } from '@zap/web/react';
+import { useZapEngine, TimingBars } from '@zap/web/react';
 import type { GameEvent } from '@zap/web/react';
 
 const WASM_URL = '/examples/physics-playground/pkg/physics_playground.js';
@@ -19,7 +19,7 @@ export function App() {
     }
   }, []);
 
-  const { canvasRef, sendEvent, fps, isReady, canvasKey } = useZapEngine({
+  const { canvasRef, sendEvent, fps, isReady, canvasKey, timing } = useZapEngine({
     wasmUrl: WASM_URL,
     assetsUrl: ASSETS_URL,
     gameWidth: 1200,
@@ -76,14 +76,17 @@ export function App() {
         position: 'absolute',
         top: 12,
         right: 16,
-        color: '#fff',
-        fontFamily: 'monospace',
-        fontSize: 14,
-        background: 'rgba(0,0,0,0.5)',
-        padding: '4px 10px',
-        borderRadius: 4,
       }}>
-        {isReady ? `${fps} FPS` : 'Loading...'}
+        <div style={{
+          color: '#fff',
+          fontFamily: 'monospace',
+          fontSize: 14,
+          textAlign: 'right',
+          marginBottom: 4,
+        }}>
+          {isReady ? `${fps} FPS` : 'Loading...'}
+        </div>
+        {isReady && <TimingBars timing={timing} usPerPixel={50} maxWidth={150} barHeight={6} />}
       </div>
       {isReady && (
         <div style={{

@@ -2,7 +2,7 @@
 // Pick a flag from the side panel and watch it wave.
 
 import { useState, useEffect, useRef } from 'react';
-import { useZapEngine } from '@zap/web/react';
+import { useZapEngine, TimingBars } from '@zap/web/react';
 
 const WASM_URL = '/examples/flag-parade/pkg/flag_parade.js';
 const ASSETS_URL = '/examples/flag-parade/public/assets/assets.json';
@@ -184,7 +184,7 @@ function FlagIcon({ flagIndex }: { flagIndex: number }) {
 export function App() {
   const [selected, setSelected] = useState(0);
 
-  const { canvasRef, sendEvent, fps, isReady, canvasKey } = useZapEngine({
+  const { canvasRef, sendEvent, fps, isReady, canvasKey, timing } = useZapEngine({
     wasmUrl: WASM_URL,
     assetsUrl: ASSETS_URL,
     gameWidth: 800,
@@ -245,17 +245,23 @@ export function App() {
         ))}
       </div>
 
-      {/* FPS */}
+      {/* Performance timing */}
       <div style={{
         position: 'absolute',
         top: 8,
         right: 12,
-        color: 'rgba(255,255,255,0.3)',
-        fontFamily: 'monospace',
-        fontSize: 12,
         pointerEvents: 'none',
       }}>
-        {isReady ? `${fps} fps` : 'loading...'}
+        <div style={{
+          color: 'rgba(255,255,255,0.3)',
+          fontFamily: 'monospace',
+          fontSize: 12,
+          textAlign: 'right',
+          marginBottom: 4,
+        }}>
+          {isReady ? `${fps} fps` : 'loading...'}
+        </div>
+        {isReady && <TimingBars timing={timing} usPerPixel={50} maxWidth={150} barHeight={6} />}
       </div>
     </div>
   );

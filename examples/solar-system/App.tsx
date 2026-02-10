@@ -1,7 +1,7 @@
 // Solar System — Interactive orrery with time controls, pan & zoom.
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useZapEngine, GameEvent } from '@zap/web/react';
+import { useZapEngine, TimingBars, GameEvent } from '@zap/web/react';
 
 const WASM_URL = '/examples/solar-system/pkg/solar_system.js';
 const ASSETS_URL = '/examples/solar-system/public/assets/assets.json';
@@ -82,7 +82,7 @@ export function App() {
     }
   }, []);
 
-  const { canvasRef, sendEvent, isReady, canvasKey } = useZapEngine({
+  const { canvasRef, sendEvent, isReady, canvasKey, timing, fps } = useZapEngine({
     wasmUrl: WASM_URL,
     assetsUrl: ASSETS_URL,
     onGameEvent,
@@ -264,6 +264,21 @@ export function App() {
       }}>
         scroll to zoom &middot; drag to pan
       </div>
+
+      {/* Performance timing */}
+      {isReady && (
+        <div style={{ position: 'absolute', bottom: 52, left: 12 }}>
+          <div style={{
+            color: 'rgba(255,255,255,0.3)',
+            fontFamily: 'monospace',
+            fontSize: 10,
+            marginBottom: 4,
+          }}>
+            {fps} FPS
+          </div>
+          <TimingBars timing={timing} usPerPixel={50} maxWidth={150} barHeight={6} />
+        </div>
+      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   HEADER_AMBIENT_R,
   HEADER_AMBIENT_G,
   HEADER_AMBIENT_B,
+  HEADER_WASM_TIME_US,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
   SDF_INSTANCE_FLOATS,
@@ -51,6 +52,8 @@ export interface FrameState {
   bakeState?: BakeState;
   /** Dynamic lighting state. */
   lightingState?: LightingState;
+  /** WASM tick execution time in microseconds. */
+  wasmTimeUs: number;
 }
 
 /**
@@ -157,6 +160,9 @@ export function readFrameState(buf: Float32Array, layout: ProtocolLayout): Frame
     }
   }
 
+  // Read WASM timing
+  const wasmTimeUs = buf[HEADER_WASM_TIME_US] ?? 0;
+
   return {
     instanceData,
     instanceCount,
@@ -170,5 +176,6 @@ export function readFrameState(buf: Float32Array, layout: ProtocolLayout): Frame
     layerBatches,
     bakeState,
     lightingState,
+    wasmTimeUs,
   };
 }

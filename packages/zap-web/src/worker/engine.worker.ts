@@ -30,6 +30,7 @@ import {
   HEADER_AMBIENT_R,
   HEADER_AMBIENT_G,
   HEADER_AMBIENT_B,
+  HEADER_WASM_TIME_US,
   PROTOCOL_VERSION,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
@@ -251,7 +252,9 @@ function gameLoop() {
 
   try {
     const dt = 1.0 / 60.0;
+    const wasmStart = performance.now();
     wasm.game_tick(dt);
+    const wasmTimeUs = (performance.now() - wasmStart) * 1000; // Convert ms to μs
 
     const instanceCount = Math.min(wasm.get_instance_count(), layout.maxInstances);
     const effectsVertexCount = Math.min(wasm.get_effects_vertex_count(), layout.maxEffectsVertices);
@@ -285,6 +288,7 @@ function gameLoop() {
     sharedF32[HEADER_AMBIENT_R] = wasm.get_ambient_r?.() ?? 1.0;
     sharedF32[HEADER_AMBIENT_G] = wasm.get_ambient_g?.() ?? 1.0;
     sharedF32[HEADER_AMBIENT_B] = wasm.get_ambient_b?.() ?? 1.0;
+    sharedF32[HEADER_WASM_TIME_US] = wasmTimeUs;
 
     // Copy instance data
     if (instanceCount > 0) {

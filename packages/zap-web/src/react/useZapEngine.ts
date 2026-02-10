@@ -26,6 +26,21 @@ export interface GameEvent {
   c: number;
 }
 
+/** Performance timing data for profiling. */
+export interface PerformanceTiming {
+  /** WASM tick execution time in microseconds (current frame). */
+  wasmTimeUs: number;
+  /** GPU/render submission time in microseconds (current frame). */
+  gpuTimeUs: number;
+  /** Rolling history of WASM times for visualization (newest last). */
+  wasmHistory: number[];
+  /** Rolling history of GPU times for visualization (newest last). */
+  gpuHistory: number[];
+}
+
+/** Number of frames to keep in timing history (for bar visualization). */
+const TIMING_HISTORY_SIZE = 120;
+
 /** Configuration for the useZapEngine hook. */
 export interface ZapEngineConfig {
   /** URL to the game's wasm-bindgen JS glue (e.g., '/pkg/my_game.js'). */
@@ -58,6 +73,8 @@ export interface ZapEngineState {
   isReady: boolean;
   /** Canvas key — use as React key prop to force canvas remount on WebGPU fallback. */
   canvasKey: number;
+  /** Performance timing data for profiling visualization. */
+  timing: PerformanceTiming;
 }
 
 export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
@@ -76,6 +93,12 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
   const [fps, setFps] = useState(0);
   const [isReady, setIsReady] = useState(false);
   const [canvasKey, setCanvasKey] = useState(0);
+  const [timing, setTiming] = useState<PerformanceTiming>({
+    wasmTimeUs: 0,
+    gpuTimeUs: 0,
+    wasmHistory: [],
+    gpuHistory: [],
+  });
 
   // Mutable refs for values accessed in the render loop / event handlers
   const workerRef = useRef<Worker | null>(null);
@@ -86,6 +109,11 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
   const soundManagerRef = useRef<SoundManager | null>(null);
   const onGameEventRef = useRef(onGameEvent);
   const force2DRef = useRef(force2D);
+
+  // Timing history refs (mutable arrays to avoid state updates every frame)
+  const wasmHistoryRef = useRef<number[]>([]);
+  const gpuHistoryRef = useRef<number[]>([]);
+  const lastTimingUpdateRef = useRef<number>(0);
 
   // Keep callback ref fresh
   onGameEventRef.current = onGameEvent;
@@ -286,14 +314,16 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
     }
 
     // --- Draw ---
-    function drawFromBuffer(buf: Float32Array) {
+    /** Draw frame and return timing data: { wasmTimeUs, gpuTimeUs } */
+    function drawFromBuffer(buf: Float32Array): { wasmTimeUs: number; gpuTimeUs: number } | null {
       const renderer = rendererRef.current;
       const layout = layoutRef.current;
-      if (!renderer || !layout) return;
+      if (!renderer || !layout) return null;
 
       const frame = readFrameState(buf, layout);
-      if (!frame) return;
+      if (!frame) return null;
 
+      const gpuStart = performance.now();
       renderer.draw(
         frame.instanceData,
         frame.instanceCount,
@@ -308,14 +338,31 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         frame.bakeState,
         frame.lightingState,
       );
+      const gpuTimeUs = (performance.now() - gpuStart) * 1000; // ms to μs
+
+      return { wasmTimeUs: frame.wasmTimeUs, gpuTimeUs };
     }
 
     // --- Render loop ---
     function startRenderLoop() {
       function frame() {
         const buf = sharedF32Ref.current;
+        let frameTiming: { wasmTimeUs: number; gpuTimeUs: number } | null = null;
         if (buf) {
-          drawFromBuffer(buf);
+          frameTiming = drawFromBuffer(buf);
+        }
+
+        // Track timing history
+        if (frameTiming) {
+          const wasmHist = wasmHistoryRef.current;
+          const gpuHist = gpuHistoryRef.current;
+
+          wasmHist.push(frameTiming.wasmTimeUs);
+          gpuHist.push(frameTiming.gpuTimeUs);
+
+          // Limit history size
+          if (wasmHist.length > TIMING_HISTORY_SIZE) wasmHist.shift();
+          if (gpuHist.length > TIMING_HISTORY_SIZE) gpuHist.shift();
         }
 
         // FPS calculation
@@ -327,6 +374,19 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
           setFps(Math.round(frameCount * 1000 / fpsAccumulator));
           frameCount = 0;
           fpsAccumulator = 0;
+        }
+
+        // Update timing state periodically (every ~100ms to avoid excessive re-renders)
+        if (now - lastTimingUpdateRef.current > 100) {
+          lastTimingUpdateRef.current = now;
+          const wasmHist = wasmHistoryRef.current;
+          const gpuHist = gpuHistoryRef.current;
+          setTiming({
+            wasmTimeUs: frameTiming?.wasmTimeUs ?? 0,
+            gpuTimeUs: frameTiming?.gpuTimeUs ?? 0,
+            wasmHistory: [...wasmHist],
+            gpuHistory: [...gpuHist],
+          });
         }
 
         animFrameId = requestAnimationFrame(frame);
@@ -349,5 +409,5 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wasmUrl, assetsUrl, assetBasePath, gameWidth, gameHeight, canvasKey]);
 
-  return { canvasRef, sendEvent, fps, isReady, canvasKey };
+  return { canvasRef, sendEvent, fps, isReady, canvasKey, timing };
 }

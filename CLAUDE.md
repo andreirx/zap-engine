@@ -18,6 +18,7 @@
     - Clean code
     - Clean architecture (hexagonal)
     - LESS spaghetti not MORE spaghetti
+    - PROPER ENGINEERING - no hacking no patching "just to make things work" - we are not working on MVP slop we are working to make MATURE components, driving to real PRODUCTION CODE.
     - NO HARDCODINGS - whatever formula you use to compute a value, USE THE FORMULA - do not hardcode values unless appropriate and matching reader understanding - like pi or 90 degrees.
 
 For all future Python tasks, assume I require a virtual environment (venv) or will use brew install for system-level tools. Never use pip globally.

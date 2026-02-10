@@ -1,13 +1,13 @@
 // React Demo — demonstrates useZapEngine hook with a HUD overlay.
 // Reuses the basic-demo WASM + assets (no new Rust code needed).
 
-import { useZapEngine } from '@zap/web/react';
+import { useZapEngine, TimingBars } from '@zap/web/react';
 
 const WASM_URL = '/examples/basic-demo/pkg/basic_demo.js';
 const ASSETS_URL = '/examples/basic-demo/public/assets/assets.json';
 
 export function App() {
-  const { canvasRef, fps, isReady, canvasKey } = useZapEngine({
+  const { canvasRef, fps, isReady, canvasKey, timing } = useZapEngine({
     wasmUrl: WASM_URL,
     assetsUrl: ASSETS_URL,
   });
@@ -23,14 +23,17 @@ export function App() {
         position: 'absolute',
         top: 12,
         right: 16,
-        color: '#fff',
-        fontFamily: 'monospace',
-        fontSize: 14,
-        background: 'rgba(0,0,0,0.5)',
-        padding: '4px 10px',
-        borderRadius: 4,
       }}>
-        {isReady ? `${fps} FPS` : 'Loading...'}
+        <div style={{
+          color: '#fff',
+          fontFamily: 'monospace',
+          fontSize: 14,
+          textAlign: 'right',
+          marginBottom: 4,
+        }}>
+          {isReady ? `${fps} FPS` : 'Loading...'}
+        </div>
+        {isReady && <TimingBars timing={timing} usPerPixel={50} maxWidth={150} barHeight={6} />}
       </div>
     </div>
   );
