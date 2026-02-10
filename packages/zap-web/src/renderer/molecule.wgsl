@@ -142,41 +142,7 @@ fn sdf_rounded_box(p: vec2<f32>, half_h: f32, corner_r: f32) -> f32 {
     return length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0) - corner_r;
 }
 
-// Central-difference normal estimation for non-analytic shapes
-fn estimate_normal(p: vec2<f32>, shape_type: f32, half_h: f32, corner_r: f32) -> vec3<f32> {
-    let eps = 0.01;
-    let dx = vec2(eps, 0.0);
-    let dy = vec2(0.0, eps);
 
-    var d_px: f32;
-    var d_nx: f32;
-    var d_py: f32;
-    var d_ny: f32;
-
-    if (shape_type < 1.5) {
-        // Capsule
-        d_px = sdf_capsule(p + dx, half_h);
-        d_nx = sdf_capsule(p - dx, half_h);
-        d_py = sdf_capsule(p + dy, half_h);
-        d_ny = sdf_capsule(p - dy, half_h);
-    } else {
-        // RoundedBox
-        d_px = sdf_rounded_box(p + dx, half_h, corner_r);
-        d_nx = sdf_rounded_box(p - dx, half_h, corner_r);
-        d_py = sdf_rounded_box(p + dy, half_h, corner_r);
-        d_ny = sdf_rounded_box(p - dy, half_h, corner_r);
-    }
-
-    let grad = vec2(d_px - d_nx, d_py - d_ny);
-    let grad_len = length(grad);
-    if (grad_len < 0.0001) {
-        return vec3(0.0, 0.0, 1.0);
-    }
-    let n2d = grad / grad_len;
-    // Fake Z component from distance to surface
-    let z = sqrt(max(1.0 - dot(n2d, n2d) * 0.5, 0.1));
-    return normalize(vec3(n2d, z));
-}
 
 // ---- Fragment Shader: Raymarched SDF ----
 
@@ -200,18 +166,106 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
         normal = vec3(p.x, p.y, z);
     } else if (in.shape_type < 1.5) {
         // ---- Capsule ----
-        dist = sdf_capsule(p, in.half_height_norm);
+        // Analytic normal: vector from clamped axis point to p
+        let half_h = in.half_height_norm;
+        let q_y_clamped = clamp(p.y, -half_h, half_h);
+        let closest = vec2(0.0, q_y_clamped);
+        let diff = p - closest;
+        let d2 = dot(diff, diff);
+        
+        // Distance check (radius = 1.0)
+        dist = sqrt(d2) - 1.0;
         if (dist > 0.02) {
             discard;
         }
-        normal = estimate_normal(p, in.shape_type, in.half_height_norm, 0.0);
+        
+        // Normal is direction of diff + derived Z
+        // If p is exactly on axis (diff ~ 0), default to Z up
+        if (d2 < 0.0001) {
+            normal = vec3(0.0, 0.0, 1.0);
+        } else {
+            let n2d = normalize(diff);
+            // Fake Z component from distance to surface (hemisphere profile)
+            // For capsule body (d=1.0 at surface), z should be 0.
+            // But we want 3D volume look. 
+            // Correct way for capsule: 
+            // Surface is section of cylinder or sphere.
+            // On cylinder part: normal Z is sqrt(1 - y^2) ... no wait.
+            // The capsule radius is 1.0.
+            // At surface (dist=0), the 2D projected point 'p' matches the 3D surface point (x,y,z).
+            // Actually, for a capsule along Y, the cross section is a circle.
+            // The distance from axis 'diff' IS the 2D normal.
+            // The Z height is sqrt(1.0 - |diff|^2).
+            // But 'diff' is (p.x, p.y - q_y_clamped).
+            // |diff| is distance from axis.
+            // If |diff| > 1.0, we are outside.
+            // So Z = sqrt(1.0 - d2).
+            let z = sqrt(max(1.0 - d2, 0.0));
+            normal = vec3(n2d, z);
+        }
     } else {
         // ---- RoundedBox ----
-        dist = sdf_rounded_box(p, in.half_height_norm, in.extra_norm);
+        // Analytic gradient for rounded box
+        // d = length(max(q, 0)) + min(max(q.x, q.y), 0) - r
+        // where q = abs(p) - b
+        // Gradient of box(p, b) is:
+        // if outside: normalize(max(q, 0)) * sign(p)
+        // if inside: (0, 1) or (1, 0) based on closest edge * sign(p)
+        
+        let half_h = in.half_height_norm;
+        let corner_r = in.extra_norm;
+        let half_extents = vec2(1.0, half_h);
+        
+        // Symmetry
+        let p_abs = abs(p);
+        let sign_p = sign(p);
+        let q = p_abs - half_extents + vec2(corner_r);
+        
+        // Distance
+        let dist_vec = max(q, vec2(0.0));
+        let outside_dist = length(dist_vec);
+        let inside_dist = min(max(q.x, q.y), 0.0);
+        dist = outside_dist + inside_dist - corner_r;
+        
         if (dist > 0.02) {
             discard;
         }
-        normal = estimate_normal(p, in.shape_type, in.half_height_norm, in.extra_norm);
+        
+        // Gradient
+        var grad: vec2<f32>;
+        if (inside_dist < 0.0) {
+            // Inside box (not corner area yet)
+            // Gradient is along axis of max component
+            if (q.x > q.y) {
+                grad = vec2(1.0, 0.0);
+            } else {
+                grad = vec2(0.0, 1.0);
+            }
+        } else {
+            // Outside or on corner
+            // If outside straight edge, max(q, 0) picks that axis
+            // If outside corner, max(q, 0) checks both
+            // Normalize handles the direction
+            grad = normalize(dist_vec);
+            // If exactly 0,0 (inside "inner" box), degenerate?
+            // But q includes corner_r. 
+            // Wait, q = abs(p) - (size - r).
+            // If we are deep inside, q is negative.
+            // If we are in the rounding zone, q is complex.
+        }
+        
+        // Apply sign to restore quadrant
+        let n2d = grad * sign_p;
+        
+        // Fake Z: approximations for box are hard?
+        // Let's use simple heuristic: edge falloff.
+        // Or just keep it flat-ish with rim?
+        // Actually, let's stick to a Z-up normal for flat face, and curve at edges.
+        // Distance field gives us distance to edge.
+        // Use generalized Z derivation
+        let n_len_sq = dot(n2d, n2d);
+        let z = sqrt(max(1.0 - n_len_sq * 0.5, 0.1)); // Fallback heuristic
+        normal = normalize(vec3(n2d, z));
     }
 
     // Normalize light direction

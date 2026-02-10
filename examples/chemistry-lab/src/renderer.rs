@@ -27,72 +27,103 @@ pub struct BondPreview {
 pub struct MoleculeRenderer {
     /// Base entity ID for rendered instances.
     base_entity_id: u32,
+    /// List of currently active entity IDs to reuse.
+    active_ids: Vec<EntityId>,
 }
 
 impl MoleculeRenderer {
     pub fn new() -> Self {
         Self {
             base_entity_id: 10000,
+            active_ids: Vec::with_capacity(128),
         }
     }
 
     /// Synchronize visuals with the current simulation state.
     pub fn sync_visuals(
-        &self,
+        &mut self,
         ctx: &mut EngineContext,
         molecule: &MoleculeState3D,
         camera: &Camera3D,
         registry: &ElementRegistry,
         effects: &FrameEffects,
     ) {
-        // Clear existing mesh entities
-        self.clear_meshes(ctx);
-
         // Build SDF instances from 3D molecule state
         let instances = build_3d_sdf_buffer(molecule, camera, registry);
+        let needed_count = instances.len();
 
-        // Create entities for each SDF instance
-        for (i, inst) in instances.iter().enumerate() {
-            let id = EntityId(self.base_entity_id + i as u32);
+        // 1. Update existing entities
+        let update_count = self.active_ids.len().min(needed_count);
+        for i in 0..update_count {
+            let id = self.active_ids[i];
+            let inst = &instances[i];
+            
+            if let Some(entity) = ctx.scene.get_mut(id) {
+                entity.pos = Vec2::new(inst.x, inst.y);
+                entity.rotation = inst.rotation;
+                
+                // Update mesh uniforms (color, radius, shape)
+                if let Some(mesh) = &mut entity.mesh {
+                    // Update mesh properties directly if possible, or replace
+                    // MeshComponent struct is simple data, cheap to replace
+                     let new_mesh = if inst.shape_type < 0.5 {
+                        MeshComponent::sphere(
+                            inst.radius,
+                            SDFColor::new(inst.r, inst.g, inst.b),
+                        )
+                    } else {
+                        MeshComponent::capsule(
+                            inst.radius,
+                            inst.half_height,
+                            SDFColor::new(inst.r, inst.g, inst.b),
+                        )
+                    };
+                    *mesh = new_mesh;
+                }
+            }
+        }
 
-            let mesh = if inst.shape_type < 0.5 {
-                // Sphere (atom)
-                MeshComponent::sphere(
-                    inst.radius,
-                    SDFColor::new(inst.r, inst.g, inst.b),
-                )
-            } else {
-                // Capsule (bond)
-                MeshComponent::capsule(
-                    inst.radius,
-                    inst.half_height,
-                    SDFColor::new(inst.r, inst.g, inst.b),
-                )
-            };
+        // 2. Spawn new entities if needed
+        if needed_count > self.active_ids.len() {
+            for i in self.active_ids.len()..needed_count {
+                let inst = &instances[i];
+                let id = EntityId(self.base_entity_id + i as u32);
+                
+                let mesh = if inst.shape_type < 0.5 {
+                    MeshComponent::sphere(
+                        inst.radius,
+                        SDFColor::new(inst.r, inst.g, inst.b),
+                    )
+                } else {
+                    MeshComponent::capsule(
+                        inst.radius,
+                        inst.half_height,
+                        SDFColor::new(inst.r, inst.g, inst.b),
+                    )
+                };
 
-            let entity = Entity::new(id)
-                .with_pos(Vec2::new(inst.x, inst.y))
-                .with_rotation(inst.rotation)
-                .with_mesh(mesh);
+                let entity = Entity::new(id)
+                    .with_pos(Vec2::new(inst.x, inst.y))
+                    .with_rotation(inst.rotation)
+                    .with_mesh(mesh);
 
-            ctx.scene.spawn(entity);
+                ctx.scene.spawn(entity);
+                self.active_ids.push(id);
+            }
+        }
+
+        // 3. Despawn excess entities
+        if self.active_ids.len() > needed_count {
+            for i in (needed_count..self.active_ids.len()).rev() {
+                let id = self.active_ids[i];
+                ctx.scene.despawn(id);
+            }
+            self.active_ids.truncate(needed_count);
         }
 
         // Render bond preview if dragging
         if let Some(preview) = &effects.bond_preview {
             self.render_bond_preview(ctx, molecule, camera, preview);
-        }
-    }
-
-    /// Clear all mesh entities from the scene.
-    fn clear_meshes(&self, ctx: &mut EngineContext) {
-        let to_remove: Vec<EntityId> = ctx.scene.iter()
-            .filter(|e| e.mesh.is_some())
-            .map(|e| e.id)
-            .collect();
-
-        for id in to_remove {
-            ctx.scene.despawn(id);
         }
     }
 

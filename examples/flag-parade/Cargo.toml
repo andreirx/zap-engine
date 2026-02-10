@@ -8,7 +8,7 @@ description = "Flag Parade — a ZapEngine SDF waving flag demo"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = []
+default = ["vectors"]
 physics = ["zap-engine/physics", "zap-web/physics"]
 vectors = ["zap-engine/vectors", "zap-web/vectors"]
 
