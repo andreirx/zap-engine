@@ -1,0 +1,9 @@
+{
+  "atlases": [
+    { "name": "felt", "cols": 1, "rows": 1, "path": "felt.png", "normalMap": "felt_normal.png" }
+  ],
+  "sprites": {
+    "felt": { "atlas": 0, "col": 0, "row": 0, "span": 1 }
+  },
+  "sounds": {}
+}

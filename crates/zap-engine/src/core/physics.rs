@@ -97,6 +97,8 @@ pub struct BodyDesc {
     pub fixed_rotation: bool,
     pub ccd: bool,
     pub collider: ColliderDesc,
+    pub linear_damping: f32,
+    pub angular_damping: f32,
 }
 
 impl BodyDesc {
@@ -111,6 +113,8 @@ impl BodyDesc {
             fixed_rotation: false,
             ccd: false,
             collider,
+            linear_damping: 0.0,
+            angular_damping: 0.0,
         }
     }
 
@@ -125,6 +129,8 @@ impl BodyDesc {
             fixed_rotation: true,
             ccd: false,
             collider,
+            linear_damping: 0.0,
+            angular_damping: 0.0,
         }
     }
 
@@ -155,6 +161,19 @@ impl BodyDesc {
 
     pub fn with_ccd(mut self, enabled: bool) -> Self {
         self.ccd = enabled;
+        self
+    }
+
+    /// Set the linear damping (velocity decay). Higher values slow the body faster.
+    /// Useful for simulating friction on surfaces like pool table felt.
+    pub fn with_linear_damping(mut self, damping: f32) -> Self {
+        self.linear_damping = damping;
+        self
+    }
+
+    /// Set the angular damping (rotation decay). Higher values slow rotation faster.
+    pub fn with_angular_damping(mut self, damping: f32) -> Self {
+        self.angular_damping = damping;
         self
     }
 }
@@ -306,6 +325,8 @@ impl PhysicsWorld {
                 LockedAxes::empty()
             })
             .ccd_enabled(desc.ccd)
+            .linear_damping(desc.linear_damping)
+            .angular_damping(desc.angular_damping)
             .user_data(entity_id.0 as u128)
             .build();
 

@@ -19,6 +19,10 @@ export interface TimingBarsProps {
   showHistory?: boolean;
   /** Optional style overrides for the container. */
   style?: CSSProperties;
+  /** Callback when panel is clicked (for hide/show toggle). */
+  onToggle?: () => void;
+  /** If true, only show a minimal collapsed view. */
+  collapsed?: boolean;
 }
 
 /** Color for WASM timing bars. */
@@ -43,6 +47,8 @@ export function TimingBars({
   barHeight = 8,
   showHistory = true,
   style,
+  onToggle,
+  collapsed = false,
 }: TimingBarsProps) {
   const { wasmTimeUs, gpuTimeUs, wasmHistory, gpuHistory } = timing;
 
@@ -72,8 +78,30 @@ export function TimingBars({
     return { width, height, maxTime };
   }, [showHistory, wasmHistory, gpuHistory, maxWidth, barHeight]);
 
+  // Collapsed view - just show total time
+  if (collapsed) {
+    return (
+      <div
+        onClick={onToggle}
+        style={{
+          fontFamily: 'monospace',
+          fontSize: 10,
+          color: '#888',
+          background: 'rgba(0,0,0,0.5)',
+          padding: '4px 8px',
+          borderRadius: 4,
+          cursor: onToggle ? 'pointer' : undefined,
+          ...style,
+        }}
+      >
+        {(totalFrameUs / 1000).toFixed(1)}ms
+      </div>
+    );
+  }
+
   return (
     <div
+      onClick={onToggle}
       style={{
         fontFamily: 'monospace',
         fontSize: 10,
@@ -81,6 +109,7 @@ export function TimingBars({
         background: 'rgba(0,0,0,0.7)',
         padding: 8,
         borderRadius: 4,
+        cursor: onToggle ? 'pointer' : undefined,
         ...style,
       }}
     >

@@ -41,6 +41,11 @@ pub struct MeshComponent {
     pub shininess: f32,
     /// HDR glow multiplier (default: 0.0, values > 0 push into EDR range).
     pub emissive: f32,
+    /// Extra parameter for shape-specific features.
+    /// - Sphere: > 0.5 enables stripe rendering (pool balls 9-15)
+    /// - RoundedBox: corner radius (passed via build_sdf_buffer)
+    /// - Capsule: unused (0.0)
+    pub extra: f32,
 }
 
 impl Default for MeshComponent {
@@ -50,6 +55,7 @@ impl Default for MeshComponent {
             color: SDFColor::default(),
             shininess: 32.0,
             emissive: 0.0,
+            extra: 0.0,
         }
     }
 }
@@ -66,6 +72,29 @@ impl MeshComponent {
     /// Convenience builder for a sphere mesh.
     pub fn sphere(radius: f32, color: SDFColor) -> Self {
         Self::new(SDFShape::Sphere { radius }, color)
+    }
+
+    /// Create a striped sphere for pool balls 9-15.
+    /// The stripe_color appears in the middle horizontal band, white outside.
+    pub fn striped_sphere(radius: f32, stripe_color: SDFColor) -> Self {
+        Self {
+            shape: SDFShape::Sphere { radius },
+            color: stripe_color,
+            shininess: 64.0,  // Glossy pool ball
+            emissive: 0.0,
+            extra: 1.0,  // Flag: enable stripe rendering
+        }
+    }
+
+    /// Convenience builder for a solid-colored pool ball.
+    pub fn pool_ball(radius: f32, color: SDFColor) -> Self {
+        Self {
+            shape: SDFShape::Sphere { radius },
+            color,
+            shininess: 64.0,  // Glossy pool ball
+            emissive: 0.0,
+            extra: 0.0,  // Solid ball
+        }
     }
 
     /// Convenience builder for a capsule mesh (bond between atoms).

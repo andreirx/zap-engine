@@ -17,7 +17,7 @@ pub fn build_sdf_buffer<'a>(
             None => continue,
         };
         let (radius, shape_type, half_height, extra) = match mesh.shape {
-            SDFShape::Sphere { radius } => (radius, 0.0, 0.0, 0.0),
+            SDFShape::Sphere { radius } => (radius, 0.0, 0.0, mesh.extra),
             SDFShape::Capsule { radius, half_height } => (radius, 1.0, half_height, 0.0),
             SDFShape::RoundedBox { radius, half_height, corner_radius } => (radius, 2.0, half_height, corner_radius),
         };

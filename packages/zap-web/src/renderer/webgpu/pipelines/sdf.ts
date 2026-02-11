@@ -40,3 +40,27 @@ export function createSdfPipeline(config: SdfPipelineConfig): GPURenderPipeline 
     primitive: { topology: 'triangle-list' },
   });
 }
+
+/**
+ * Create the SDF normal pipeline for writing flat normals to the normal buffer.
+ * This prevents sprite normal maps from bleeding onto SDF shapes.
+ */
+export function createSdfNormalPipeline(config: Omit<SdfPipelineConfig, 'emissiveMult'>): GPURenderPipeline {
+  const { device, layout, format } = config;
+
+  const shaderModule = createSdfShaderModule(device);
+
+  return device.createRenderPipeline({
+    layout,
+    vertex: {
+      module: shaderModule,
+      entryPoint: 'vs_sdf',
+    },
+    fragment: {
+      module: shaderModule,
+      entryPoint: 'fs_sdf_normal',
+      targets: [{ format }],  // Normal buffer format (rgba8unorm)
+    },
+    primitive: { topology: 'triangle-list' },
+  });
+}

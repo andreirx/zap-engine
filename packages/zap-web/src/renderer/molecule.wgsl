@@ -155,6 +155,9 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
     var dist: f32;
     var normal: vec3<f32>;
 
+    // Track if this is a striped pool ball (extra_norm > 0.5)
+    var is_striped_ball = false;
+
     if (in.shape_type < 0.5) {
         // ---- Sphere ----
         let d2 = dot(p, p);
@@ -164,6 +167,10 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
         dist = sqrt(d2) - 1.0;
         let z = sqrt(1.0 - d2);
         normal = vec3(p.x, p.y, z);
+
+        // Check for striped ball (pool balls 9-15)
+        // Note: extra_norm = extra / radius, so 1.0/12.0 ≈ 0.08 for typical balls
+        is_striped_ball = in.extra_norm > 0.01;
     } else if (in.shape_type < 1.5) {
         // ---- Capsule ----
         // Analytic normal: vector from clamped axis point to p
@@ -286,8 +293,20 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
     let fresnel = pow(1.0 - max(normal.z, 0.0), 3.0);
     let rim = fresnel * 0.4;
 
+    // Determine final base color (stripe detection for pool balls)
+    var final_base_color = in.base_color;
+    if (is_striped_ball) {
+        // Striped ball: colored band in middle, white outside
+        // p.y is in normalized local space, stripe band covers |p.y| < 0.35
+        let stripe_width = 0.35;
+        let in_stripe = abs(p.y) < stripe_width;
+        if (!in_stripe) {
+            final_base_color = vec3<f32>(1.0, 1.0, 1.0);  // White
+        }
+    }
+
     // Combine lighting
-    let lit = in.base_color * (ambient + diffuse * 0.7) + vec3<f32>(1.0) * specular * 0.5 + in.base_color * rim;
+    let lit = final_base_color * (ambient + diffuse * 0.7) + vec3<f32>(1.0) * specular * 0.5 + final_base_color * rim;
 
     // HDR emissive multiplier
     let hdr_mult = 1.0 + in.emissive * SDF_EMISSIVE_MULT;
@@ -297,4 +316,47 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
     let aa = smoothstep(0.0, 0.02, -dist);
 
     return vec4<f32>(final_color, aa);
+}
+
+// ---- Normal Buffer Pass: Write flat normal for SDF shapes ----
+// This prevents sprite normal maps from bleeding onto SDF shapes.
+
+@fragment
+fn fs_sdf_normal(in: VertexOutput) -> @location(0) vec4<f32> {
+    let p = in.local_uv;
+
+    // Discard outside shape bounds (same logic as main fragment shader)
+    if (in.shape_type < 0.5) {
+        // Sphere
+        let d2 = dot(p, p);
+        if (d2 > 1.0) {
+            discard;
+        }
+    } else if (in.shape_type < 1.5) {
+        // Capsule
+        let half_h = in.half_height_norm;
+        let q_y_clamped = clamp(p.y, -half_h, half_h);
+        let closest = vec2(0.0, q_y_clamped);
+        let diff = p - closest;
+        let dist = length(diff) - 1.0;
+        if (dist > 0.02) {
+            discard;
+        }
+    } else {
+        // RoundedBox
+        let half_h = in.half_height_norm;
+        let corner_r = in.extra_norm;
+        let half_extents = vec2(1.0, half_h);
+        let q = abs(p) - half_extents + vec2(corner_r);
+        let dist_vec = max(q, vec2(0.0));
+        let outside_dist = length(dist_vec);
+        let inside_dist = min(max(q.x, q.y), 0.0);
+        let dist = outside_dist + inside_dist - corner_r;
+        if (dist > 0.02) {
+            discard;
+        }
+    }
+
+    // Write flat normal (0, 0, 1) encoded as (0.5, 0.5, 1.0)
+    return vec4<f32>(0.5, 0.5, 1.0, 1.0);
 }

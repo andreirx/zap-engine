@@ -185,6 +185,12 @@ export function encodeScenePass(
   }
 }
 
+export interface NormalPassConfig {
+  sdfNormalPipeline?: GPURenderPipeline;
+  cameraBindGroup: GPUBindGroup;
+  sdfBindGroup: GPUBindGroup;
+}
+
 /**
  * Encode the normal buffer render pass (when lighting + normal maps active).
  */
@@ -194,7 +200,10 @@ export function encodeNormalPass(
   instanceCount: number,
   atlasSplit: number,
   layerBatches: LayerBatchDescriptor[] | undefined,
+  sdfInstanceCount: number,
+  config?: NormalPassConfig,
 ): void {
+  // Draw sprite normals
   if (layerBatches && layerBatches.length > 0) {
     for (const batch of layerBatches) {
       // Skip baked layers for normal pass (baked layer normals not cached yet)
@@ -202,6 +211,14 @@ export function encodeNormalPass(
     }
   } else {
     drawNormalBatchInstances(pass, 0, instanceCount, atlasSplit);
+  }
+
+  // Draw SDF flat normals (prevents sprite normal bleeding onto SDF shapes)
+  if (sdfInstanceCount > 0 && config?.sdfNormalPipeline) {
+    pass.setPipeline(config.sdfNormalPipeline);
+    pass.setBindGroup(0, config.cameraBindGroup);
+    pass.setBindGroup(1, config.sdfBindGroup);
+    pass.draw(6, sdfInstanceCount);
   }
 }
 

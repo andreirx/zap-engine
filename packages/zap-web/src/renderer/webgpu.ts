@@ -36,7 +36,7 @@ import {
 } from './webgpu/pipelines/common';
 import { createSpriteShaderModule, createSpritePipelines, createNormalPipelines } from './webgpu/pipelines/sprite';
 import { createEffectsPipeline } from './webgpu/pipelines/effects';
-import { createSdfPipeline } from './webgpu/pipelines/sdf';
+import { createSdfPipeline, createSdfNormalPipeline } from './webgpu/pipelines/sdf';
 import { createVectorPipeline } from './webgpu/pipelines/vector';
 import { createLightingPipeline, createLightingBindGroup, LIGHT_FLOATS } from './webgpu/pipelines/lighting';
 
@@ -49,6 +49,7 @@ import {
   encodeNormalPass,
   encodeLightingPass,
   type ScenePassConfig,
+  type NormalPassConfig,
 } from './webgpu/passes/scene';
 
 // Default capacities (matching GameConfig::default())
@@ -162,6 +163,13 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     layout: sdfPipelineLayout,
     format,
     emissiveMult: glowMult.sdf,
+  });
+
+  // SDF normal pipeline: writes flat normals so sprite normals don't bleed onto SDF shapes
+  const sdfNormalPipeline = createSdfNormalPipeline({
+    device,
+    layout: sdfPipelineLayout,
+    format: 'rgba8unorm',  // Normal buffer format
   });
 
   const vectorPipeline = createVectorPipeline({
@@ -349,7 +357,12 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
         }],
       });
 
-      encodeNormalPass(normalPass, drawNormalBatchInstances, instanceCount, atlasSplit, layerBatches);
+      const normalPassConfig: NormalPassConfig = {
+        sdfNormalPipeline,
+        cameraBindGroup: bindGroups.cameraBindGroup,
+        sdfBindGroup: bindGroups.sdfBindGroup,
+      };
+      encodeNormalPass(normalPass, drawNormalBatchInstances, instanceCount, atlasSplit, layerBatches, hasSdf ? sdfInstanceCount! : 0, normalPassConfig);
       normalPass.end();
     }
 
