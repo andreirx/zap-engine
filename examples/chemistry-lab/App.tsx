@@ -2,14 +2,14 @@
 // Click to place atoms, drag between atoms to create bonds.
 // Drag on empty space to rotate the view.
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { useZapEngine, TimingBars } from '@zap/web/react';
 import type { GameEvent } from '@zap/web/react';
 import { CameraControls } from './CameraControls';
 
 const WASM_URL = '/examples/chemistry-lab/pkg/chemistry_lab.js';
 const ASSETS_URL = '/examples/chemistry-lab/public/assets/assets.json';
-const PERIODIC_TABLE_URL = '/examples/chemistry-lab/data/periodic-table.json';
+const PERIODIC_TABLE_URL = '/examples/chemistry-lab/public/assets/periodic-table.json';
 
 interface ElementInfo {
   number: number;
@@ -127,15 +127,15 @@ export function App() {
   const [vsperBondCount, setVsperBondCount] = useState(0);
   const [elements, setElements] = useState<ElementInfo[]>([]);
   const [hoveredElement, setHoveredElement] = useState<ElementInfo | null>(null);
-  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
   // Load periodic table data
   useEffect(() => {
     fetch(PERIODIC_TABLE_URL)
       .then(r => r.json())
       .then(data => setElements(data.elements))
-      .catch(console.error);
+      .catch(err => console.error('Failed to load periodic table:', err));
   }, []);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
   const onGameEvent = useCallback((events: GameEvent[]) => {
     for (const e of events) {
