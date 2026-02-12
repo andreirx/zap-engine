@@ -25,6 +25,7 @@ export interface ScenePassConfig {
   normalTextureBindGroups: GPUBindGroup[];
   instanceBindGroup: GPUBindGroup;
   sdfBindGroup: GPUBindGroup;
+  sdfLightBindGroup: GPUBindGroup;
   colorsBindGroup: GPUBindGroup;
   emptyBindGroup: GPUBindGroup;
   fallbackTextureBindGroup: GPUBindGroup;
@@ -126,6 +127,7 @@ export function encodeScenePass(
     cameraBindGroup,
     textureBindGroups,
     sdfBindGroup,
+    sdfLightBindGroup,
     colorsBindGroup,
     emptyBindGroup,
     fallbackTextureBindGroup,
@@ -170,6 +172,7 @@ export function encodeScenePass(
     pass.setPipeline(sdfPipeline);
     pass.setBindGroup(0, cameraBindGroup);
     pass.setBindGroup(1, sdfBindGroup);
+    pass.setBindGroup(2, sdfLightBindGroup);
     pass.draw(6, sdfInstanceCount);
   }
 
@@ -189,6 +192,7 @@ export interface NormalPassConfig {
   sdfNormalPipeline?: GPURenderPipeline;
   cameraBindGroup: GPUBindGroup;
   sdfBindGroup: GPUBindGroup;
+  sdfLightBindGroup: GPUBindGroup;  // Required even for normal pass (pipeline layout expects it)
 }
 
 /**
@@ -218,6 +222,7 @@ export function encodeNormalPass(
     pass.setPipeline(config.sdfNormalPipeline);
     pass.setBindGroup(0, config.cameraBindGroup);
     pass.setBindGroup(1, config.sdfBindGroup);
+    pass.setBindGroup(2, config.sdfLightBindGroup);  // Pipeline layout requires 3 groups
     pass.draw(6, sdfInstanceCount);
   }
 }

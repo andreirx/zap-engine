@@ -234,6 +234,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     normalTextureBindGroups,
     instanceBindGroup: bindGroups.instanceBindGroup,
     sdfBindGroup: bindGroups.sdfBindGroup,
+    sdfLightBindGroup: bindGroups.sdfLightBindGroup,
     colorsBindGroup: bindGroups.colorsBindGroup,
     emptyBindGroup: bindGroups.emptyBindGroup,
     fallbackTextureBindGroup,
@@ -361,6 +362,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
         sdfNormalPipeline,
         cameraBindGroup: bindGroups.cameraBindGroup,
         sdfBindGroup: bindGroups.sdfBindGroup,
+        sdfLightBindGroup: bindGroups.sdfLightBindGroup,
       };
       encodeNormalPass(normalPass, drawNormalBatchInstances, instanceCount, atlasSplit, layerBatches, hasSdf ? sdfInstanceCount! : 0, normalPassConfig);
       normalPass.end();

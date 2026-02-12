@@ -1,4 +1,5 @@
 //! Pool game - 2D billiards with Rapier2D physics and SDF rendering.
+//! Features pocket simulation where pocketed balls bounce and settle inside pockets.
 
 use glam::Vec2;
 use zap_engine::api::game::GameConfig;
@@ -13,9 +14,20 @@ use zap_engine::{EngineContext, Game, GameEvent};
 
 use crate::balls::{rack_positions, BallType, BALLS};
 
-// World dimensions (matches pool table aspect ratio ~2:1)
-const WORLD_W: f32 = 1000.0;
-const WORLD_H: f32 = 500.0;
+// Table dimensions (the actual pool table)
+const TABLE_W: f32 = 1000.0;
+const TABLE_H: f32 = 500.0;
+
+// Margin around table for cue stick drawing area
+const TABLE_MARGIN: f32 = 80.0;
+
+// World dimensions (table + margins for cue stick area)
+const WORLD_W: f32 = TABLE_W + 2.0 * TABLE_MARGIN;  // 1300
+const WORLD_H: f32 = TABLE_H + 2.0 * TABLE_MARGIN;  // 800
+
+// Table offset within world (centered)
+const TABLE_X: f32 = TABLE_MARGIN;
+const TABLE_Y: f32 = TABLE_MARGIN;
 
 // Table visual and physics
 const RAIL_WIDTH: f32 = 35.0;  // Visual rail width
@@ -28,29 +40,39 @@ const DEBUG_DRAW: bool = false;
 // Ball properties
 const BALL_RADIUS: f32 = 12.0;
 
-// Pocket properties
-const POCKET_RADIUS: f32 = 28.0;  // Larger pockets
-const CORNER_POCKET_INSET: f32 = 22.0;
-const SIDE_POCKET_INSET: f32 = 18.0;
+// Pocket properties - positioned at rail corners/sides
+const POCKET_RADIUS: f32 = 22.0;  // Physics detection radius
+const POCKET_VISUAL_RADIUS: f32 = 28.0;  // Visual hole size
+const CORNER_POCKET_INSET: f32 = RAIL_WIDTH * 0.7;  // Corner pockets at rail corner
+const SIDE_POCKET_INSET: f32 = RAIL_WIDTH * 0.5;    // Side pockets at rail edge
 
 // Cue ball starting position (left side of table)
-const CUE_START_X: f32 = 250.0;
-const CUE_START_Y: f32 = WORLD_H / 2.0;
+const CUE_START_X: f32 = TABLE_X + 250.0;
+const CUE_START_Y: f32 = TABLE_Y + TABLE_H / 2.0;
 
 // Rack apex position (right side of table)
-const RACK_X: f32 = 700.0;
-const RACK_Y: f32 = WORLD_H / 2.0;
+const RACK_X: f32 = TABLE_X + 700.0;
+const RACK_Y: f32 = TABLE_Y + TABLE_H / 2.0;
 
 // Physics parameters
-const LINEAR_DAMPING: f32 = 0.5;   // Felt friction (lower = slides more)
-const ANGULAR_DAMPING: f32 = 0.3;
+const LINEAR_DAMPING: f32 = 1.75;  // Felt friction (higher = stops faster)
+const ANGULAR_DAMPING: f32 = 1.0;
 const RESTITUTION: f32 = 0.95;     // Bouncy ball-to-ball
 const FRICTION: f32 = 0.2;
 const DENSITY: f32 = 0.01;  // Very low density so impulse = velocity
 
 // Aiming - use velocity directly, not impulse
-const MAX_SHOT_SPEED: f32 = 2400.0;  // 4x power
-const SHOT_SCALE: f32 = 6.0;         // 4x power
+const MAX_SHOT_SPEED: f32 = 6400.0;
+const SHOT_SCALE: f32 = 8.0;
+
+// Pocket simulation constants
+// Container radius = visual pocket radius - ball radius, so balls stay inside visually
+const POCKET_CONTAINER_RADIUS: f32 = POCKET_VISUAL_RADIUS - BALL_RADIUS;  // ~16
+const POCKET_DAMPING: f32 = 0.92;  // Velocity retention per frame (high damping to settle fast)
+const POCKET_BALL_RESTITUTION: f32 = 0.6;  // Ball-ball bounce inside pocket
+const POCKET_WALL_RESTITUTION: f32 = 0.4;  // Ball-wall bounce (soft pocket edge)
+const POCKET_ENTRY_SPEED_SCALE: f32 = 0.15;  // Scale down incoming velocity
+const POCKET_STOP_THRESHOLD: f32 = 2.0;  // Below this speed, ball stops
 
 /// Custom event kinds from React UI
 mod events {
@@ -60,6 +82,122 @@ mod events {
 /// Game event kinds to React
 mod game_events {
     pub const BALLS_REMAINING: f32 = 1.0;
+}
+
+/// A ball inside a pocket with its own mini physics
+#[derive(Debug, Clone)]
+struct PocketedBall {
+    ball_number: u8,
+    entity_id: EntityId,
+    pos: Vec2,      // Position relative to pocket center
+    vel: Vec2,      // Velocity within pocket
+}
+
+/// A pocket container with its own physics simulation
+#[derive(Debug, Clone)]
+struct PocketContainer {
+    center: Vec2,
+    balls: Vec<PocketedBall>,
+}
+
+impl PocketContainer {
+    fn new(center: Vec2) -> Self {
+        Self {
+            center,
+            balls: Vec::new(),
+        }
+    }
+
+    /// Add a ball entering the pocket with given world velocity
+    fn add_ball(&mut self, ball_number: u8, entity_id: EntityId, world_vel: Vec2) {
+        // Start at center, with scaled-down velocity
+        let entry_vel = world_vel * POCKET_ENTRY_SPEED_SCALE;
+        self.balls.push(PocketedBall {
+            ball_number,
+            entity_id,
+            pos: Vec2::ZERO,  // Start at pocket center
+            vel: entry_vel,
+        });
+    }
+
+    /// Simulate one frame of pocket physics
+    fn simulate(&mut self, dt: f32) {
+        let ball_count = self.balls.len();
+        if ball_count == 0 {
+            return;
+        }
+
+        // Update positions
+        for ball in &mut self.balls {
+            ball.pos += ball.vel * dt;
+        }
+
+        // Ball-wall collisions (circular container)
+        for ball in &mut self.balls {
+            let dist = ball.pos.length();
+            let max_dist = POCKET_CONTAINER_RADIUS;
+            if dist > max_dist {
+                // Push back inside and reflect velocity
+                let normal = ball.pos.normalize_or_zero();
+                ball.pos = normal * max_dist;
+                // Reflect velocity off the wall
+                let v_dot_n = ball.vel.dot(normal);
+                if v_dot_n > 0.0 {
+                    ball.vel -= normal * v_dot_n * (1.0 + POCKET_WALL_RESTITUTION);
+                }
+            }
+        }
+
+        // Ball-ball collisions (simple elastic)
+        for i in 0..ball_count {
+            for j in (i + 1)..ball_count {
+                let pi = self.balls[i].pos;
+                let pj = self.balls[j].pos;
+                let delta = pj - pi;
+                let dist = delta.length();
+                let min_dist = BALL_RADIUS * 2.0;
+
+                if dist < min_dist && dist > 0.001 {
+                    // Separate balls
+                    let normal = delta / dist;
+                    let overlap = min_dist - dist;
+                    let separation = normal * (overlap * 0.5);
+                    self.balls[i].pos -= separation;
+                    self.balls[j].pos += separation;
+
+                    // Exchange velocity along collision normal
+                    let vi = self.balls[i].vel;
+                    let vj = self.balls[j].vel;
+                    let rel_vel = vi - vj;
+                    let v_along_normal = rel_vel.dot(normal);
+
+                    if v_along_normal > 0.0 {
+                        let impulse = normal * v_along_normal * POCKET_BALL_RESTITUTION;
+                        self.balls[i].vel -= impulse;
+                        self.balls[j].vel += impulse;
+                    }
+                }
+            }
+        }
+
+        // Apply damping and stop slow balls
+        for ball in &mut self.balls {
+            ball.vel *= POCKET_DAMPING;
+            if ball.vel.length() < POCKET_STOP_THRESHOLD {
+                ball.vel = Vec2::ZERO;
+            }
+        }
+    }
+
+    /// Get world positions of all balls in this pocket
+    fn world_positions(&self) -> impl Iterator<Item = (EntityId, Vec2)> + '_ {
+        self.balls.iter().map(|b| (b.entity_id, self.center + b.pos))
+    }
+
+    /// Clear all balls (for reset)
+    fn clear(&mut self) {
+        self.balls.clear();
+    }
 }
 
 /// Game state
@@ -74,6 +212,7 @@ struct BallEntity {
     entity_id: EntityId,
     ball_number: u8,
     pocketed: bool,
+    prev_pos: Vec2,  // Previous frame position for tunneling detection
 }
 
 pub struct PoolGame {
@@ -84,10 +223,14 @@ pub struct PoolGame {
     cue_ball_id: Option<EntityId>,
     balls: Vec<BallEntity>,
     table_id: Option<EntityId>,
+    /// 6 pocket containers with mini physics simulation
+    pockets: [PocketContainer; 6],
 }
 
 impl PoolGame {
     pub fn new() -> Self {
+        // Initialize pocket containers at their positions
+        let pocket_positions = Self::pocket_positions();
         Self {
             state: GameState::Aiming,
             aiming: false,
@@ -96,10 +239,18 @@ impl PoolGame {
             cue_ball_id: None,
             balls: Vec::with_capacity(16),
             table_id: None,
+            pockets: [
+                PocketContainer::new(pocket_positions[0]),
+                PocketContainer::new(pocket_positions[1]),
+                PocketContainer::new(pocket_positions[2]),
+                PocketContainer::new(pocket_positions[3]),
+                PocketContainer::new(pocket_positions[4]),
+                PocketContainer::new(pocket_positions[5]),
+            ],
         }
     }
 
-    /// Ensure felt sprites exist (2x2 grid for finer grain)
+    /// Ensure felt sprites exist (2 tiles side-by-side, play area only)
     fn ensure_felt(&mut self, ctx: &mut EngineContext) {
         if self.table_id.is_some() {
             return;
@@ -110,15 +261,23 @@ impl PoolGame {
             None => return,  // Manifest not loaded yet, try again next frame
         };
 
-        // Tile 2 felt sprites for finer grain texture
-        let tile_size = WORLD_W / 2.0;  // Each tile covers half the width
-        let positions = [
-            Vec2::new(tile_size * 0.5, WORLD_H * 0.5),
-            Vec2::new(tile_size * 1.5, WORLD_H * 0.5),
-        ];
+        // Play area bounds (inside the rails) - this is where felt should show
+        let play_left = TABLE_X + RAIL_WIDTH;
+        let play_top = TABLE_Y + RAIL_WIDTH;
+        let play_w = TABLE_W - 2.0 * RAIL_WIDTH;  // 930
+        let play_h = TABLE_H - 2.0 * RAIL_WIDTH;  // 430
+        let center_y = play_top + play_h / 2.0;
+
+        // Use 2 tiles side by side (each 465x465, covering half width)
+        // Vertical overflow (~17px) is covered by the rails
+        let tile_size = play_w / 2.0;  // 465
 
         let mut first_id = None;
-        for (i, pos) in positions.iter().enumerate() {
+        let tile_positions = [
+            Vec2::new(play_left + tile_size * 0.5, center_y),
+            Vec2::new(play_left + tile_size * 1.5, center_y),
+        ];
+        for (i, pos) in tile_positions.iter().enumerate() {
             let id = ctx.next_id();
             let entity = Entity::new(id)
                 .with_tag(&format!("felt_{}", i))
@@ -133,23 +292,23 @@ impl PoolGame {
             }
         }
         self.table_id = first_id;
-        log::info!("Felt sprites spawned");
+        log::info!("Felt sprites spawned (2 tiles, size={})", tile_size);
     }
 
     /// Build table cushion walls with gaps for pockets
     fn build_cushions(ctx: &mut EngineContext) {
         let wall_material = ColliderMaterial {
-            restitution: 0.7,  // Cushion bounce
+            restitution: 0.95,  // Cushion bounce - 95% energy retention
             friction: 0.2,
             density: 1.0,
         };
 
-        // Play area boundaries
-        let left = CUSHION;
-        let right = WORLD_W - CUSHION;
-        let top = CUSHION;
-        let bottom = WORLD_H - CUSHION;
-        let mid_x = WORLD_W / 2.0;
+        // Play area boundaries (relative to table origin)
+        let left = TABLE_X + CUSHION;
+        let right = TABLE_X + TABLE_W - CUSHION;
+        let top = TABLE_Y + CUSHION;
+        let bottom = TABLE_Y + TABLE_H - CUSHION;
+        let mid_x = TABLE_X + TABLE_W / 2.0;
         let corner_gap = POCKET_GAP;  // Gap at corners for corner pockets
         let side_gap = POCKET_GAP;    // Gap at middle for side pockets
 
@@ -162,7 +321,7 @@ impl PoolGame {
                 half_width: seg_len / 2.0,
                 half_height: CUSHION / 2.0,
             })
-            .with_position(Vec2::new(left + corner_gap + seg_len / 2.0, CUSHION / 2.0));
+            .with_position(Vec2::new(left + corner_gap + seg_len / 2.0, TABLE_Y + CUSHION / 2.0));
             ctx.spawn_with_body(Entity::new(id).with_tag("cushion"), desc, wall_material);
         }
         // Right segment
@@ -172,7 +331,7 @@ impl PoolGame {
                 half_width: seg_len / 2.0,
                 half_height: CUSHION / 2.0,
             })
-            .with_position(Vec2::new(right - corner_gap - seg_len / 2.0, CUSHION / 2.0));
+            .with_position(Vec2::new(right - corner_gap - seg_len / 2.0, TABLE_Y + CUSHION / 2.0));
             ctx.spawn_with_body(Entity::new(id).with_tag("cushion"), desc, wall_material);
         }
 
@@ -183,7 +342,7 @@ impl PoolGame {
                 half_width: seg_len / 2.0,
                 half_height: CUSHION / 2.0,
             })
-            .with_position(Vec2::new(left + corner_gap + seg_len / 2.0, WORLD_H - CUSHION / 2.0));
+            .with_position(Vec2::new(left + corner_gap + seg_len / 2.0, TABLE_Y + TABLE_H - CUSHION / 2.0));
             ctx.spawn_with_body(Entity::new(id).with_tag("cushion"), desc, wall_material);
         }
         if seg_len > 0.0 {
@@ -192,7 +351,7 @@ impl PoolGame {
                 half_width: seg_len / 2.0,
                 half_height: CUSHION / 2.0,
             })
-            .with_position(Vec2::new(right - corner_gap - seg_len / 2.0, WORLD_H - CUSHION / 2.0));
+            .with_position(Vec2::new(right - corner_gap - seg_len / 2.0, TABLE_Y + TABLE_H - CUSHION / 2.0));
             ctx.spawn_with_body(Entity::new(id).with_tag("cushion"), desc, wall_material);
         }
 
@@ -204,7 +363,7 @@ impl PoolGame {
                 half_width: CUSHION / 2.0,
                 half_height: side_len / 2.0,
             })
-            .with_position(Vec2::new(CUSHION / 2.0, WORLD_H / 2.0));
+            .with_position(Vec2::new(TABLE_X + CUSHION / 2.0, TABLE_Y + TABLE_H / 2.0));
             ctx.spawn_with_body(Entity::new(id).with_tag("cushion"), desc, wall_material);
         }
 
@@ -215,57 +374,45 @@ impl PoolGame {
                 half_width: CUSHION / 2.0,
                 half_height: side_len / 2.0,
             })
-            .with_position(Vec2::new(WORLD_W - CUSHION / 2.0, WORLD_H / 2.0));
+            .with_position(Vec2::new(TABLE_X + TABLE_W - CUSHION / 2.0, TABLE_Y + TABLE_H / 2.0));
             ctx.spawn_with_body(Entity::new(id).with_tag("cushion"), desc, wall_material);
         }
     }
 
     /// Draw table frame (rails, pockets with cuts) with vectors
     fn draw_table_frame(&self, ctx: &mut EngineContext) {
-        // Very dark brown - no HDR strain
-        let rail_color = VectorColor::new(0.12, 0.06, 0.02, 1.0);
-        let pocket_color = VectorColor::new(0.0, 0.0, 0.0, 1.0);
-        let cut_color = VectorColor::new(0.02, 0.02, 0.02, 1.0);  // Dark for pocket cuts
+        // Colors
+        let rail_color = VectorColor::new(0.12, 0.06, 0.02, 1.0);  // Dark brown wood
+        let pocket_color = VectorColor::new(0.02, 0.02, 0.02, 1.0);  // Near-black pocket holes
 
-        // Draw rails
-        ctx.vectors.fill_rect(Vec2::ZERO, WORLD_W, RAIL_WIDTH, rail_color);  // Top
-        ctx.vectors.fill_rect(Vec2::new(0.0, WORLD_H - RAIL_WIDTH), WORLD_W, RAIL_WIDTH, rail_color);  // Bottom
-        ctx.vectors.fill_rect(Vec2::new(0.0, RAIL_WIDTH), RAIL_WIDTH, WORLD_H - 2.0 * RAIL_WIDTH, rail_color);  // Left
-        ctx.vectors.fill_rect(Vec2::new(WORLD_W - RAIL_WIDTH, RAIL_WIDTH), RAIL_WIDTH, WORLD_H - 2.0 * RAIL_WIDTH, rail_color);  // Right
-
-        // Draw pockets with cuts into the rails
+        // Draw pocket holes FIRST (underneath rails)
         let pockets = Self::pocket_positions();
-        let cut_size = POCKET_RADIUS + 10.0;
+        for pos in &pockets {
+            ctx.vectors.fill_circle(*pos, POCKET_VISUAL_RADIUS, pocket_color);
+        }
 
-        for (i, pos) in pockets.iter().enumerate() {
-            // Main pocket hole
-            ctx.vectors.fill_circle(*pos, POCKET_RADIUS + 8.0, pocket_color);
+        // Draw rails (relative to table position)
+        // Top rail
+        ctx.vectors.fill_rect(Vec2::new(TABLE_X, TABLE_Y), TABLE_W, RAIL_WIDTH, rail_color);
+        // Bottom rail
+        ctx.vectors.fill_rect(Vec2::new(TABLE_X, TABLE_Y + TABLE_H - RAIL_WIDTH), TABLE_W, RAIL_WIDTH, rail_color);
+        // Left rail
+        ctx.vectors.fill_rect(Vec2::new(TABLE_X, TABLE_Y + RAIL_WIDTH), RAIL_WIDTH, TABLE_H - 2.0 * RAIL_WIDTH, rail_color);
+        // Right rail
+        ctx.vectors.fill_rect(Vec2::new(TABLE_X + TABLE_W - RAIL_WIDTH, TABLE_Y + RAIL_WIDTH), RAIL_WIDTH, TABLE_H - 2.0 * RAIL_WIDTH, rail_color);
 
-            // Draw cuts/notches leading into pocket
-            // Corner pockets (0-3) get diagonal cuts, side pockets (4-5) get vertical cuts
-            if i < 4 {
-                // Corner pocket - draw a larger area to cut into the corner
-                ctx.vectors.fill_circle(*pos, cut_size, cut_color);
-            } else {
-                // Side pocket - rectangular cut
-                let cut_w = POCKET_RADIUS * 1.5;
-                let cut_h = RAIL_WIDTH + 5.0;
-                ctx.vectors.fill_rect(
-                    Vec2::new(pos.x - cut_w / 2.0, if i == 4 { 0.0 } else { WORLD_H - cut_h }),
-                    cut_w,
-                    cut_h,
-                    cut_color,
-                );
-            }
+        // Draw pocket holes AGAIN on top (to cut into rails)
+        for pos in &pockets {
+            ctx.vectors.fill_circle(*pos, POCKET_VISUAL_RADIUS, pocket_color);
         }
 
         // Debug: show physics boundaries if enabled
         if DEBUG_DRAW {
             let debug_color = VectorColor::new(1.0, 0.0, 0.0, 0.5);
-            let left = CUSHION;
-            let right = WORLD_W - CUSHION;
-            let top = CUSHION;
-            let bottom = WORLD_H - CUSHION;
+            let left = TABLE_X + CUSHION;
+            let right = TABLE_X + TABLE_W - CUSHION;
+            let top = TABLE_Y + CUSHION;
+            let bottom = TABLE_Y + TABLE_H - CUSHION;
             ctx.vectors.stroke_polyline(&[
                 Vec2::new(left, top),
                 Vec2::new(right, top),
@@ -367,6 +514,7 @@ impl PoolGame {
                 entity_id: id,
                 ball_number: 0,
                 pocketed: false,
+                prev_pos: Vec2::new(CUE_START_X, CUE_START_Y),
             });
         }
     }
@@ -410,38 +558,57 @@ impl PoolGame {
                 entity_id: id,
                 ball_number: ball_def.number,
                 pocketed: false,
+                prev_pos: pos,
             });
         }
     }
 
-    /// Setup dynamic lighting - simple 3 overhead lights
+    /// Setup dynamic lighting - main table lights + dim pocket lights
+    /// Main lights affect all layers except Terrain (0x3D), pocket lights affect only Terrain (0x02)
     fn setup_lights(&self, ctx: &mut EngineContext) {
         use zap_engine::PointLight;
 
         ctx.lights.clear();
-        // Bright ambient - table should be well lit
-        ctx.lights.set_ambient(0.85, 0.83, 0.78);
+        // Moderate ambient for main table
+        ctx.lights.set_ambient(0.55, 0.53, 0.50);
 
         let warm = [1.0, 0.95, 0.85];  // Warm white
-        let intensity = 0.4;
-        let radius = 400.0;
+        let intensity = 0.8;
+        let radius = 450.0;
 
-        // Three evenly-spaced overhead lights
-        let spacing = WORLD_W / 4.0;
+        // Layer masks: Terrain = 0x02, everything else = 0x3D (0x3F minus 0x02)
+        let main_layer_mask = 0x3D;  // Affects all except Terrain (pocketed balls)
+        let pocket_layer_mask = 0x02;  // Affects only Terrain (pocketed balls)
+
+        // Three evenly-spaced overhead lights (over the table) - main lights
+        let spacing = TABLE_W / 4.0;
         for i in 0..3 {
-            let x = spacing + (i as f32) * spacing;
+            let x = TABLE_X + spacing + (i as f32) * spacing;
             ctx.lights.add(PointLight::new(
-                Vec2::new(x, WORLD_H / 2.0),
+                Vec2::new(x, TABLE_Y + TABLE_H / 2.0),
                 warm,
                 intensity,
                 radius,
-            ));
+            ).with_layer_mask(main_layer_mask));
+        }
+
+        // Dim pocket lights - one at each pocket, very low intensity
+        let pockets = Self::pocket_positions();
+        let pocket_intensity = 0.15;  // Much dimmer - balls are in shadow
+        let pocket_radius = 80.0;
+        for pocket_pos in &pockets {
+            ctx.lights.add(PointLight::new(
+                *pocket_pos,
+                warm,
+                pocket_intensity,
+                pocket_radius,
+            ).with_layer_mask(pocket_layer_mask));
         }
     }
 
     /// Reset the game
     fn reset(&mut self, ctx: &mut EngineContext) {
-        // Despawn all balls
+        // Despawn all balls (including those on table)
         for ball in &self.balls {
             ctx.despawn(ball.entity_id);
         }
@@ -450,6 +617,14 @@ impl PoolGame {
         self.state = GameState::Aiming;
         self.aiming = false;
         ctx.effects.clear();
+
+        // Clear pocket containers and despawn their visual entities
+        for pocket in &mut self.pockets {
+            for pocketed_ball in &pocket.balls {
+                ctx.despawn(pocketed_ball.entity_id);
+            }
+            pocket.clear();
+        }
 
         // Respawn balls
         self.spawn_cue_ball(ctx);
@@ -487,50 +662,103 @@ impl PoolGame {
     fn pocket_positions() -> [Vec2; 6] {
         [
             // Corner pockets (diagonal, at play area corners)
-            Vec2::new(CORNER_POCKET_INSET, CORNER_POCKET_INSET),
-            Vec2::new(WORLD_W - CORNER_POCKET_INSET, CORNER_POCKET_INSET),
-            Vec2::new(CORNER_POCKET_INSET, WORLD_H - CORNER_POCKET_INSET),
-            Vec2::new(WORLD_W - CORNER_POCKET_INSET, WORLD_H - CORNER_POCKET_INSET),
+            Vec2::new(TABLE_X + CORNER_POCKET_INSET, TABLE_Y + CORNER_POCKET_INSET),
+            Vec2::new(TABLE_X + TABLE_W - CORNER_POCKET_INSET, TABLE_Y + CORNER_POCKET_INSET),
+            Vec2::new(TABLE_X + CORNER_POCKET_INSET, TABLE_Y + TABLE_H - CORNER_POCKET_INSET),
+            Vec2::new(TABLE_X + TABLE_W - CORNER_POCKET_INSET, TABLE_Y + TABLE_H - CORNER_POCKET_INSET),
             // Side pockets (middle of top/bottom rails)
-            Vec2::new(WORLD_W / 2.0, SIDE_POCKET_INSET),
-            Vec2::new(WORLD_W / 2.0, WORLD_H - SIDE_POCKET_INSET),
+            Vec2::new(TABLE_X + TABLE_W / 2.0, TABLE_Y + SIDE_POCKET_INSET),
+            Vec2::new(TABLE_X + TABLE_W / 2.0, TABLE_Y + TABLE_H - SIDE_POCKET_INSET),
         ]
     }
 
-    /// Check if any balls are in pockets and despawn them
+    /// Check if a line segment passes within radius of a point (for tunneling detection)
+    fn segment_point_distance(p1: Vec2, p2: Vec2, point: Vec2) -> f32 {
+        let line = p2 - p1;
+        let len_sq = line.length_squared();
+        if len_sq < 0.0001 {
+            return p1.distance(point);
+        }
+        // Project point onto line, clamped to segment
+        let t = ((point - p1).dot(line) / len_sq).clamp(0.0, 1.0);
+        let projection = p1 + line * t;
+        projection.distance(point)
+    }
+
+    /// Check if any balls are in pockets - uses trajectory detection for fast balls
     fn check_pockets(&mut self, ctx: &mut EngineContext) {
         let pockets = Self::pocket_positions();
-        let mut to_pocket = Vec::new();
+        // (ball_index, pocket_index, ball_velocity)
+        let mut to_pocket: Vec<(usize, usize, Vec2)> = Vec::new();
 
         for (i, ball) in self.balls.iter().enumerate() {
             if ball.pocketed {
                 continue;
             }
             if let Some(entity) = ctx.scene.get(ball.entity_id) {
-                for &pocket_pos in &pockets {
-                    let dist = entity.pos.distance(pocket_pos);
-                    // Ball center within pocket radius = pocketed
-                    if dist < POCKET_RADIUS - BALL_RADIUS * 0.3 {
-                        to_pocket.push(i);
+                let current_pos = entity.pos;
+                let prev_pos = ball.prev_pos;
+                let vel = ctx.velocity(ball.entity_id);
+
+                for (pocket_idx, &pocket_pos) in pockets.iter().enumerate() {
+                    // Check if ball trajectory crossed the pocket (handles fast balls)
+                    let dist = Self::segment_point_distance(prev_pos, current_pos, pocket_pos);
+                    if dist < POCKET_RADIUS + BALL_RADIUS * 0.5 {
+                        to_pocket.push((i, pocket_idx, vel));
                         break;
                     }
                 }
             }
         }
 
+        // Update prev_pos for all balls
+        for ball in &mut self.balls {
+            if !ball.pocketed {
+                if let Some(entity) = ctx.scene.get(ball.entity_id) {
+                    ball.prev_pos = entity.pos;
+                }
+            }
+        }
+
         // Pocket the balls (in reverse to preserve indices)
-        for &i in to_pocket.iter().rev() {
-            let ball = &mut self.balls[i];
-            if ball.ball_number == 0 {
-                // Cue ball - respawn it
+        for (i, pocket_idx, vel) in to_pocket.iter().rev() {
+            let ball = &mut self.balls[*i];
+            let ball_number = ball.ball_number;
+            let old_id = ball.entity_id;
+
+            if ball_number == 0 {
+                // Cue ball - despawn and respawn later
                 log::info!("Cue ball pocketed - respawning");
-                ctx.despawn(ball.entity_id);
+                ctx.despawn(old_id);
                 ball.pocketed = true;
                 self.cue_ball_id = None;
-                // Will be respawned next frame when aiming
             } else {
-                log::info!("Ball {} pocketed!", ball.ball_number);
-                ctx.despawn(ball.entity_id);
+                // Numbered ball - despawn physics ball, spawn visual on Terrain layer
+                // and add to pocket simulation
+                log::info!("Ball {} pocketed into pocket {}!", ball_number, pocket_idx);
+                ctx.despawn(old_id);
+
+                // Spawn a new visual-only ball at the pocket center on Terrain layer
+                let ball_def = &BALLS[ball_number as usize];
+                let mesh = match ball_def.ball_type {
+                    BallType::Cue => MeshComponent::pool_ball(BALL_RADIUS, ball_def.color),
+                    BallType::Solid => MeshComponent::pool_ball(BALL_RADIUS, ball_def.color),
+                    BallType::Striped => MeshComponent::striped_sphere(BALL_RADIUS, ball_def.color),
+                };
+
+                let new_id = ctx.next_id();
+                let pocket_pos = pockets[*pocket_idx];
+                let entity = Entity::new(new_id)
+                    .with_tag(&format!("pocketed_{}", ball_number))
+                    .with_pos(pocket_pos)
+                    .with_layer(RenderLayer::Terrain)  // Terrain layer gets dimmer lights
+                    .with_mesh(mesh);
+                ctx.scene.spawn(entity);
+
+                // Add to pocket simulation with incoming velocity
+                self.pockets[*pocket_idx].add_ball(ball_number, new_id, *vel);
+
+                ball.entity_id = new_id;
                 ball.pocketed = true;
             }
         }
@@ -538,6 +766,20 @@ impl PoolGame {
         // Respawn cue ball if needed and we're aiming
         if self.cue_ball_id.is_none() && self.state == GameState::Aiming {
             self.spawn_cue_ball(ctx);
+        }
+    }
+
+    /// Simulate physics for balls inside pockets
+    fn simulate_pockets(&mut self, ctx: &mut EngineContext, dt: f32) {
+        for pocket in &mut self.pockets {
+            pocket.simulate(dt);
+
+            // Update visual entity positions
+            for (entity_id, world_pos) in pocket.world_positions() {
+                if let Some(entity) = ctx.scene.get_mut(entity_id) {
+                    entity.pos = world_pos;
+                }
+            }
         }
     }
 
@@ -633,6 +875,10 @@ impl Game for PoolGame {
 
         // Check for pocketed balls
         self.check_pockets(ctx);
+
+        // Simulate pocketed balls in their pocket containers
+        let dt = self.config().fixed_dt;
+        self.simulate_pockets(ctx, dt);
 
         // Update game state
         if self.state == GameState::BallsMoving && self.all_balls_stopped(ctx) {

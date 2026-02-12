@@ -172,19 +172,63 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     const darkB = Math.round(b * 0.3);
 
     if (shapeType < 0.5) {
-      // ---- Sphere: radial gradient circle ----
-      const grad = c.createRadialGradient(
-        x - radius * 0.3, y - radius * 0.3, radius * 0.1,
-        x, y, radius,
-      );
-      grad.addColorStop(0, `rgba(255, 255, 255, 0.6)`);
-      grad.addColorStop(0.4, `rgb(${r}, ${g}, ${b})`);
-      grad.addColorStop(1, `rgb(${darkR}, ${darkG}, ${darkB})`);
+      // ---- Sphere ----
+      const extra = data[off + 11];  // Stripe flag for pool balls
+      const isStriped = extra > 0.5;
 
-      c.beginPath();
-      c.arc(x, y, radius, 0, Math.PI * 2);
-      c.fillStyle = grad;
-      c.fill();
+      if (isStriped) {
+        // Striped pool ball: white with colored horizontal band in middle
+        c.save();
+        c.translate(x, y);
+        if (rotation !== 0) c.rotate(rotation);
+
+        // Base white sphere with shading
+        const whiteGrad = c.createRadialGradient(
+          -radius * 0.3, -radius * 0.3, radius * 0.1,
+          0, 0, radius,
+        );
+        whiteGrad.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+        whiteGrad.addColorStop(0.4, 'rgb(245, 245, 245)');
+        whiteGrad.addColorStop(1, 'rgb(180, 180, 180)');
+        c.beginPath();
+        c.arc(0, 0, radius, 0, Math.PI * 2);
+        c.fillStyle = whiteGrad;
+        c.fill();
+
+        // Colored stripe band in the middle (|y| < 0.35 * radius)
+        const stripeWidth = radius * 0.7;  // Total stripe height
+        c.beginPath();
+        c.rect(-radius, -stripeWidth / 2, radius * 2, stripeWidth);
+        c.clip();
+
+        const stripeGrad = c.createRadialGradient(
+          -radius * 0.3, -radius * 0.3, radius * 0.1,
+          0, 0, radius,
+        );
+        stripeGrad.addColorStop(0, `rgba(255, 255, 255, 0.5)`);
+        stripeGrad.addColorStop(0.4, `rgb(${r}, ${g}, ${b})`);
+        stripeGrad.addColorStop(1, `rgb(${darkR}, ${darkG}, ${darkB})`);
+        c.beginPath();
+        c.arc(0, 0, radius, 0, Math.PI * 2);
+        c.fillStyle = stripeGrad;
+        c.fill();
+
+        c.restore();
+      } else {
+        // Solid sphere: radial gradient circle
+        const grad = c.createRadialGradient(
+          x - radius * 0.3, y - radius * 0.3, radius * 0.1,
+          x, y, radius,
+        );
+        grad.addColorStop(0, `rgba(255, 255, 255, 0.6)`);
+        grad.addColorStop(0.4, `rgb(${r}, ${g}, ${b})`);
+        grad.addColorStop(1, `rgb(${darkR}, ${darkG}, ${darkB})`);
+
+        c.beginPath();
+        c.arc(x, y, radius, 0, Math.PI * 2);
+        c.fillStyle = grad;
+        c.fill();
+      }
     } else if (shapeType < 1.5) {
       // ---- Capsule: rounded rect with linear gradient ----
       const halfW = radius;

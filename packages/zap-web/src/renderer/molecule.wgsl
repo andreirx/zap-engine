@@ -28,6 +28,29 @@ struct SDFInstance {
 
 @group(1) @binding(0) var<storage, read> sdf_instances: array<SDFInstance>;
 
+// ---- Dynamic Light Data (shared with lighting pass) ----
+
+struct PointLight {
+    x: f32,
+    y: f32,
+    r: f32,
+    g: f32,
+    b: f32,
+    intensity: f32,
+    radius: f32,
+    layer_mask: f32,
+};
+
+struct LightUniforms {
+    // xyz = ambient RGB, w = light_count as f32
+    ambient_and_count: vec4<f32>,
+    // xy = projWidth, projHeight (unused here but matches lighting.wgsl layout)
+    proj_size: vec4<f32>,
+};
+
+@group(2) @binding(0) var<uniform> light_uniforms: LightUniforms;
+@group(2) @binding(1) var<storage, read> lights: array<PointLight>;
+
 // HDR emissive multiplier — set per render tier at pipeline creation.
 // hdr-edr: 5.4, hdr-srgb: 2.5, sdr: 0.5
 override SDF_EMISSIVE_MULT: f32 = 5.4;
@@ -48,6 +71,9 @@ struct VertexOutput {
     @location(4) shape_type: f32,
     @location(5) half_height_norm: f32,
     @location(6) extra_norm: f32,
+    @location(7) world_center: vec2<f32>,  // Instance center in world space
+    @location(8) world_radius: f32,        // Instance radius in world units
+    @location(9) rotation: f32,            // Entity rotation for local→world normal transform
 };
 
 // Fullscreen quad — two triangles, 6 vertices
@@ -117,6 +143,9 @@ fn vs_sdf(input: VertexInput) -> VertexOutput {
     out.shape_type = inst.shape_type;
     out.half_height_norm = inst.half_height / max(inst.radius, 0.001);
     out.extra_norm = inst.extra / max(inst.radius, 0.001);
+    out.world_center = inst.position;
+    out.world_radius = inst.radius;
+    out.rotation = inst.rotation;
 
     return out;
 }
@@ -146,8 +175,8 @@ fn sdf_rounded_box(p: vec2<f32>, half_h: f32, corner_r: f32) -> f32 {
 
 // ---- Fragment Shader: Raymarched SDF ----
 
-// Light direction (top-left in Y-down coordinate system)
-const LIGHT_DIR = vec3<f32>(-0.4, -0.6, 0.7);
+// Fallback light direction when no scene lights (top-left in Y-down coordinate system)
+const FALLBACK_LIGHT_DIR = vec3<f32>(-0.4, -0.6, 0.7);
 
 @fragment
 fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -275,25 +304,8 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
         normal = normalize(vec3(n2d, z));
     }
 
-    // Normalize light direction
-    let light = normalize(LIGHT_DIR);
-
-    // Phong shading
-    let ambient = 0.15;
-    let n_dot_l = max(dot(normal, light), 0.0);
-    let diffuse = n_dot_l;
-
-    // Specular (Blinn-Phong)
-    let view_dir = vec3<f32>(0.0, 0.0, 1.0);
-    let half_dir = normalize(light + view_dir);
-    let spec_angle = max(dot(normal, half_dir), 0.0);
-    let specular = pow(spec_angle, in.shininess);
-
-    // Fresnel rim glow (use normal.z as facing ratio)
-    let fresnel = pow(1.0 - max(normal.z, 0.0), 3.0);
-    let rim = fresnel * 0.4;
-
     // Determine final base color (stripe detection for pool balls)
+    // Stripes use LOCAL p.y so they rotate with the ball (correct!)
     var final_base_color = in.base_color;
     if (is_striped_ball) {
         // Striped ball: colored band in middle, white outside
@@ -305,10 +317,84 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    // Combine lighting
-    let lit = final_base_color * (ambient + diffuse * 0.7) + vec3<f32>(1.0) * specular * 0.5 + final_base_color * rim;
+    // Transform normal from local space to world space for lighting
+    // The normal's XY components need to be rotated by the entity's rotation
+    // so that light reflections stay fixed in world space as the ball spins
+    let cos_r = cos(in.rotation);
+    let sin_r = sin(in.rotation);
+    let world_normal = vec3<f32>(
+        normal.x * cos_r - normal.y * sin_r,
+        normal.x * sin_r + normal.y * cos_r,
+        normal.z
+    );
 
-    // HDR emissive multiplier
+    // View direction (orthographic, looking down -Z)
+    let view_dir = vec3<f32>(0.0, 0.0, 1.0);
+
+    // Fresnel rim glow (use world_normal.z as facing ratio)
+    let fresnel = pow(1.0 - max(world_normal.z, 0.0), 3.0);
+    let rim = fresnel * 0.4;
+
+    // Get light count and ambient from uniforms
+    let ambient = light_uniforms.ambient_and_count.xyz;
+    let light_count = u32(light_uniforms.ambient_and_count.w);
+
+    // Compute world position of this fragment
+    // p is in normalized local space [-1, 1], need to rotate to world space first
+    let p_world = vec2<f32>(
+        p.x * cos_r - p.y * sin_r,
+        p.x * sin_r + p.y * cos_r
+    );
+    let frag_world_pos = in.world_center + p_world * in.world_radius;
+
+    // Accumulate lighting from scene lights
+    var diffuse_accum = vec3<f32>(0.0);
+    var specular_accum = vec3<f32>(0.0);
+
+    if (light_count > 0u) {
+        // Dynamic scene lights
+        for (var i = 0u; i < light_count; i = i + 1u) {
+            let light = lights[i];
+            let light_pos = vec2<f32>(light.x, light.y);
+            let delta = light_pos - frag_world_pos;
+            let d = length(delta);
+
+            // Smooth quadratic falloff: (1 - d/r)^2
+            let norm_dist = saturate(1.0 - d / light.radius);
+            let attenuation = norm_dist * norm_dist;
+
+            // Light direction in 3D: (dx, dy, height_above_surface)
+            let light_height = light.radius * 0.3;
+            let light_dir = normalize(vec3<f32>(delta, light_height));
+
+            // Diffuse (N·L) - scaled down to avoid over-saturation with multiple lights
+            let n_dot_l = max(dot(world_normal, light_dir), 0.0);
+            let light_color = vec3<f32>(light.r, light.g, light.b) * light.intensity;
+            diffuse_accum = diffuse_accum + light_color * n_dot_l * attenuation * 0.5;
+
+            // Specular (Blinn-Phong) - toned down significantly for pool balls
+            let half_dir = normalize(light_dir + view_dir);
+            let spec_angle = max(dot(world_normal, half_dir), 0.0);
+            let specular = pow(spec_angle, in.shininess);
+            specular_accum = specular_accum + light_color * specular * attenuation * 0.35;
+        }
+    } else {
+        // Fallback: use hardcoded directional light when no scene lights
+        let light_dir = normalize(FALLBACK_LIGHT_DIR);
+        let n_dot_l = max(dot(world_normal, light_dir), 0.0);
+        diffuse_accum = vec3<f32>(0.7) * n_dot_l;
+
+        let half_dir = normalize(light_dir + view_dir);
+        let spec_angle = max(dot(world_normal, half_dir), 0.0);
+        specular_accum = vec3<f32>(0.5) * pow(spec_angle, in.shininess);
+    }
+
+    // Combine lighting: ambient + diffuse + specular + rim
+    // When using dynamic lights, reduce rim effect to avoid over-brightness
+    let rim_factor = select(rim, rim * 0.3, light_count > 0u);
+    let lit = final_base_color * (ambient + diffuse_accum) + specular_accum + final_base_color * rim_factor;
+
+    // HDR emissive multiplier (only for emissive shapes, not for lit pool balls)
     let hdr_mult = 1.0 + in.emissive * SDF_EMISSIVE_MULT;
     let final_color = lit * hdr_mult;
 

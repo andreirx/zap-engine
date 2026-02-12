@@ -40,6 +40,7 @@ export interface BindGroupResources {
   colorsBindGroup: GPUBindGroup;
   instanceBindGroup: GPUBindGroup;
   sdfBindGroup: GPUBindGroup;
+  sdfLightBindGroup: GPUBindGroup;
   emptyBindGroup: GPUBindGroup;
 }
 
@@ -49,6 +50,7 @@ export interface LayoutResources {
   instanceBindGroupLayout: GPUBindGroupLayout;
   colorsBindGroupLayout: GPUBindGroupLayout;
   sdfBindGroupLayout: GPUBindGroupLayout;
+  sdfLightBindGroupLayout: GPUBindGroupLayout;
   emptyBindGroupLayout: GPUBindGroupLayout;
 }
 
@@ -182,6 +184,14 @@ export function createLayouts(device: GPUDevice): LayoutResources {
     }],
   });
 
+  // SDF light bind group: light uniforms + light storage for dynamic lighting
+  const sdfLightBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+    ],
+  });
+
   const emptyBindGroupLayout = device.createBindGroupLayout({ entries: [] });
 
   return {
@@ -190,6 +200,7 @@ export function createLayouts(device: GPUDevice): LayoutResources {
     instanceBindGroupLayout,
     colorsBindGroupLayout,
     sdfBindGroupLayout,
+    sdfLightBindGroupLayout,
     emptyBindGroupLayout,
   };
 }
@@ -290,6 +301,14 @@ export function createBindGroups(
     entries: [{ binding: 0, resource: { buffer: buffers.sdfStorageBuffer } }],
   });
 
+  const sdfLightBindGroup = device.createBindGroup({
+    layout: layouts.sdfLightBindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer: buffers.lightUniformBuffer } },
+      { binding: 1, resource: { buffer: buffers.lightStorageBuffer } },
+    ],
+  });
+
   const emptyBindGroup = device.createBindGroup({
     layout: layouts.emptyBindGroupLayout,
     entries: [],
@@ -300,6 +319,7 @@ export function createBindGroups(
     colorsBindGroup,
     instanceBindGroup,
     sdfBindGroup,
+    sdfLightBindGroup,
     emptyBindGroup,
   };
 }

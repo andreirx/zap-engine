@@ -36,7 +36,7 @@ export function createEffectsPipelineLayout(
 }
 
 /**
- * Create pipeline layout for SDF rendering (camera + sdf storage).
+ * Create pipeline layout for SDF rendering (camera + sdf storage + lights).
  */
 export function createSdfPipelineLayout(
   device: GPUDevice,
@@ -46,6 +46,7 @@ export function createSdfPipelineLayout(
     bindGroupLayouts: [
       layouts.cameraBindGroupLayout,
       layouts.sdfBindGroupLayout,
+      layouts.sdfLightBindGroupLayout,
     ],
   });
 }
