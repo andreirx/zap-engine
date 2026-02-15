@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod render;
 pub mod effects;
 pub mod emitter;

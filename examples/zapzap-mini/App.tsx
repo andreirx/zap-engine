@@ -11,6 +11,7 @@ const ASSETS_URL = '/examples/zapzap-mini/public/assets/assets.json';
 export function App() {
   const [score, setScore] = useState(0);
   const [lastZap, setLastZap] = useState(0);
+  const [timingCollapsed, setTimingCollapsed] = useState(true);
 
   const onGameEvent = useCallback((events: GameEvent[]) => {
     for (const e of events) {
@@ -105,7 +106,16 @@ export function App() {
         }}>
           {isReady ? `${fps} FPS` : 'Loading...'}
         </div>
-        {isReady && <TimingBars timing={timing} usPerPixel={50} maxWidth={150} barHeight={6} />}
+        {isReady && (
+          <TimingBars
+            timing={timing}
+            usPerPixel={50}
+            maxWidth={150}
+            barHeight={6}
+            collapsed={timingCollapsed}
+            onToggle={() => setTimingCollapsed(!timingCollapsed)}
+          />
+        )}
       </div>
       {isReady && (
         <div style={{

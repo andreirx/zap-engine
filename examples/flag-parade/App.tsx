@@ -183,6 +183,7 @@ function FlagIcon({ flagIndex }: { flagIndex: number }) {
 
 export function App() {
   const [selected, setSelected] = useState(0);
+  const [timingCollapsed, setTimingCollapsed] = useState(true);
 
   const { canvasRef, sendEvent, fps, isReady, canvasKey, timing } = useZapEngine({
     wasmUrl: WASM_URL,
@@ -261,7 +262,16 @@ export function App() {
         }}>
           {isReady ? `${fps} fps` : 'loading...'}
         </div>
-        {isReady && <TimingBars timing={timing} usPerPixel={50} maxWidth={150} barHeight={6} />}
+        {isReady && (
+          <TimingBars
+            timing={timing}
+            usPerPixel={50}
+            maxWidth={150}
+            barHeight={6}
+            collapsed={timingCollapsed}
+            onToggle={() => setTimingCollapsed(!timingCollapsed)}
+          />
+        )}
       </div>
     </div>
   );

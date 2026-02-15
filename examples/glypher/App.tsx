@@ -1,11 +1,14 @@
 // Glypher — a ZapEngine handwriting game.
 
+import { useState } from 'react';
 import { useZapEngine, TimingBars } from '@zap/web/react';
 
 const WASM_URL = '/examples/glypher/pkg/glypher.js';
 const ASSETS_URL = '/examples/glypher/public/assets/assets.json';
 
 export function App() {
+  const [timingCollapsed, setTimingCollapsed] = useState(true);
+
   const { canvasRef, sendEvent, fps, isReady, canvasKey, timing } = useZapEngine({
     wasmUrl: WASM_URL,
     assetsUrl: ASSETS_URL,
@@ -35,7 +38,16 @@ export function App() {
         }}>
           {isReady ? `${fps} fps` : 'loading...'}
         </div>
-        {isReady && <TimingBars timing={timing} usPerPixel={50} maxWidth={150} barHeight={6} />}
+        {isReady && (
+          <TimingBars
+            timing={timing}
+            usPerPixel={50}
+            maxWidth={150}
+            barHeight={6}
+            collapsed={timingCollapsed}
+            onToggle={() => setTimingCollapsed(!timingCollapsed)}
+          />
+        )}
       </div>
     </div>
   );

@@ -243,12 +243,12 @@ impl ProtocolLayout {
 mod tests {
     use super::*;
 
-    // Default values for testing
-    const DEFAULT_MAX_INSTANCES: usize = 512;
+    // Default values for testing (must match GameConfig::default())
+    const DEFAULT_MAX_INSTANCES: usize = 2048;
     const DEFAULT_MAX_EFFECTS_VERTICES: usize = 16384;
     const DEFAULT_MAX_SOUNDS: usize = 32;
     const DEFAULT_MAX_EVENTS: usize = 32;
-    const DEFAULT_MAX_SDF_INSTANCES: usize = 128;
+    const DEFAULT_MAX_SDF_INSTANCES: usize = 256;
     #[cfg(feature = "vectors")]
     const DEFAULT_MAX_VECTOR_VERTICES: usize = 16384;
     #[cfg(not(feature = "vectors"))]

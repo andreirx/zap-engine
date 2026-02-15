@@ -28,9 +28,12 @@ pub use systems::lighting::{PointLight, LightState};
 pub use bridge::protocol::{LIGHT_FLOATS, DEFAULT_MAX_LIGHTS};
 #[cfg(feature = "physics")]
 pub use systems::debug::debug_draw_colliders;
+pub use components::animation::{AnimationComponent, AnimationDef};
 pub use components::emitter::{EmitterComponent, EmissionMode, ParticleColorMode};
 pub use components::mesh::{MeshComponent, SDFShape, SDFColor};
+pub use components::tilemap::{TilemapComponent, Tile};
 pub use renderer::sdf_instance::{SDFInstance, SDFBuffer};
+pub use systems::animation::tick_animations;
 
 #[cfg(feature = "physics")]
 pub use core::physics::{

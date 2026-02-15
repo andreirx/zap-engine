@@ -73,12 +73,13 @@ impl Default for GameConfig {
             fixed_dt: 1.0 / 60.0,
             world_width: 800.0,
             world_height: 600.0,
-            max_entities: 512,
-            max_instances: 512,
+            // Increased capacities for large-scale games (tilemaps, many units)
+            max_entities: 2048,
+            max_instances: 2048,
             max_effects_vertices: 16384,
             max_sounds: 32,
             max_events: 32,
-            max_sdf_instances: 128,
+            max_sdf_instances: 256,
             #[cfg(feature = "vectors")]
             max_vector_vertices: 16384,
             max_layer_batches: DEFAULT_MAX_LAYER_BATCHES,

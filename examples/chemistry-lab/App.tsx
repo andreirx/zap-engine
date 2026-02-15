@@ -127,6 +127,7 @@ export function App() {
   const [vsperBondCount, setVsperBondCount] = useState(0);
   const [elements, setElements] = useState<ElementInfo[]>([]);
   const [hoveredElement, setHoveredElement] = useState<ElementInfo | null>(null);
+  const [timingCollapsed, setTimingCollapsed] = useState(true);
 
   // Load periodic table data
   useEffect(() => {
@@ -526,7 +527,8 @@ export function App() {
               usPerPixel={50}
               maxWidth={150}
               barHeight={6}
-              showHistory={true}
+              collapsed={timingCollapsed}
+              onToggle={() => setTimingCollapsed(!timingCollapsed)}
             />
           </div>
         )}

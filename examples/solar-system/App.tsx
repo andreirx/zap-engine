@@ -53,6 +53,7 @@ export function App() {
   const [dateStr, setDateStr] = useState('');
   const [selectedPlanet, setSelectedPlanet] = useState<number | null>(null);
   const [selectedDist, setSelectedDist] = useState(0);
+  const [timingCollapsed, setTimingCollapsed] = useState(true);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -276,7 +277,14 @@ export function App() {
           }}>
             {fps} FPS
           </div>
-          <TimingBars timing={timing} usPerPixel={50} maxWidth={150} barHeight={6} />
+          <TimingBars
+            timing={timing}
+            usPerPixel={50}
+            maxWidth={150}
+            barHeight={6}
+            collapsed={timingCollapsed}
+            onToggle={() => setTimingCollapsed(!timingCollapsed)}
+          />
         </div>
       )}
     </div>

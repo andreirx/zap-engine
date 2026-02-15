@@ -1,5 +1,6 @@
 use glam::Vec2;
 use crate::api::types::EntityId;
+use crate::components::animation::AnimationComponent;
 use crate::components::layer::RenderLayer;
 use crate::components::sprite::SpriteComponent;
 use crate::components::emitter::EmitterComponent;
@@ -34,6 +35,8 @@ pub struct Entity {
     pub emitter: Option<EmitterComponent>,
     /// SDF mesh (optional — rendered via the molecule pipeline).
     pub mesh: Option<MeshComponent>,
+    /// Animation (optional — auto-updates sprite col/row each frame).
+    pub animation: Option<AnimationComponent>,
 }
 
 impl Entity {
@@ -52,6 +55,7 @@ impl Entity {
             body: None,
             emitter: None,
             mesh: None,
+            animation: None,
         }
     }
 
@@ -100,6 +104,11 @@ impl Entity {
 
     pub fn with_mesh(mut self, mesh: MeshComponent) -> Self {
         self.mesh = Some(mesh);
+        self
+    }
+
+    pub fn with_animation(mut self, animation: AnimationComponent) -> Self {
+        self.animation = Some(animation);
         self
     }
 }

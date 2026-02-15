@@ -27,3 +27,19 @@ For all future Python tasks, assume I require a virtual environment (venv) or wi
 - **MAP.md:** Every directory must contain a `MAP.md` explaining *what* the module does and *how* it connects to the architecture.
 - **Architectural Decision Records (ADR):** If we choose a physics engine or data structure, log it in `docs/DECISIONS.md`.
 - **Keep Good Documentation** - in the docs folder - create it and document your overall findings in there too.
+
+# System Intent (WHY)
+This repository contains a high-reliability, safety-critical product. The objective is rock-solid execution, not a Minimum Viable Product. Structural decisions must prioritize long-term maintainability, hardware-independence, and off-target testability. 
+
+# Clean Architecture Directives (UNIVERSAL RULES)
+1. **The Dependency Rule:** Source code dependencies must point strictly inward toward `core/`. Elements in `core/` must never import or reference entities from `adapters/` or `infrastructure/`.
+2. **Boundary Enforcement:** Data crossing architectural boundaries must utilize simple Data Transfer Objects (DTOs). Do not pass framework-specific objects, hardware structs, or database rows across boundaries.
+3. **Volatility Isolation:** Hardware, databases, and frameworks are volatile external details. Isolate them behind strict abstraction layers (e.g., HAL, OSAL, Gateways).
+4. **Architectural Decisions:** When encountering an architectural fork, halt and ask for clarification. Do not unilaterally select an architecture pattern. Provide evidence and explain the underlying mechanics of available options to facilitate a decision.
+
+# Progressive Disclosure Context
+Do not assume domain specifics. Read the relevant files din docs before modifying their associated domains (and update them when the user input justifies it)
+* architecture decisions: Historical context and existing structural boundaries.
+* hardware abstractions: Protocols for the HAL and off-target simulation requirements.
+* database schema: Persistence layer rules and Gateway interface implementations.
+* testing strategy: Rules for the Test API and decoupled verification.

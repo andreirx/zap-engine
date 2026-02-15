@@ -9,7 +9,7 @@ const ASSETS_URL = '/examples/pool-game/public/assets/assets.json';
 
 export function App() {
   const [ballsRemaining, setBallsRemaining] = useState(15);
-  const [timingCollapsed, setTimingCollapsed] = useState(false);
+  const [timingCollapsed, setTimingCollapsed] = useState(true);
   const [isPortrait, setIsPortrait] = useState(false);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
