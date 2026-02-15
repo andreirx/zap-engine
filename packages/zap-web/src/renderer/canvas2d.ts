@@ -3,7 +3,7 @@
 
 import { computeProjection } from './camera';
 import { SEGMENT_COLORS_RGB8 } from './constants';
-import type { Renderer, LayerBatchDescriptor, BakeState, LightingState } from './types';
+import type { Renderer, LayerBatchDescriptor, BakeState, LightingState, DrawTiming } from './types';
 import type { AssetManifest } from '../assets/manifest';
 import { createImageFromBlob } from '../assets/loader';
 import {
@@ -371,7 +371,9 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     layerBatches?: LayerBatchDescriptor[],
     bakeState?: BakeState,
     _lightingState?: LightingState,
-  ) {
+  ): DrawTiming {
+    const drawStart = performance.now();
+
     const w = canvas.width;
     const h = canvas.height;
     const { scaleX, scaleY } = computeProjection(w, h, gameWidth, gameHeight);
@@ -447,6 +449,14 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     }
 
     ctx!.restore();
+
+    // Measure draw call submission time
+    const drawUs = (performance.now() - drawStart) * 1000;
+
+    // Canvas2D rasterization happens asynchronously after draw calls return.
+    // We can't measure it without getImageData() which is too expensive.
+    // The unmeasured frame time IS the rasterization time on Canvas2D.
+    return { drawUs, rasterUs: 0 };
   }
 
   function resize(width: number, height: number) {

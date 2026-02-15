@@ -60,6 +60,11 @@ pub struct GameConfig {
     /// For Y-down coordinate systems, use positive Y for downward gravity.
     #[cfg(feature = "physics")]
     pub gravity: glam::Vec2,
+    /// Number of physics substeps per game update. Default: 1.
+    /// For high-precision physics (e.g., pool/billiards), use 4 for 240Hz physics
+    /// with 60Hz game updates. Physics dt = fixed_dt / physics_substeps.
+    #[cfg(feature = "physics")]
+    pub physics_substeps: u32,
 }
 
 impl Default for GameConfig {
@@ -81,6 +86,8 @@ impl Default for GameConfig {
             effects_seed: 42,
             #[cfg(feature = "physics")]
             gravity: glam::Vec2::ZERO,
+            #[cfg(feature = "physics")]
+            physics_substeps: 1,
         }
     }
 }
@@ -396,6 +403,9 @@ impl EngineContext {
 }
 
 // -- Physics convenience methods --
+// NOTE: ISP compliance via feature-gating.
+// Games that don't enable `physics` feature won't see these methods at all.
+// This prevents forcing games to "depend" on physics API they don't use.
 
 #[cfg(feature = "physics")]
 impl EngineContext {

@@ -33,6 +33,14 @@ export interface LightingState {
   ambient: [number, number, number];
 }
 
+/** Timing data returned from renderer.draw() */
+export interface DrawTiming {
+  /** Time spent submitting draw commands (μs). */
+  drawUs: number;
+  /** Time spent in actual rasterization/GPU work (μs). Canvas2D: measured via getImageData sync. */
+  rasterUs: number;
+}
+
 export interface Renderer {
   /** The active backend: 'webgpu' for HDR/EDR, 'canvas2d' for fallback. */
   backend: 'webgpu' | 'canvas2d';
@@ -54,6 +62,7 @@ export interface Renderer {
    * @param layerBatches  Optional layer batch descriptors for layered rendering
    * @param bakeState     Optional bake state for layer caching
    * @param lightingState Optional dynamic lighting data (point lights + ambient)
+   * @returns Timing data for profiling (draw submission + rasterization times)
    */
   draw: (
     instanceData: Float32Array,
@@ -68,7 +77,7 @@ export interface Renderer {
     layerBatches?: LayerBatchDescriptor[],
     bakeState?: BakeState,
     lightingState?: LightingState,
-  ) => void;
+  ) => DrawTiming;
 
   /** Handle canvas resize. */
   resize: (width: number, height: number) => void;

@@ -30,12 +30,16 @@ export interface GameEvent {
 export interface PerformanceTiming {
   /** WASM tick execution time in microseconds (current frame). */
   wasmTimeUs: number;
-  /** GPU/render submission time in microseconds (current frame). */
-  gpuTimeUs: number;
+  /** Draw call submission time in microseconds (current frame). */
+  drawTimeUs: number;
+  /** Actual frame-to-frame time in microseconds. */
+  frameTimeUs: number;
   /** Rolling history of WASM times for visualization (newest last). */
   wasmHistory: number[];
-  /** Rolling history of GPU times for visualization (newest last). */
-  gpuHistory: number[];
+  /** Rolling history of draw times for visualization (newest last). */
+  drawHistory: number[];
+  /** Rolling history of frame times for visualization (newest last). */
+  frameHistory: number[];
 }
 
 /** Number of frames to keep in timing history (for bar visualization). */
@@ -95,9 +99,11 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
   const [canvasKey, setCanvasKey] = useState(0);
   const [timing, setTiming] = useState<PerformanceTiming>({
     wasmTimeUs: 0,
-    gpuTimeUs: 0,
+    drawTimeUs: 0,
+    frameTimeUs: 0,
     wasmHistory: [],
-    gpuHistory: [],
+    drawHistory: [],
+    frameHistory: [],
   });
 
   // Mutable refs for values accessed in the render loop / event handlers
@@ -112,8 +118,10 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
 
   // Timing history refs (mutable arrays to avoid state updates every frame)
   const wasmHistoryRef = useRef<number[]>([]);
-  const gpuHistoryRef = useRef<number[]>([]);
+  const drawHistoryRef = useRef<number[]>([]);
+  const frameHistoryRef = useRef<number[]>([]);
   const lastTimingUpdateRef = useRef<number>(0);
+  const prevFrameTimeRef = useRef<number>(0);
 
   // Keep callback ref fresh
   onGameEventRef.current = onGameEvent;
@@ -314,8 +322,8 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
     }
 
     // --- Draw ---
-    /** Draw frame and return timing data: { wasmTimeUs, gpuTimeUs } */
-    function drawFromBuffer(buf: Float32Array): { wasmTimeUs: number; gpuTimeUs: number } | null {
+    /** Draw frame and return timing data */
+    function drawFromBuffer(buf: Float32Array): { wasmTimeUs: number; drawTimeUs: number; rasterTimeUs: number } | null {
       const renderer = rendererRef.current;
       const layout = layoutRef.current;
       if (!renderer || !layout) return null;
@@ -323,8 +331,8 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       const frame = readFrameState(buf, layout);
       if (!frame) return null;
 
-      const gpuStart = performance.now();
-      renderer.draw(
+      // Renderer returns timing for draw calls and rasterization
+      const drawTiming = renderer.draw(
         frame.instanceData,
         frame.instanceCount,
         frame.atlasSplit,
@@ -338,16 +346,26 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         frame.bakeState,
         frame.lightingState,
       );
-      const gpuTimeUs = (performance.now() - gpuStart) * 1000; // ms to μs
 
-      return { wasmTimeUs: frame.wasmTimeUs, gpuTimeUs };
+      return {
+        wasmTimeUs: frame.wasmTimeUs,
+        drawTimeUs: drawTiming.drawUs,
+        rasterTimeUs: drawTiming.rasterUs,
+      };
     }
 
     // --- Render loop ---
     function startRenderLoop() {
+      prevFrameTimeRef.current = performance.now();
+
       function frame() {
+        // Measure frame-to-frame time
+        const now = performance.now();
+        const frameTimeUs = (now - prevFrameTimeRef.current) * 1000; // ms to μs
+        prevFrameTimeRef.current = now;
+
         const buf = sharedF32Ref.current;
-        let frameTiming: { wasmTimeUs: number; gpuTimeUs: number } | null = null;
+        let frameTiming: { wasmTimeUs: number; drawTimeUs: number } | null = null;
         if (buf) {
           frameTiming = drawFromBuffer(buf);
         }
@@ -355,18 +373,20 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         // Track timing history
         if (frameTiming) {
           const wasmHist = wasmHistoryRef.current;
-          const gpuHist = gpuHistoryRef.current;
+          const drawHist = drawHistoryRef.current;
+          const frameHist = frameHistoryRef.current;
 
           wasmHist.push(frameTiming.wasmTimeUs);
-          gpuHist.push(frameTiming.gpuTimeUs);
+          drawHist.push(frameTiming.drawTimeUs);
+          frameHist.push(frameTimeUs);
 
           // Limit history size
           if (wasmHist.length > TIMING_HISTORY_SIZE) wasmHist.shift();
-          if (gpuHist.length > TIMING_HISTORY_SIZE) gpuHist.shift();
+          if (drawHist.length > TIMING_HISTORY_SIZE) drawHist.shift();
+          if (frameHist.length > TIMING_HISTORY_SIZE) frameHist.shift();
         }
 
         // FPS calculation
-        const now = performance.now();
         frameCount++;
         fpsAccumulator += now - lastFrameTime;
         lastFrameTime = now;
@@ -380,12 +400,15 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         if (now - lastTimingUpdateRef.current > 100) {
           lastTimingUpdateRef.current = now;
           const wasmHist = wasmHistoryRef.current;
-          const gpuHist = gpuHistoryRef.current;
+          const drawHist = drawHistoryRef.current;
+          const frameHist = frameHistoryRef.current;
           setTiming({
             wasmTimeUs: frameTiming?.wasmTimeUs ?? 0,
-            gpuTimeUs: frameTiming?.gpuTimeUs ?? 0,
+            drawTimeUs: frameTiming?.drawTimeUs ?? 0,
+            frameTimeUs,
             wasmHistory: [...wasmHist],
-            gpuHistory: [...gpuHist],
+            drawHistory: [...drawHist],
+            frameHistory: [...frameHist],
           });
         }
 

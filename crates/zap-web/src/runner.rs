@@ -47,7 +47,9 @@ impl<G: Game> GameRunner<G> {
         let mut ctx = EngineContext::with_config(&config);
         #[cfg(feature = "physics")]
         {
-            ctx.physics.set_dt(config.fixed_dt);
+            // Physics dt = game dt / substeps (e.g., 1/60 / 4 = 1/240 for 240Hz physics)
+            let physics_dt = config.fixed_dt / config.physics_substeps.max(1) as f32;
+            ctx.physics.set_dt(physics_dt);
         }
 
         Self {
@@ -99,8 +101,13 @@ impl<G: Game> GameRunner<G> {
         let steps = self.timestep.accumulate(dt);
         for _ in 0..steps {
             self.game.update(&mut self.ctx, &self.input);
+
+            // Run physics substeps (e.g., 4 substeps = 240Hz physics with 60Hz game updates)
             #[cfg(feature = "physics")]
-            self.ctx.step_physics();
+            for _ in 0..self.config.physics_substeps.max(1) {
+                self.ctx.step_physics();
+            }
+
             tick_emitters(&mut self.ctx.scene, &mut self.ctx.effects, self.timestep.dt());
             self.ctx.effects.tick(self.timestep.dt());
         }

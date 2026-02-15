@@ -1039,3 +1039,497 @@ renderer/webgpu/
 - **Con:** More files to navigate (12 vs 1)
 - **Con:** Import chains are longer (facade → submodule → helper)
 - **Con:** Some duplication in type imports across modules
+
+---
+
+## ADR-030: Component Volatility Profiles
+
+**Date:** 2026-02-13
+**Status:** Accepted
+
+### Context
+Clean Architecture requires mapping component stability (how likely to change) to ensure stable components never depend on volatile ones. This ADR formally documents the volatility profile of every ZapEngine component.
+
+### Volatility Classification
+
+**Stability Tiers:**
+- **Stable (S)**: Core logic, mathematical truths. Changes break games. Change frequency: yearly or never.
+- **Semi-Stable (SS)**: Interfaces and abstractions. Changes require coordinated updates. Change frequency: monthly.
+- **Volatile (V)**: Delivery mechanisms, frameworks, hardware. Subject to platform evolution. Change frequency: weekly to monthly.
+
+### Component Volatility Map
+
+#### Rust Crates
+
+| Component | Tier | Rationale |
+|-----------|------|-----------|
+| `zap-engine/api/game.rs` (Game trait) | **S** | Contract for all games. Change breaks every game. |
+| `zap-engine/api/types.rs` (EntityId, etc.) | **S** | Fundamental types. Used everywhere. |
+| `zap-engine/components/entity.rs` | **S** | Entity data model. Fat entity decision is architectural. |
+| `zap-engine/components/sprite.rs` | **S** | Sprite representation. Wire format dependent. |
+| `zap-engine/components/layer.rs` | **S** | 6-layer enum. Adding layers is breaking. |
+| `zap-engine/core/scene.rs` | **S** | Entity storage. Simple Vec. |
+| `zap-engine/core/physics.rs` | **SS** | Wraps Rapier. Rapier API could change in major versions. |
+| `zap-engine/renderer/instance.rs` | **S** | RenderInstance POD struct. Wire format = stable. |
+| `zap-engine/bridge/protocol.rs` | **S** | SAB layout. Protocol version guards changes. |
+| `zap-engine/systems/effects/` | **SS** | Particle/arc logic. Visual, may evolve. |
+| `zap-engine/systems/lighting.rs` | **SS** | Light model. May add shadows, attenuation curves. |
+| `zap-engine/systems/text.rs` | **SS** | Text spawning. Font rendering may evolve. |
+| `zap-engine/input/queue.rs` | **S** | Input events. Simple, stable. |
+| `zap-web/runner.rs` | **SS** | GameRunner. Coordinates all systems. |
+| `zap-web/lib.rs` (export_game! macro) | **SS** | Macro generates WASM exports. Protocol changes require updates. |
+
+#### TypeScript Packages
+
+| Component | Tier | Rationale |
+|-----------|------|-----------|
+| `packages/zap-web/src/renderer/types.ts` | **S** | Renderer interface. HAL contract. |
+| `packages/zap-web/src/worker/protocol.ts` | **S** | Protocol constants. Mirrors Rust. |
+| `packages/zap-web/src/worker/frame-reader.ts` | **SS** | SAB parsing. Protocol-dependent. |
+| `packages/zap-web/src/renderer/webgpu/` | **V** | WebGPU API. Browser implementations evolving. |
+| `packages/zap-web/src/renderer/canvas2d.ts` | **V** | Canvas 2D fallback. May need optimization. |
+| `packages/zap-web/src/renderer/*.wgsl` | **V** | WGSL shaders. GPU-specific, may need tuning. |
+| `packages/zap-web/src/assets/` | **SS** | Asset loading. Manifest format is stable. |
+| `packages/zap-web/src/audio/` | **V** | Web Audio API. Browser quirks. |
+| `packages/zap-web/src/react/useZapEngine.ts` | **V** | React hook. React version dependent. |
+| `packages/zap-web/src/react/TimingBars.tsx` | **V** | Debug UI. Frequently tweaked. |
+
+#### External Dependencies
+
+| Dependency | Tier | Rationale |
+|------------|------|-----------|
+| `glam` | **S** | Math library. Stable, widely used. |
+| `bytemuck` | **S** | POD traits. Simple, stable. |
+| `serde` | **S** | Serialization. De facto standard. |
+| `rapier2d` | **SS** | Physics engine. Major versions may break API. |
+| `lyon` | **SS** | Tessellation. Stable but complex. |
+| `wasm-bindgen` | **SS** | WASM FFI. Evolving with WebAssembly spec. |
+| WebGPU API | **V** | Browser API. Still maturing (2026). |
+| React | **V** | UI framework. Major versions break hooks. |
+
+### Dependency Rule Compliance
+
+**✅ Correct (Stable → Volatile):**
+```
+Game code → zap-engine (S) → zap-web (SS) → WebGPU (V)
+                ↓
+           rapier2d (SS)
+```
+
+**✅ Correct (Abstraction protects volatility):**
+```
+useZapEngine (V) ──uses──▶ Renderer interface (S)
+                               │
+                    ┌──────────┼──────────┐
+                    ▼          ▼          ▼
+               WebGPU (V)  Canvas2D (V)  Future (V)
+```
+
+**⚠️ Watch Point:**
+- `EngineContext` (S) directly references `PhysicsWorld` which wraps `rapier2d` (SS)
+- Mitigation: Feature-gated. Non-physics games don't compile rapier2d.
+
+### Consequences
+- **Pro:** Clear documentation for contributors about what's safe to change
+- **Pro:** Identifies abstraction boundaries that protect volatile dependencies
+- **Pro:** Guides future refactoring decisions
+- **Pro:** New developers understand stability expectations
+
+### When to Update This ADR
+- Adding a new crate or major module
+- Changing a component's stability tier
+- Adding or removing an external dependency
+- After a breaking change forces games to update
+
+---
+
+## ADR-031: EngineContext Remains a Unified Facade
+
+**Date:** 2026-02-13
+**Status:** Accepted
+
+### Context
+Clean Architecture's Interface Segregation Principle (ISP) suggests that clients should not depend on methods they don't use. The `EngineContext` struct exposes ~25 public methods across physics, rendering, text, baking, and core systems. A strict ISP interpretation would split this into:
+
+```rust
+// Hypothetical split
+pub trait CoreContext { fn next_id(&mut self) -> EntityId; ... }
+pub trait PhysicsContext { fn spawn_with_body(...); ... }
+pub trait RenderContext { fn bake_layer(...); ... }
+pub trait TextContext { fn spawn_text(...); ... }
+
+pub trait Game {
+    fn update(
+        &mut self,
+        core: &mut dyn CoreContext,
+        physics: Option<&mut dyn PhysicsContext>,
+        render: &mut dyn RenderContext,
+        text: &mut dyn TextContext,
+        input: &InputQueue,
+    );
+}
+```
+
+### Decision
+**Keep EngineContext as a unified facade.** Do NOT split into trait-based contexts.
+
+### Rationale
+
+1. **Feature-gating already achieves ISP at compile time:**
+   ```rust
+   #[cfg(feature = "physics")]
+   impl EngineContext {
+       pub fn spawn_with_body(...) { ... }
+   }
+   ```
+   Games without `physics` feature don't see physics methods — they literally don't compile. This is stronger than runtime trait segregation.
+
+2. **Single facade is simpler for game developers:**
+   - Current: `ctx.spawn_with_body(entity, desc, material)`
+   - Split: `physics.spawn_with_body(entity, desc, material)` — requires tracking multiple context handles
+
+3. **No runtime overhead:**
+   - Trait objects (`dyn Context`) add vtable indirection
+   - Feature-gated impl blocks are zero-cost — the code doesn't exist when disabled
+
+4. **Methods coordinate multiple subsystems:**
+   - `despawn()` removes entity from Scene AND cleans up PhysicsWorld
+   - `spawn_text()` generates IDs AND spawns entities
+   - Splitting would require cross-context coordination, reintroducing coupling
+
+5. **Subsystem access is already available:**
+   - Games can access `ctx.scene`, `ctx.physics`, `ctx.lights` directly
+   - The facade methods are conveniences, not gatekeepers
+
+### Trade-offs Accepted
+- Games with `physics` enabled see physics methods even if not using them
+- Adding a new subsystem means adding methods to EngineContext (centralized change point)
+
+### Mitigations
+- Group methods with clear `// -- Section --` comments
+- Feature-gate optional subsystem methods (`#[cfg(feature = "...")]`)
+- Document each method's purpose in rustdoc
+- Keep method count reasonable (~25 is manageable; reconsider at ~50)
+
+### Consequences
+- **Pro:** Simpler API for game developers
+- **Pro:** Zero runtime overhead (no trait objects)
+- **Pro:** Compile-time ISP via feature flags
+- **Pro:** Atomic operations across subsystems (despawn cleans up everything)
+- **Con:** EngineContext file grows with each new subsystem
+- **Con:** Not strictly ISP-compliant at the type level (acceptable trade-off)
+
+---
+
+## ADR-032: Rust Renderer Trait for Future Native Targets
+
+**Date:** 2026-02-13
+**Status:** Accepted
+
+### Context
+Currently, all rendering happens in TypeScript (`packages/zap-web/src/renderer/`). The Rust engine produces data structures (`RenderInstance`, `SDFInstance`, `PointLight`) that are serialized to SharedArrayBuffer and consumed by the TypeScript renderer.
+
+For future native targets (iOS/macOS Metal, Android/desktop Vulkan), we need a Rust-side renderer interface that can accept the same data structures and perform GPU rendering directly.
+
+### Decision
+Add a `Renderer` trait and supporting types in `crates/zap-engine/src/renderer/traits.rs`:
+
+```rust
+pub trait Renderer {
+    fn backend(&self) -> &'static str;  // "metal", "vulkan", "webgpu"
+    fn tier(&self) -> RenderTier;       // HdrEdr, HdrSrgb, Sdr, Software
+    fn draw(&mut self, frame: &FrameData) -> DrawTiming;
+    fn resize(&mut self, width: u32, height: u32);
+}
+
+pub struct FrameData<'a> {
+    pub instances: &'a [RenderInstance],
+    pub layer_batches: &'a [LayerBatch],
+    pub sdf_instances: &'a [SDFInstance],
+    pub effects_vertices: &'a [EffectsVertex],
+    pub vector_vertices: &'a [VectorVertex],
+    pub bake_state: BakeState,
+    pub lighting: &'a LightingState,
+    pub world_width: f32,
+    pub world_height: f32,
+}
+```
+
+**Key design choices:**
+
+1. **Mirrors TypeScript interface**: `RenderTier`, `DrawTiming`, `LightingState` match the TypeScript types in `packages/zap-web/src/renderer/types.ts`.
+
+2. **FrameData aggregates all render data**: Single struct holds references to all render data, avoiding parameter explosion.
+
+3. **No implementation yet**: The trait is defined but not implemented. Future crates (`zap-metal`, `zap-vulkan`) will provide implementations.
+
+4. **Zero overhead for WASM**: The trait is not used in the WASM path — TypeScript handles rendering. Adding the trait doesn't change binary size or performance.
+
+### Consequences
+- **Pro:** Clear contract for future native renderers
+- **Pro:** Type parity with TypeScript renderer interface
+- **Pro:** Supports multiple backends via trait objects or compile-time monomorphization
+- **Pro:** FrameData documents all data needed for a complete frame
+- **Con:** Trait is currently unused — exists for future expansion
+- **Con:** Maintaining two renderer interfaces (Rust trait + TypeScript interface) requires sync
+
+### Future Work
+- Implement `MetalRenderer` for iOS/macOS games
+- Implement `VulkanRenderer` for cross-platform native games
+- Add `ShaderCompiler` trait for WGSL → MSL/SPIR-V translation
+
+---
+
+## ADR-033: ECS Migration Path (Fat Entity → Component Storage)
+
+**Date:** 2026-02-13
+**Status:** Planned (Not Yet Implemented)
+
+### Context
+The current "fat entity" model (ADR-001) stores all components directly in the Entity struct:
+
+```rust
+pub struct Entity {
+    pub id: EntityId,
+    pub pos: Vec2,
+    pub rotation: f32,
+    pub scale: Vec2,
+    pub sprite: Option<SpriteComponent>,
+    pub emitter: Option<EmitterComponent>,
+    pub mesh: Option<MeshComponent>,
+    #[cfg(feature = "physics")]
+    pub body: Option<PhysicsBody>,
+}
+```
+
+This works well for small games (< 500 entities) but has limitations:
+
+1. **Memory waste**: Every entity allocates space for all components (even if unused)
+2. **Cache pollution**: Iterating sprites also loads emitter/mesh/body data
+3. **Component coupling**: Adding a new component type requires modifying Entity struct
+4. **Query inefficiency**: No way to iterate "all entities with sprite AND physics" efficiently
+
+### Decision
+**Plan migration to sparse component storage** — implement when entity counts exceed 1000.
+
+**Phase 1: Parallel Storage (Non-Breaking)**
+Keep Entity struct unchanged. Add optional component arrays:
+
+```rust
+pub struct Scene {
+    entities: Vec<Entity>,
+    // New: sparse component storage for hot-path systems
+    sprite_storage: SparseSet<EntityId, SpriteComponent>,
+    transform_storage: SparseSet<EntityId, Transform>,  // pos + rot + scale
+}
+```
+
+- Existing code continues to use `entity.sprite`
+- Hot-path systems (rendering) use sparse sets for cache efficiency
+- Sync between fat entity and sparse storage happens once per frame
+
+**Phase 2: Component Traits (Breaking)**
+Remove components from Entity struct. Use traits for storage:
+
+```rust
+pub struct Entity {
+    pub id: EntityId,
+    // Position/rotation/scale moved to TransformComponent
+}
+
+pub trait ComponentStorage<C> {
+    fn insert(&mut self, id: EntityId, component: C);
+    fn get(&self, id: EntityId) -> Option<&C>;
+    fn remove(&mut self, id: EntityId) -> Option<C>;
+    fn iter(&self) -> impl Iterator<Item = (EntityId, &C)>;
+}
+
+// Query system
+let sprites_with_physics = scene
+    .query::<(&SpriteComponent, &PhysicsBody)>()
+    .iter();
+```
+
+**Phase 3: Full ECS (Optional)**
+If query complexity warrants it, adopt a full ECS like `hecs` or `bevy_ecs`:
+
+```rust
+// bevy_ecs style
+world.spawn((
+    Transform::new(pos),
+    SpriteComponent::new(...),
+    PhysicsBody::new(...),
+));
+
+for (entity, transform, sprite) in world.query::<(Entity, &Transform, &Sprite)>() {
+    // Cache-efficient iteration
+}
+```
+
+### Triggers for Migration
+- Entity count regularly exceeds 1000
+- Profiling shows cache misses in render/physics loops
+- New component types being added frequently
+- Need for complex component queries
+
+### Consequences
+- **Pro:** Path to scale without redesign
+- **Pro:** Phase 1 is non-breaking
+- **Pro:** Deferred complexity — don't pay until needed
+- **Con:** Migration will require game code changes (Phase 2+)
+- **Con:** Query system adds API complexity
+
+### Current Recommendation
+**Do not implement yet.** The fat entity model serves current use cases well. Revisit when:
+- A game needs > 1000 entities
+- Multiple games need the same new component type
+- Profiling shows entity iteration as a bottleneck
+
+---
+
+## ADR-034: Event Bus for Decoupled System Communication
+
+**Date:** 2026-02-13
+**Status:** Planned (Not Yet Implemented)
+
+### Context
+Current system communication is direct:
+
+```rust
+// In game update:
+ctx.effects.spawn_particles(...);  // Direct call
+ctx.emit_sound(SoundEvent::Explosion);  // Direct call
+self.physics.apply_impulse(...);  // Direct call
+
+// In emitter system:
+tick_emitters(&mut ctx.scene, &mut ctx.effects, dt);  // Direct borrowing
+```
+
+This works well for a small number of systems but has limitations:
+
+1. **Borrow conflicts**: Can't iterate scene while spawning effects
+2. **Tight coupling**: Adding a new system requires modifying existing systems
+3. **No async**: All communication is synchronous
+4. **Testing difficulty**: Hard to mock inter-system communication
+
+### Decision
+**Plan event bus implementation** — implement when system count exceeds 8.
+
+**Proposed Design:**
+
+```rust
+/// Event bus using typed channels
+pub struct EventBus {
+    channels: TypeMap,  // TypeId -> Vec<Box<dyn Any>>
+}
+
+impl EventBus {
+    /// Publish an event (buffered until flush)
+    pub fn publish<E: Event>(&mut self, event: E) {
+        self.channels.get_or_insert::<E>().push(event);
+    }
+
+    /// Subscribe to events of type E
+    pub fn subscribe<E: Event>(&self) -> impl Iterator<Item = &E> {
+        self.channels.get::<E>().iter()
+    }
+
+    /// Clear all event buffers (call at frame end)
+    pub fn flush(&mut self) {
+        self.channels.clear();
+    }
+}
+
+/// Event trait for type safety
+pub trait Event: 'static + Send + Sync {}
+
+// Example events
+pub struct CollisionEvent { pub a: EntityId, pub b: EntityId, pub point: Vec2 }
+pub struct SpawnParticlesEvent { pub pos: Vec2, pub count: u32 }
+pub struct PlaySoundEvent { pub id: SoundEvent }
+
+impl Event for CollisionEvent {}
+impl Event for SpawnParticlesEvent {}
+impl Event for PlaySoundEvent {}
+```
+
+**Usage Pattern:**
+
+```rust
+// Publisher (physics system)
+fn step_physics(&mut self, events: &mut EventBus) {
+    for collision in self.detect_collisions() {
+        events.publish(CollisionEvent { a, b, point });
+    }
+}
+
+// Subscriber (effects system)
+fn process_collisions(&mut self, events: &EventBus) {
+    for collision in events.subscribe::<CollisionEvent>() {
+        self.spawn_particles(collision.point, 10);
+    }
+}
+
+// Game loop
+fn tick(&mut self) {
+    self.physics.step(&mut self.events);
+    self.effects.process_collisions(&self.events);
+    self.audio.process_sounds(&self.events);
+    self.events.flush();
+}
+```
+
+### Triggers for Implementation
+- System count exceeds 8
+- Borrow conflicts become frequent
+- Need for async system communication (e.g., network events)
+- Testing requires mocking system interactions
+
+### Trade-offs
+- **Pro:** Decouples systems completely
+- **Pro:** Enables parallel system execution (future)
+- **Pro:** Easier testing via event injection
+- **Pro:** Natural fit for networking (events → network packets)
+- **Con:** Indirection overhead (publish/subscribe vs direct call)
+- **Con:** Event ordering becomes implicit (harder to reason about)
+- **Con:** Type erasure via Any requires runtime type checks
+
+### Current Recommendation
+**Do not implement yet.** Direct communication works well for current system count (6-7 systems). Revisit when:
+- Adding network multiplayer (events → packets natural fit)
+- System count exceeds 8
+- Borrow conflicts require workarounds like `collect()` frequently
+
+---
+
+## ADR-035: Architecture Improvement Tracking
+
+**Date:** 2026-02-13
+**Status:** Living Document
+
+### Summary of Clean Architecture Compliance
+
+| Improvement | Status | ADR |
+|-------------|--------|-----|
+| Document volatility profiles | ✅ Complete | ADR-030 |
+| Feature-gate EngineContext methods | ✅ Already Done | (physics impl block) |
+| Split EngineContext into traits | ⏸️ Rejected | ADR-031 |
+| Add Rust Renderer trait | ✅ Complete | ADR-032 |
+| Replace fat Entity with ECS | 📋 Planned | ADR-033 |
+| Add event bus | 📋 Planned | ADR-034 |
+
+### Architecture Scorecard (Updated)
+
+| Clean Architecture Phase | Before | After | Notes |
+|--------------------------|--------|-------|-------|
+| Phase 1: Pre-Design | 8/10 | 9/10 | +Volatility docs (ADR-030) |
+| Phase 2: Boundaries | 8/10 | 8/10 | HAL good; ECS deferred |
+| Phase 3: SOLID | 6/10 | 7/10 | +ISP docs, trait pattern |
+| Phase 4: Maintenance | 9/10 | 9/10 | Excellent testability |
+
+**Overall: 7.75/10 → 8.25/10**
+
+### Next Steps When Scaling
+1. When entity count > 1000: Implement ADR-033 Phase 1
+2. When system count > 8: Implement ADR-034
+3. When targeting native: Implement ADR-032 renderers

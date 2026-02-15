@@ -4,7 +4,7 @@
 // Manifest-driven: accepts N atlases, creates one pipeline per atlas.
 
 import { buildProjectionMatrix, computeProjection } from './camera';
-import type { Renderer, LayerBatchDescriptor, BakeState, LightingState } from './types';
+import type { Renderer, LayerBatchDescriptor, BakeState, LightingState, DrawTiming } from './types';
 import type { AssetManifest } from '../assets/manifest';
 import { LayerCompositor } from './compositor';
 
@@ -260,7 +260,9 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     layerBatches?: LayerBatchDescriptor[],
     bakeState?: BakeState,
     lightingState?: LightingState,
-  ) {
+  ): DrawTiming {
+    const drawStart = performance.now();
+
     // Upload instance data
     const byteLen = instanceCount * INSTANCE_STRIDE_BYTES;
     device.queue.writeBuffer(buffers.instanceBuffer, 0, instanceData.buffer, instanceData.byteOffset, byteLen);
@@ -384,6 +386,15 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     }
 
     device.queue.submit([encoder.finish()]);
+
+    // Measure draw call submission time
+    // Note: WebGPU GPU execution is async; we can't easily measure actual GPU time
+    // without timestamp queries. This only measures CPU-side submission.
+    const drawUs = (performance.now() - drawStart) * 1000;
+
+    // For WebGPU, rasterization happens on GPU asynchronously.
+    // We report 0 since we can't measure it without timestamp queries.
+    return { drawUs, rasterUs: 0 };
   }
 
   // ---- Resize Function ----

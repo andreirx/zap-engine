@@ -27,8 +27,10 @@ export interface TimingBarsProps {
 
 /** Color for WASM timing bars. */
 const WASM_COLOR = '#4CAF50'; // Green
-/** Color for GPU timing bars. */
+/** Color for GPU/Draw timing bars. */
 const GPU_COLOR = '#2196F3'; // Blue
+/** Color for idle/wait time (compositor, VSync, rasterization). */
+const IDLE_COLOR = '#9E9E9E'; // Gray
 /** Color for frame time exceeding budget (>16.67ms = 60fps). */
 const OVER_BUDGET_COLOR = '#FF5722'; // Orange-red
 
@@ -50,35 +52,42 @@ export function TimingBars({
   onToggle,
   collapsed = false,
 }: TimingBarsProps) {
-  const { wasmTimeUs, gpuTimeUs, wasmHistory, gpuHistory } = timing;
+  const {
+    wasmTimeUs, drawTimeUs, frameTimeUs,
+    wasmHistory, drawHistory, frameHistory,
+  } = timing;
 
   // Convert microseconds to pixels
   const wasmWidth = Math.min(Math.round(wasmTimeUs / usPerPixel), maxWidth);
-  const gpuWidth = Math.min(Math.round(gpuTimeUs / usPerPixel), maxWidth);
+  const drawWidth = Math.min(Math.round(drawTimeUs / usPerPixel), maxWidth);
+
+  // Raster time = frame time - measured work (WASM + Draw)
+  // On Canvas2D this is software rasterization, on WebGPU it's GPU + VSync
+  const measuredUs = wasmTimeUs + drawTimeUs;
+  const rasterTimeUs = Math.max(0, frameTimeUs - measuredUs);
+  const rasterWidth = Math.min(Math.round(rasterTimeUs / usPerPixel), maxWidth);
 
   // Check if over frame budget (16.67ms = 16670μs for 60 FPS)
   const frameBudgetUs = 16670;
-  const totalFrameUs = wasmTimeUs + gpuTimeUs;
-  const isOverBudget = totalFrameUs > frameBudgetUs;
+  const isOverBudget = frameTimeUs > frameBudgetUs;
 
   // Generate history canvas data
   const historyCanvas = useMemo(() => {
-    if (!showHistory || wasmHistory.length === 0) return null;
+    if (!showHistory || frameHistory.length === 0) return null;
 
-    const width = Math.min(wasmHistory.length, maxWidth);
-    const height = barHeight * 3; // Space for both bars + gap
+    const width = Math.min(frameHistory.length, maxWidth);
+    const height = barHeight * 2; // Just one row for frame time breakdown
 
-    // Find max for scaling
+    // Find max frame time for scaling (use actual frame times, not just measured)
     const maxTime = Math.max(
-      ...wasmHistory.slice(-width),
-      ...gpuHistory.slice(-width),
-      1000, // Minimum scale of 1ms
+      ...frameHistory.slice(-width),
+      frameBudgetUs, // At least show the 60fps budget line
     );
 
     return { width, height, maxTime };
-  }, [showHistory, wasmHistory, gpuHistory, maxWidth, barHeight]);
+  }, [showHistory, frameHistory, maxWidth, barHeight]);
 
-  // Collapsed view - just show total time
+  // Collapsed view - just show frame time
   if (collapsed) {
     return (
       <div
@@ -94,7 +103,7 @@ export function TimingBars({
           ...style,
         }}
       >
-        {(totalFrameUs / 1000).toFixed(1)}ms
+        {(frameTimeUs / 1000).toFixed(1)}ms
       </div>
     );
   }
@@ -114,36 +123,61 @@ export function TimingBars({
       }}
     >
       {/* Labels and current values */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 4 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
         <span>
           <span style={{ color: WASM_COLOR }}>WASM</span>:{' '}
           {(wasmTimeUs / 1000).toFixed(2)}ms
         </span>
         <span>
-          <span style={{ color: GPU_COLOR }}>GPU</span>:{' '}
-          {(gpuTimeUs / 1000).toFixed(2)}ms
+          <span style={{ color: GPU_COLOR }}>Draw</span>:{' '}
+          {(drawTimeUs / 1000).toFixed(2)}ms
         </span>
-        <span style={{ color: isOverBudget ? OVER_BUDGET_COLOR : '#888' }}>
-          Total: {(totalFrameUs / 1000).toFixed(2)}ms
+        <span>
+          <span style={{ color: OVER_BUDGET_COLOR }}>Raster</span>:{' '}
+          {(rasterTimeUs / 1000).toFixed(1)}ms
+        </span>
+        <span style={{ color: isOverBudget ? OVER_BUDGET_COLOR : '#fff' }}>
+          Frame: {(frameTimeUs / 1000).toFixed(1)}ms
         </span>
       </div>
 
-      {/* Current frame bars */}
+      {/* Current frame bars - stacked horizontally to show breakdown */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {/* WASM bar */}
+        {/* Combined frame breakdown bar */}
         <div
           style={{
             width: maxWidth,
             height: barHeight,
             background: '#333',
             position: 'relative',
+            display: 'flex',
           }}
         >
+          {/* WASM portion (green) */}
           <div
             style={{
               width: wasmWidth,
               height: '100%',
               background: WASM_COLOR,
+              flexShrink: 0,
+            }}
+          />
+          {/* Draw call portion (blue) */}
+          <div
+            style={{
+              width: drawWidth,
+              height: '100%',
+              background: GPU_COLOR,
+              flexShrink: 0,
+            }}
+          />
+          {/* Raster portion (orange - software rasterization on Canvas2D, GPU+VSync on WebGPU) */}
+          <div
+            style={{
+              width: rasterWidth,
+              height: '100%',
+              background: OVER_BUDGET_COLOR,
+              flexShrink: 0,
             }}
           />
           {/* 16.67ms budget line */}
@@ -155,36 +189,7 @@ export function TimingBars({
               width: 1,
               height: '100%',
               background: '#FF5722',
-              opacity: 0.5,
-            }}
-          />
-        </div>
-
-        {/* GPU bar */}
-        <div
-          style={{
-            width: maxWidth,
-            height: barHeight,
-            background: '#333',
-            position: 'relative',
-          }}
-        >
-          <div
-            style={{
-              width: gpuWidth,
-              height: '100%',
-              background: GPU_COLOR,
-            }}
-          />
-          <div
-            style={{
-              position: 'absolute',
-              left: Math.round(frameBudgetUs / usPerPixel),
-              top: 0,
-              width: 1,
-              height: '100%',
-              background: '#FF5722',
-              opacity: 0.5,
+              opacity: 0.7,
             }}
           />
         </div>
@@ -194,65 +199,72 @@ export function TimingBars({
       {showHistory && historyCanvas && (
         <div style={{ marginTop: 6 }}>
           <div style={{ fontSize: 9, color: '#888', marginBottom: 2 }}>
-            History ({wasmHistory.length} frames)
+            History ({frameHistory.length} frames)
           </div>
           <svg
             width={historyCanvas.width}
             height={historyCanvas.height}
             style={{ background: '#222', borderRadius: 2 }}
           >
-            {/* Render WASM history bars */}
-            {wasmHistory.slice(-historyCanvas.width).map((val, i) => {
-              const h = Math.max(1, (val / historyCanvas.maxTime) * barHeight);
+            {/* 60 FPS budget line */}
+            <line
+              x1={0}
+              y1={historyCanvas.height - (frameBudgetUs / historyCanvas.maxTime) * historyCanvas.height}
+              x2={historyCanvas.width}
+              y2={historyCanvas.height - (frameBudgetUs / historyCanvas.maxTime) * historyCanvas.height}
+              stroke="#fff"
+              strokeWidth={1}
+              opacity={0.3}
+            />
+            {/* Render frame time bars - stacked: WASM, Draw, Raster */}
+            {frameHistory.slice(-historyCanvas.width).map((frame, i) => {
+              const startIdx = frameHistory.length - historyCanvas.width;
+              const wasm = wasmHistory[startIdx + i] ?? 0;
+              const draw = drawHistory[startIdx + i] ?? 0;
+              const raster = Math.max(0, frame - wasm - draw);
+
+              const scale = historyCanvas.height / historyCanvas.maxTime;
+              const wasmH = wasm * scale;
+              const drawH = draw * scale;
+              const rasterH = raster * scale;
+
+              let y = historyCanvas.height;
+
               return (
-                <rect
-                  key={`w${i}`}
-                  x={i}
-                  y={barHeight - h}
-                  width={1}
-                  height={h}
-                  fill={WASM_COLOR}
-                  opacity={0.8}
-                />
-              );
-            })}
-            {/* Render GPU history bars below WASM */}
-            {gpuHistory.slice(-historyCanvas.width).map((val, i) => {
-              const h = Math.max(1, (val / historyCanvas.maxTime) * barHeight);
-              return (
-                <rect
-                  key={`g${i}`}
-                  x={i}
-                  y={barHeight + 2 + (barHeight - h)}
-                  width={1}
-                  height={h}
-                  fill={GPU_COLOR}
-                  opacity={0.8}
-                />
-              );
-            })}
-            {/* Combined frame time at bottom */}
-            {wasmHistory.slice(-historyCanvas.width).map((wasm, i) => {
-              const gpu = gpuHistory[gpuHistory.length - historyCanvas.width + i] ?? 0;
-              const total = wasm + gpu;
-              const h = Math.max(1, (total / (historyCanvas.maxTime * 2)) * barHeight);
-              const overBudget = total > frameBudgetUs;
-              return (
-                <rect
-                  key={`t${i}`}
-                  x={i}
-                  y={(barHeight + 2) * 2 + (barHeight - h)}
-                  width={1}
-                  height={h}
-                  fill={overBudget ? OVER_BUDGET_COLOR : '#888'}
-                  opacity={0.6}
-                />
+                <g key={i}>
+                  {/* WASM at bottom (green) */}
+                  <rect
+                    x={i}
+                    y={(y -= wasmH)}
+                    width={1}
+                    height={Math.max(0.5, wasmH)}
+                    fill={WASM_COLOR}
+                    opacity={0.9}
+                  />
+                  {/* Draw above WASM (blue) */}
+                  <rect
+                    x={i}
+                    y={(y -= drawH)}
+                    width={1}
+                    height={Math.max(0.5, drawH)}
+                    fill={GPU_COLOR}
+                    opacity={0.9}
+                  />
+                  {/* Raster at top (orange - the bottleneck on Canvas2D) */}
+                  <rect
+                    x={i}
+                    y={(y -= rasterH)}
+                    width={1}
+                    height={Math.max(0.5, rasterH)}
+                    fill={OVER_BUDGET_COLOR}
+                    opacity={0.9}
+                  />
+                </g>
               );
             })}
           </svg>
           <div style={{ fontSize: 9, color: '#666', marginTop: 2 }}>
-            Scale: {(historyCanvas.maxTime / 1000).toFixed(1)}ms |{' '}
-            {usPerPixel}μs/px
+            Max: {(historyCanvas.maxTime / 1000).toFixed(1)}ms | 60fps budget line
           </div>
         </div>
       )}

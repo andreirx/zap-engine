@@ -65,6 +65,7 @@ const DENSITY: f32 = 0.01;  // Very low density so impulse = velocity
 const MAX_SHOT_SPEED: f32 = 6400.0;
 const SHOT_SCALE: f32 = 8.0;
 
+
 // Pocket simulation constants
 // Container radius = visual pocket radius - ball radius, so balls stay inside visually
 const POCKET_CONTAINER_RADIUS: f32 = POCKET_VISUAL_RADIUS - BALL_RADIUS;  // ~16
@@ -685,6 +686,88 @@ impl PoolGame {
         projection.distance(point)
     }
 
+    /// Check if a ball has escaped the play area and handle it.
+    /// Simple position check - if ball center is outside the cushion boundaries, it escaped.
+    fn check_escaped_balls(&mut self, ctx: &mut EngineContext) {
+        // Play area bounds - inside the cushions
+        let left = TABLE_X + CUSHION;           // 115
+        let right = TABLE_X + TABLE_W - CUSHION; // 1045
+        let top = TABLE_Y + CUSHION;            // 115
+        let bottom = TABLE_Y + TABLE_H - CUSHION; // 545
+
+        let pockets = Self::pocket_positions();
+
+        // Collect escaped balls
+        let mut escaped: Vec<(usize, Vec2)> = Vec::new();
+        for (i, ball) in self.balls.iter().enumerate() {
+            if ball.pocketed {
+                continue;
+            }
+            if let Some(entity) = ctx.scene.get(ball.entity_id) {
+                let pos = entity.pos;
+                if pos.x < left || pos.x > right || pos.y < top || pos.y > bottom {
+                    escaped.push((i, pos));
+                }
+            }
+        }
+
+        // Handle escaped balls
+        for (i, escaped_pos) in escaped.iter().rev() {
+            let ball = &mut self.balls[*i];
+            let ball_number = ball.ball_number;
+            let old_id = ball.entity_id;
+
+            if ball_number == 0 {
+                // Cue ball escaped - despawn and respawn
+                log::warn!("Cue ball escaped at {:?} - respawning", escaped_pos);
+                ctx.despawn(old_id);
+                ball.pocketed = true;
+                self.cue_ball_id = None;
+            } else {
+                // Numbered ball escaped - find nearest pocket and pocket it there
+                let nearest_pocket = pockets.iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| {
+                        a.distance(*escaped_pos).partial_cmp(&b.distance(*escaped_pos)).unwrap()
+                    })
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(0);
+
+                log::warn!("Ball {} escaped at {:?} - pocketing to pocket {}",
+                    ball_number, escaped_pos, nearest_pocket);
+                ctx.despawn(old_id);
+
+                // Spawn visual-only ball at the pocket on Terrain layer
+                let ball_def = &BALLS[ball_number as usize];
+                let mesh = match ball_def.ball_type {
+                    BallType::Cue => MeshComponent::pool_ball(BALL_RADIUS, ball_def.color),
+                    BallType::Solid => MeshComponent::pool_ball(BALL_RADIUS, ball_def.color),
+                    BallType::Striped => MeshComponent::striped_sphere(BALL_RADIUS, ball_def.color),
+                };
+
+                let new_id = ctx.next_id();
+                let pocket_pos = pockets[nearest_pocket];
+                let entity = Entity::new(new_id)
+                    .with_tag(&format!("pocketed_{}", ball_number))
+                    .with_pos(pocket_pos)
+                    .with_layer(RenderLayer::Terrain)
+                    .with_mesh(mesh);
+                ctx.scene.spawn(entity);
+
+                // Add to pocket simulation with zero velocity (it just dropped in)
+                self.pockets[nearest_pocket].add_ball(ball_number, new_id, Vec2::ZERO);
+
+                ball.entity_id = new_id;
+                ball.pocketed = true;
+            }
+        }
+
+        // Respawn cue ball if needed and we're aiming
+        if self.cue_ball_id.is_none() && self.state == GameState::Aiming {
+            self.spawn_cue_ball(ctx);
+        }
+    }
+
     /// Check if any balls are in pockets - uses trajectory detection for fast balls
     fn check_pockets(&mut self, ctx: &mut EngineContext) {
         let pockets = Self::pocket_positions();
@@ -821,6 +904,8 @@ impl Game for PoolGame {
             max_sdf_instances: 32,  // 16 balls
             max_lights: 16,  // XXX pattern needs 11 lights
             gravity: Vec2::ZERO,  // Top-down view, no gravity
+            // 240Hz physics for precise ball collisions (4 substeps × 60Hz = 240Hz)
+            physics_substeps: 4,
             ..GameConfig::default()
         }
     }
@@ -875,6 +960,9 @@ impl Game for PoolGame {
 
         // Check for pocketed balls
         self.check_pockets(ctx);
+
+        // Check for escaped balls (tunneled through cushions on slow devices)
+        self.check_escaped_balls(ctx);
 
         // Simulate pocketed balls in their pocket containers
         let dt = self.config().fixed_dt;
