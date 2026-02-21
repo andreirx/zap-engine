@@ -37,9 +37,17 @@ macro_rules! export_game {
 
         fn with_runner<R>(f: impl FnOnce(&mut $crate::GameRunner<$game_type>) -> R) -> R {
             RUNNER.with(|cell| {
-                let mut borrow = cell.borrow_mut();
-                let runner = borrow.as_mut().expect("Game not initialized. Call game_init() first.");
-                f(runner)
+                if let Ok(mut borrow) = cell.try_borrow_mut() {
+                    if let Some(runner) = borrow.as_mut() {
+                        f(runner)
+                    } else {
+                        web_sys::console::error_1(&"Game not initialized. Call game_init() first.".into());
+                        panic!("Game not initialized");
+                    }
+                } else {
+                    web_sys::console::error_1(&"GameRunner is already borrowed! Re-entrancy detected or previous panic poisoned it.".into());
+                    panic!("BorrowMutError on RUNNER");
+                }
             })
         }
 

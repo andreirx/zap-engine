@@ -27,7 +27,7 @@ pub struct GameRunner<G: Game> {
     /// Layer batch descriptors from the most recent frame.
     layer_batches: Vec<LayerBatch>,
     /// Flat f32 buffer of layer batch data for SharedArrayBuffer reads.
-    /// Each batch: [layer_id, start, end, atlas_split] = 4 floats.
+    /// Each batch: [layer_id, start, end, atlas_id] = 4 floats.
     layer_batch_buffer: Vec<f32>,
 }
 
@@ -91,15 +91,18 @@ impl<G: Game> GameRunner<G> {
     /// Run one frame tick: update game, build render buffer, run effects.
     pub fn tick(&mut self, dt: f32) {
         if !self.initialized {
+            web_sys::console::log_1(&"GameRunner not initialized".into());
             return;
         }
 
+        web_sys::console::log_1(&"tick: clear frame data".into());
         // Clear per-frame transient data
         self.ctx.clear_frame_data();
 
         // Fixed timestep accumulation
         let steps = self.timestep.accumulate(dt);
         for _ in 0..steps {
+            web_sys::console::log_1(&"tick: game.update".into());
             self.game.update(&mut self.ctx, &self.input);
 
             // Run physics substeps (e.g., 4 substeps = 240Hz physics with 60Hz game updates)
@@ -108,28 +111,34 @@ impl<G: Game> GameRunner<G> {
                 self.ctx.step_physics();
             }
 
+            web_sys::console::log_1(&"tick: emitters".into());
             tick_emitters(&mut self.ctx.scene, &mut self.ctx.effects, self.timestep.dt());
             self.ctx.effects.tick(self.timestep.dt());
         }
 
+        web_sys::console::log_1(&"tick: drain input".into());
         // Drain input after update
         self.input.drain();
 
+        web_sys::console::log_1(&"tick: render buffer".into());
         // Build render buffer from entities (returns layer batch descriptors)
         self.layer_batches = build_render_buffer(self.ctx.scene.iter(), &mut self.render_buffer);
 
+        web_sys::console::log_1(&"tick: layer batches".into());
         // Serialize layer batches to flat f32 buffer for SAB
         self.layer_batch_buffer.clear();
         for batch in &self.layer_batches {
             self.layer_batch_buffer.push(batch.layer.as_u8() as f32);
             self.layer_batch_buffer.push(batch.start as f32);
             self.layer_batch_buffer.push(batch.end as f32);
-            self.layer_batch_buffer.push(batch.atlas_split as f32);
+            self.layer_batch_buffer.push(batch.atlas_id as f32);
         }
 
+        web_sys::console::log_1(&"tick: sdf".into());
         // Build SDF buffer from entities with mesh components
         zap_engine::systems::sdf_render::build_sdf_buffer(self.ctx.scene.iter(), &mut self.sdf_buffer);
 
+        web_sys::console::log_1(&"tick: custom render commands".into());
         // Allow game to add custom render commands
         {
             let mut render_ctx = RenderContext {
@@ -138,14 +147,17 @@ impl<G: Game> GameRunner<G> {
             self.game.render(&mut render_ctx);
         }
 
+        web_sys::console::log_1(&"tick: rebuild effects".into());
         // Rebuild effects buffer
         self.ctx.effects.rebuild_effects_buffer();
-
+        
+        web_sys::console::log_1(&"tick: sound buffer".into());
         // Pack sound events into flat buffer
         self.sound_buffer.clear();
         for sound in &self.ctx.sounds {
             self.sound_buffer.push(sound.0 as u8);
         }
+        web_sys::console::log_1(&"tick: complete".into());
     }
 
     // ---- Pointer accessors for SharedArrayBuffer reads ----

@@ -59,7 +59,7 @@ export const SDF_INSTANCE_FLOATS = 12;
 /** Floats per vector vertex: x, y, r, g, b, a (wire format — never changes). */
 export const VECTOR_VERTEX_FLOATS = 6;
 
-/** Floats per layer batch descriptor: layer_id, start, end, atlas_split. */
+/** Floats per layer batch descriptor: layer_id, start, end, atlas_id. */
 export const LAYER_BATCH_FLOATS = 4;
 
 /** Floats per point light: x, y, r, g, b, intensity, radius, layer_mask. */
@@ -88,8 +88,8 @@ export const LIGHT_STRIDE_BYTES = LIGHT_FLOATS * 4; // 32
 // Defaults
 // ============================================================================
 
-/** Default maximum layer batches (one per RenderLayer). */
-export const DEFAULT_MAX_LAYER_BATCHES = 6;
+/** Default maximum layer batches (one per (layer, atlas) pair). */
+export const DEFAULT_MAX_LAYER_BATCHES = 48;
 
 /** Default maximum point lights. */
 export const DEFAULT_MAX_LIGHTS = 64;

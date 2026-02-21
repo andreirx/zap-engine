@@ -322,16 +322,12 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     instanceData: Float32Array,
     batchStart: number,
     batchEnd: number,
-    batchAtlasSplit: number,
+    batchAtlasId: number,
   ) {
-    const secondAtlas = manifest.atlases.length > 1 ? 1 : 0;
-    // Atlas 0 portion
-    for (let i = batchStart; i < batchAtlasSplit; i++) {
-      drawInstance(c, instanceData, i * INSTANCE_FLOATS, 0);
-    }
-    // Atlas 1+ portion
-    for (let i = batchAtlasSplit; i < batchEnd; i++) {
-      drawInstance(c, instanceData, i * INSTANCE_FLOATS, secondAtlas);
+    // With N-atlas support, all instances in a batch use the same atlas
+    const atlasIdx = Math.min(batchAtlasId, images.length - 1);
+    for (let i = batchStart; i < batchEnd; i++) {
+      drawInstance(c, instanceData, i * INSTANCE_FLOATS, atlasIdx);
     }
   }
 
@@ -399,7 +395,7 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
             cache.offCtx.clearRect(0, 0, w, h);
             cache.offCtx.save();
             cache.offCtx.scale(scaleX, scaleY);
-            drawBatchRange(cache.offCtx as unknown as CanvasRenderingContext2D, instanceData, batch.start, batch.end, batch.atlasSplit);
+            drawBatchRange(cache.offCtx as unknown as CanvasRenderingContext2D, instanceData, batch.start, batch.end, batch.atlasId);
             cache.offCtx.restore();
             cache.lastBakeGen = bakeState!.bakeGen;
           }
@@ -410,11 +406,16 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
           ctx!.restore();
         } else {
           // Live layer: draw directly
-          drawBatchRange(ctx!, instanceData, batch.start, batch.end, batch.atlasSplit);
+          drawBatchRange(ctx!, instanceData, batch.start, batch.end, batch.atlasId);
         }
       }
     } else {
-      drawBatchRange(ctx!, instanceData, 0, instanceCount, atlasSplit);
+      // Legacy path: atlasSplit marks where atlas 0 ends
+      // Draw atlas 0 portion, then atlas 1 portion (backward compat for old games)
+      drawBatchRange(ctx!, instanceData, 0, atlasSplit, 0);
+      if (atlasSplit < instanceCount) {
+        drawBatchRange(ctx!, instanceData, atlasSplit, instanceCount, 1);
+      }
     }
 
     // Vector geometry (drawn between sprites and SDF)

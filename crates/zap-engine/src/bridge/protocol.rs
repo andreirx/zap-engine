@@ -73,14 +73,15 @@ pub const SDF_INSTANCE_FLOATS: usize = 12;
 /// Floats per vector vertex: x, y, r, g, b, a (wire format — never changes).
 pub const VECTOR_VERTEX_FLOATS: usize = 6;
 
-/// Floats per layer batch descriptor: layer_id, start, end, atlas_split.
+/// Floats per layer batch descriptor: layer_id, start, end, atlas_id.
 pub const LAYER_BATCH_FLOATS: usize = 4;
 
 /// Floats per point light: x, y, r, g, b, intensity, radius, layer_mask.
 pub const LIGHT_FLOATS: usize = 8;
 
-/// Default maximum layer batches (one per RenderLayer).
-pub const DEFAULT_MAX_LAYER_BATCHES: usize = 6;
+/// Default maximum layer batches (one per (layer, atlas) pair).
+/// With 6 layers and up to 8 atlases, 48 is a reasonable default.
+pub const DEFAULT_MAX_LAYER_BATCHES: usize = 48;
 
 /// Default maximum point lights.
 pub const DEFAULT_MAX_LIGHTS: usize = 64;

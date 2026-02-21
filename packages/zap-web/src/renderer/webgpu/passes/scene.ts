@@ -9,7 +9,7 @@ export type DrawBatchFn = (
   pass: GPURenderPassEncoder,
   batchStart: number,
   batchEnd: number,
-  batchAtlasSplit: number,
+  batchAtlasId: number,
 ) => void;
 
 export interface ScenePassConfig {
@@ -38,70 +38,47 @@ export interface ScenePassConfig {
 
 /**
  * Create a function that draws batch instances using the correct atlas pipeline.
+ * With N-atlas support, each batch has a single atlasId and all instances use that atlas.
  */
 export function createDrawBatchFn(config: ScenePassConfig): DrawBatchFn {
   const { alphaPipelines, cameraBindGroup, textureBindGroups, instanceBindGroup } = config;
 
-  return (pass, batchStart, batchEnd, batchAtlasSplit) => {
-    // Atlas 0 portion: [batchStart..batchAtlasSplit)
-    const atlas0Count = batchAtlasSplit - batchStart;
-    if (atlas0Count > 0 && alphaPipelines.length > 0) {
-      pass.setPipeline(alphaPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas0Count, 0, batchStart);
-    }
+  return (pass, batchStart, batchEnd, batchAtlasId) => {
+    const instanceCount = batchEnd - batchStart;
+    if (instanceCount <= 0) return;
 
-    // Atlas 1+ portion: [batchAtlasSplit..batchEnd)
-    const atlas1Count = batchEnd - batchAtlasSplit;
-    if (atlas1Count > 0 && alphaPipelines.length > 1) {
-      pass.setPipeline(alphaPipelines[1]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[1]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
-    } else if (atlas1Count > 0 && alphaPipelines.length === 1) {
-      // Single atlas: draw remaining with same pipeline
-      pass.setPipeline(alphaPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, textureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
-    }
+    // Clamp atlas ID to available pipelines (fallback to atlas 0 if out of range)
+    const atlasIdx = Math.min(batchAtlasId, alphaPipelines.length - 1);
+    if (atlasIdx < 0 || alphaPipelines.length === 0) return;
+
+    pass.setPipeline(alphaPipelines[atlasIdx]);
+    pass.setBindGroup(0, cameraBindGroup);
+    pass.setBindGroup(1, textureBindGroups[atlasIdx]);
+    pass.setBindGroup(2, instanceBindGroup);
+    pass.draw(6, instanceCount, 0, batchStart);
   };
 }
 
 /**
  * Create a function that draws batch instances using normal-map pipelines.
+ * With N-atlas support, each batch has a single atlasId and all instances use that atlas.
  */
 export function createDrawNormalBatchFn(config: ScenePassConfig): DrawBatchFn {
   const { normalPipelines, cameraBindGroup, normalTextureBindGroups, instanceBindGroup } = config;
 
-  return (pass, batchStart, batchEnd, batchAtlasSplit) => {
-    const atlas0Count = batchAtlasSplit - batchStart;
-    if (atlas0Count > 0 && normalPipelines.length > 0) {
-      pass.setPipeline(normalPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, normalTextureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas0Count, 0, batchStart);
-    }
+  return (pass, batchStart, batchEnd, batchAtlasId) => {
+    const instanceCount = batchEnd - batchStart;
+    if (instanceCount <= 0) return;
 
-    const atlas1Count = batchEnd - batchAtlasSplit;
-    if (atlas1Count > 0 && normalPipelines.length > 1) {
-      pass.setPipeline(normalPipelines[1]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, normalTextureBindGroups[1]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
-    } else if (atlas1Count > 0 && normalPipelines.length === 1) {
-      pass.setPipeline(normalPipelines[0]);
-      pass.setBindGroup(0, cameraBindGroup);
-      pass.setBindGroup(1, normalTextureBindGroups[0]);
-      pass.setBindGroup(2, instanceBindGroup);
-      pass.draw(6, atlas1Count, 0, batchAtlasSplit);
-    }
+    // Clamp atlas ID to available pipelines (fallback to atlas 0 if out of range)
+    const atlasIdx = Math.min(batchAtlasId, normalPipelines.length - 1);
+    if (atlasIdx < 0 || normalPipelines.length === 0) return;
+
+    pass.setPipeline(normalPipelines[atlasIdx]);
+    pass.setBindGroup(0, cameraBindGroup);
+    pass.setBindGroup(1, normalTextureBindGroups[atlasIdx]);
+    pass.setBindGroup(2, instanceBindGroup);
+    pass.draw(6, instanceCount, 0, batchStart);
   };
 }
 
@@ -151,12 +128,19 @@ export function encodeScenePass(
         }
       } else {
         // Live layer: render instances directly
-        drawBatchInstances(pass, batch.start, batch.end, batch.atlasSplit);
+        drawBatchInstances(pass, batch.start, batch.end, batch.atlasId);
       }
     }
   } else {
-    // Legacy path: single atlas split (no baking possible without layer batches)
-    drawBatchInstances(pass, 0, instanceCount, atlasSplit);
+    // Legacy path: atlasSplit marks where atlas 0 ends, atlas 1 begins
+    // Draw atlas 0 portion [0..atlasSplit)
+    if (atlasSplit > 0) {
+      drawBatchInstances(pass, 0, atlasSplit, 0);
+    }
+    // Draw atlas 1 portion [atlasSplit..instanceCount)
+    if (atlasSplit < instanceCount) {
+      drawBatchInstances(pass, atlasSplit, instanceCount, 1);
+    }
   }
 
   // Vector geometry (alpha blend, drawn between sprites and SDF)
@@ -211,10 +195,16 @@ export function encodeNormalPass(
   if (layerBatches && layerBatches.length > 0) {
     for (const batch of layerBatches) {
       // Skip baked layers for normal pass (baked layer normals not cached yet)
-      drawNormalBatchInstances(pass, batch.start, batch.end, batch.atlasSplit);
+      drawNormalBatchInstances(pass, batch.start, batch.end, batch.atlasId);
     }
   } else {
-    drawNormalBatchInstances(pass, 0, instanceCount, atlasSplit);
+    // Legacy path: atlasSplit marks where atlas 0 ends, atlas 1 begins
+    if (atlasSplit > 0) {
+      drawNormalBatchInstances(pass, 0, atlasSplit, 0);
+    }
+    if (atlasSplit < instanceCount) {
+      drawNormalBatchInstances(pass, atlasSplit, instanceCount, 1);
+    }
   }
 
   // Draw SDF flat normals (prevents sprite normal bleeding onto SDF shapes)

@@ -72,6 +72,10 @@ interface GameWasmExports {
   get_sdf_instance_count: () => number;
   get_max_sdf_instances: () => number;
   game_custom_event?: (kind: number, a: number, b: number, c: number) => void;
+  load_level?: (json: string) => void;
+  reload_scripts?: (json: string) => void;
+  reload_game_manifest?: (json: string) => void;
+  reload_sprite_manifest?: (json: string) => void;
   game_load_manifest?: (json: string) => void;
   // Optional vector exports (feature-gated in Rust)
   get_vector_vertices_ptr?: () => number;
@@ -175,6 +179,11 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     get_ambient_r: mod.get_ambient_r,
     get_ambient_g: mod.get_ambient_g,
     get_ambient_b: mod.get_ambient_b,
+    // Game-specific exports for level/script/manifest loading
+    load_level: mod.load_level,
+    reload_scripts: mod.reload_scripts,
+    reload_game_manifest: mod.reload_game_manifest,
+    reload_sprite_manifest: mod.reload_sprite_manifest,
   };
 
   wasm.game_init();
@@ -425,6 +434,30 @@ self.onmessage = (e: MessageEvent) => {
 
     case 'custom':
       wasm?.game_custom_event?.(e.data.kind ?? 0, e.data.a ?? 0, e.data.b ?? 0, e.data.c ?? 0);
+      break;
+
+    case 'load_level':
+      if (wasm?.load_level && e.data.json) {
+        wasm.load_level(e.data.json);
+      }
+      break;
+
+    case 'reload_scripts':
+      if (wasm?.reload_scripts && e.data.json) {
+        wasm.reload_scripts(e.data.json);
+      }
+      break;
+
+    case 'reload_game_manifest':
+      if (wasm?.reload_game_manifest && e.data.json) {
+        wasm.reload_game_manifest(e.data.json);
+      }
+      break;
+
+    case 'reload_sprite_manifest':
+      if (wasm?.reload_sprite_manifest && e.data.json) {
+        wasm.reload_sprite_manifest(e.data.json);
+      }
       break;
 
     case 'stop':

@@ -2,8 +2,8 @@ use crate::components::entity::Entity;
 use crate::components::layer::RenderLayer;
 use crate::renderer::instance::{RenderBuffer, RenderInstance};
 
-/// Describes a contiguous batch of instances sharing the same layer.
-/// Within a batch, instances are grouped by atlas: atlas 0 first, then atlas 1+.
+/// Describes a contiguous batch of instances sharing the same layer AND atlas.
+/// One batch per (layer, atlas) pair enables N-atlas rendering.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayerBatch {
     /// Which render layer this batch belongs to.
@@ -12,9 +12,8 @@ pub struct LayerBatch {
     pub start: u32,
     /// End index (exclusive) in the render buffer.
     pub end: u32,
-    /// Index within this batch where atlas 0 ends and atlas 1+ begins.
-    /// Relative to the buffer start (NOT relative to batch start).
-    pub atlas_split: u32,
+    /// Which atlas this batch uses (index into manifest's atlas list).
+    pub atlas_id: u32,
 }
 
 impl LayerBatch {
@@ -23,10 +22,10 @@ impl LayerBatch {
 }
 
 /// Build the render buffer from a set of entities.
-/// Sorts entities by (layer, atlas) for layered rendering.
-/// Returns layer batch descriptors and sets the legacy `atlas_split` for backward compat.
+/// Sorts entities by (layer, atlas) for layered rendering with N-atlas support.
+/// Returns one LayerBatch per (layer, atlas) pair.
 ///
-/// Draw order: layers back-to-front, within each layer atlas 0 first then atlas 1+.
+/// Draw order: layers back-to-front, within each layer atlases in ascending order.
 pub fn build_render_buffer<'a>(
     entities: impl Iterator<Item = &'a Entity>,
     buffer: &mut RenderBuffer,
@@ -70,72 +69,56 @@ pub fn build_render_buffer<'a>(
         });
     }
 
-    // Sort by (layer, atlas_bucket) — atlas 0 before atlas 1+
+    // Sort by (layer, atlas) — full atlas ID ordering for N-atlas support
     entries.sort_by(|a, b| {
         a.layer.cmp(&b.layer)
-            .then_with(|| {
-                // Atlas 0 first, then everything else (treated as one bucket)
-                let a_bucket = if a.atlas == 0 { 0u8 } else { 1 };
-                let b_bucket = if b.atlas == 0 { 0u8 } else { 1 };
-                a_bucket.cmp(&b_bucket)
-            })
+            .then_with(|| a.atlas.cmp(&b.atlas))
     });
 
-    // Build buffer and extract batch boundaries
+    // Build buffer and extract batch boundaries — one batch per (layer, atlas) pair
     let mut batches: Vec<LayerBatch> = Vec::new();
-    let mut current_layer: Option<RenderLayer> = None;
+    let mut current_key: Option<(RenderLayer, u32)> = None;
     let mut batch_start: u32 = 0;
-    let mut atlas0_end: u32 = 0;
 
     for entry in &entries {
         let idx = buffer.instance_count();
+        let key = (entry.layer, entry.atlas);
 
-        if current_layer != Some(entry.layer) {
+        if current_key != Some(key) {
             // Close previous batch
-            if let Some(layer) = current_layer {
+            if let Some((layer, atlas)) = current_key {
                 batches.push(LayerBatch {
                     layer,
                     start: batch_start,
                     end: idx,
-                    atlas_split: atlas0_end,
+                    atlas_id: atlas,
                 });
             }
             // Start new batch
-            current_layer = Some(entry.layer);
+            current_key = Some(key);
             batch_start = idx;
-            atlas0_end = idx; // Will advance as we see atlas 0 entries
-        }
-
-        if entry.atlas == 0 {
-            // atlas0_end tracks one past the last atlas-0 entry in this batch
-            atlas0_end = idx + 1;
         }
 
         buffer.push(entry.instance);
     }
 
     // Close final batch
-    if let Some(layer) = current_layer {
+    if let Some((layer, atlas)) = current_key {
         batches.push(LayerBatch {
             layer,
             start: batch_start,
             end: buffer.instance_count(),
-            atlas_split: atlas0_end,
+            atlas_id: atlas,
         });
     }
 
     // Set legacy atlas_split for backward compatibility:
-    // If there's exactly one batch (all Objects, the default), use its atlas_split.
-    // Otherwise, set to total instance count (renderer uses batch data instead).
-    if batches.len() == 1 {
-        buffer.set_atlas_split(batches[0].atlas_split);
-    } else if batches.is_empty() {
-        buffer.set_atlas_split(0);
-    } else {
-        // Multi-layer: legacy split is the total atlas-0 count across all layers
-        let total_atlas0: u32 = batches.iter().map(|b| b.atlas_split - b.start).sum();
-        buffer.set_atlas_split(total_atlas0);
-    }
+    // Count all instances using atlas 0 (for legacy renderers without batch support).
+    let total_atlas0: u32 = batches.iter()
+        .filter(|b| b.atlas_id == 0)
+        .map(|b| b.end - b.start)
+        .sum();
+    buffer.set_atlas_split(total_atlas0);
 
     batches
 }
@@ -148,7 +131,7 @@ mod tests {
     use glam::Vec2;
 
     #[test]
-    fn build_buffer_splits_by_atlas_id() {
+    fn build_buffer_creates_per_atlas_batches() {
         let entities = vec![
             // Atlas 0 sprite
             Entity::new(EntityId(1))
@@ -188,14 +171,23 @@ mod tests {
         let batches = build_render_buffer(entities.iter(), &mut buffer);
 
         assert_eq!(buffer.instance_count(), 4);
-        // All entities are on default Objects layer → single batch
-        assert_eq!(batches.len(), 1);
+        // All entities are on Objects layer but different atlases → two batches
+        assert_eq!(batches.len(), 2);
+
+        // First batch: atlas 0 instances (2 entities)
         assert_eq!(batches[0].layer, RenderLayer::Objects);
+        assert_eq!(batches[0].atlas_id, 0);
         assert_eq!(batches[0].start, 0);
-        assert_eq!(batches[0].end, 4);
-        // Atlas 0 sprites (entities 1 and 3) go first, atlas 1 sprites (2 and 4) go after
-        assert_eq!(batches[0].atlas_split, 2);
-        assert_eq!(buffer.atlas_split, 2); // legacy compat
+        assert_eq!(batches[0].end, 2);
+
+        // Second batch: atlas 1 instances (2 entities)
+        assert_eq!(batches[1].layer, RenderLayer::Objects);
+        assert_eq!(batches[1].atlas_id, 1);
+        assert_eq!(batches[1].start, 2);
+        assert_eq!(batches[1].end, 4);
+
+        // Legacy compat: atlas_split = count of atlas-0 instances
+        assert_eq!(buffer.atlas_split, 2);
     }
 
     #[test]
@@ -281,19 +273,75 @@ mod tests {
         let batches = build_render_buffer(entities.iter(), &mut buffer);
 
         assert_eq!(buffer.instance_count(), 4);
-        assert_eq!(batches.len(), 2);
+        // 4 batches: (Background, atlas 0), (Background, atlas 1), (Objects, atlas 0), (Objects, atlas 1)
+        assert_eq!(batches.len(), 4);
 
-        // Background batch: atlas 0 at index 0, atlas 1 at index 1
+        // Background, atlas 0
         assert_eq!(batches[0].layer, RenderLayer::Background);
+        assert_eq!(batches[0].atlas_id, 0);
         assert_eq!(batches[0].start, 0);
-        assert_eq!(batches[0].end, 2);
-        assert_eq!(batches[0].atlas_split, 1); // 1 atlas-0 entity
+        assert_eq!(batches[0].end, 1);
 
-        // Objects batch: atlas 0 at index 2, atlas 1 at index 3
-        assert_eq!(batches[1].layer, RenderLayer::Objects);
-        assert_eq!(batches[1].start, 2);
-        assert_eq!(batches[1].end, 4);
-        assert_eq!(batches[1].atlas_split, 3); // atlas 0 ends at index 3
+        // Background, atlas 1
+        assert_eq!(batches[1].layer, RenderLayer::Background);
+        assert_eq!(batches[1].atlas_id, 1);
+        assert_eq!(batches[1].start, 1);
+        assert_eq!(batches[1].end, 2);
+
+        // Objects, atlas 0
+        assert_eq!(batches[2].layer, RenderLayer::Objects);
+        assert_eq!(batches[2].atlas_id, 0);
+        assert_eq!(batches[2].start, 2);
+        assert_eq!(batches[2].end, 3);
+
+        // Objects, atlas 1
+        assert_eq!(batches[3].layer, RenderLayer::Objects);
+        assert_eq!(batches[3].atlas_id, 1);
+        assert_eq!(batches[3].start, 3);
+        assert_eq!(batches[3].end, 4);
+
+        // Legacy compat: atlas_split = total atlas-0 count (2 entities)
+        assert_eq!(buffer.atlas_split, 2);
+    }
+
+    #[test]
+    fn n_atlas_support() {
+        // Test with 4 atlases to verify N-atlas works
+        let entities = vec![
+            Entity::new(EntityId(1))
+                .with_sprite(SpriteComponent { atlas: AtlasId(0), ..Default::default() }),
+            Entity::new(EntityId(2))
+                .with_sprite(SpriteComponent { atlas: AtlasId(2), ..Default::default() }),
+            Entity::new(EntityId(3))
+                .with_sprite(SpriteComponent { atlas: AtlasId(1), ..Default::default() }),
+            Entity::new(EntityId(4))
+                .with_sprite(SpriteComponent { atlas: AtlasId(3), ..Default::default() }),
+            Entity::new(EntityId(5))
+                .with_sprite(SpriteComponent { atlas: AtlasId(2), ..Default::default() }),
+        ];
+
+        let mut buffer = RenderBuffer::new();
+        let batches = build_render_buffer(entities.iter(), &mut buffer);
+
+        assert_eq!(buffer.instance_count(), 5);
+        // All on Objects layer, 4 different atlases → 4 batches
+        assert_eq!(batches.len(), 4);
+
+        // Verify atlas ordering: 0, 1, 2, 3
+        assert_eq!(batches[0].atlas_id, 0);
+        assert_eq!(batches[0].end - batches[0].start, 1);
+
+        assert_eq!(batches[1].atlas_id, 1);
+        assert_eq!(batches[1].end - batches[1].start, 1);
+
+        assert_eq!(batches[2].atlas_id, 2);
+        assert_eq!(batches[2].end - batches[2].start, 2); // 2 entities with atlas 2
+
+        assert_eq!(batches[3].atlas_id, 3);
+        assert_eq!(batches[3].end - batches[3].start, 1);
+
+        // Legacy compat: only 1 atlas-0 entity
+        assert_eq!(buffer.atlas_split, 1);
     }
 
     #[test]

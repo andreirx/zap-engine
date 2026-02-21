@@ -11,8 +11,8 @@ export interface LayerBatchDescriptor {
   start: number;
   /** End index (exclusive) in the instance buffer. */
   end: number;
-  /** Atlas split within this batch: instances [start..atlasSplit) use atlas 0. */
-  atlasSplit: number;
+  /** Atlas ID for this batch (index into manifest's atlas list). All instances in batch use this atlas. */
+  atlasId: number;
 }
 
 /** Bake state decoded from SAB header — controls layer caching. */

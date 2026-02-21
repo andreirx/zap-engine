@@ -118,7 +118,7 @@ export function readFrameState(buf: Float32Array, layout: ProtocolLayout): Frame
         layerId: buf[base],
         start: buf[base + 1],
         end: buf[base + 2],
-        atlasSplit: buf[base + 3],
+        atlasId: buf[base + 3],
       });
     }
   }

@@ -1533,3 +1533,50 @@ fn tick(&mut self) {
 1. When entity count > 1000: Implement ADR-033 Phase 1
 2. When system count > 8: Implement ADR-034
 3. When targeting native: Implement ADR-032 renderers
+
+---
+
+## ADR-036: N-Atlas Rendering Support
+
+**Date:** 2026-02-21
+**Status:** Accepted
+
+### Context
+The original render system supported only 2 atlases via a binary split mechanism. Entities were sorted into two buckets: "atlas 0" and "atlas 1+", with a single `atlas_split` marker indicating where atlas 0 ended. This meant:
+- Atlas 2, 3, 4, etc. all used atlas 1's pipeline
+- Games requiring more than 2 texture atlases had no solution
+
+The sort logic treated atlas 1+ as a single bucket:
+```rust
+let a_bucket = if a.atlas == 0 { 0u8 } else { 1 };  // OLD: binary bucket
+```
+
+### Decision
+Change from binary atlas bucketing to per-atlas batching:
+
+1. **LayerBatch restructure**: Replace `atlas_split: u32` (split point) with `atlas_id: u32` (explicit atlas index). Each batch now represents a single (layer, atlas) pair.
+
+2. **Sort by (layer, atlas)**: Entities sort by `(layer, atlas_id)` directly, not by binary bucket. This creates separate batches for atlas 0, 1, 2, 3, etc.
+
+3. **Renderer dispatch**: The TypeScript renderer uses `batch.atlasId` to select the correct pipeline and texture bind group:
+   ```typescript
+   pass.setPipeline(alphaPipelines[batch.atlasId]);
+   pass.setBindGroup(1, textureBindGroups[batch.atlasId]);
+   ```
+
+4. **Increased default capacity**: `DEFAULT_MAX_LAYER_BATCHES` increased from 6 to 48 (6 layers × 8 atlases) since each (layer, atlas) pair is now a separate batch.
+
+5. **Legacy compatibility**: The `atlas_split` header field (slot 4) continues to be written with the total count of atlas-0 instances for backward compatibility with old renderers that don't use layer batches.
+
+**Wire format unchanged**: LayerBatch is still 4 floats (`layer_id, start, end, atlas_id`). Only the semantics of the 4th field changed.
+
+### Consequences
+- **Pro:** Games can use unlimited atlases (up to `max_layer_batches / 6`)
+- **Pro:** No protocol size change — same 4 floats per batch
+- **Pro:** Existing 2-atlas games work unchanged
+- **Pro:** Cleaner renderer code — single draw call per batch vs. split logic
+- **Con:** More batches when using many atlases (6× per layer vs. 1×)
+- **Con:** Buffer size increases slightly due to higher `DEFAULT_MAX_LAYER_BATCHES`
+
+### Migration
+No game code changes required. Games using `AtlasId(0)` and `AtlasId(1)` continue to work. Games can now use `AtlasId(2)`, `AtlasId(3)`, etc. freely.

@@ -31,7 +31,7 @@ export function encodeBakePass(
         storeOp: 'store',
       }],
     });
-    drawBatchInstances(layerPass, batch.start, batch.end, batch.atlasSplit);
+    drawBatchInstances(layerPass, batch.start, batch.end, batch.atlasId);
     layerPass.end();
 
     compositor.markClean(batch.layerId, bakeState.bakeGen);
