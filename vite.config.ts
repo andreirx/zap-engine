@@ -3,6 +3,20 @@ import { defineConfig } from 'vite';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import react from '@vitejs/plugin-react';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
+
+// Examples that have public folders to copy
+const examples = [
+  'basic-demo',
+  'zap-engine-template',
+  'physics-playground',
+  'chemistry-lab',
+  'zapzap-mini',
+  'glypher',
+  'flag-parade',
+  'solar-system',
+  'pool-game',
+];
 
 export default defineConfig({
   base: './',
@@ -10,6 +24,12 @@ export default defineConfig({
     react(),
     wasm(),
     topLevelAwait(),
+    viteStaticCopy({
+      targets: examples.map(name => ({
+        src: `examples/${name}/public/*`,
+        dest: `examples/${name}/public`,
+      })),
+    }),
   ],
   server: {
     headers: {

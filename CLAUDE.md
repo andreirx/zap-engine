@@ -1,5 +1,31 @@
 # CLAUDE.md - ZapEngine Guidelines
 
+## CRITICAL: Build Process
+
+**ALWAYS use `wasm-pack build` or `scripts/build-all.sh`. NEVER use `cargo build` directly for WASM.**
+
+```bash
+# ✅ CORRECT — builds WASM + JS bindings together
+wasm-pack build examples/solar-system --target web --out-dir pkg
+
+# ✅ CORRECT — builds everything
+bash scripts/build-all.sh
+
+# ✅ SAFE — type checking only, no artifacts produced
+cargo check --target wasm32-unknown-unknown
+
+# ❌ WRONG — compiles WASM but does NOT regenerate JS bindings
+cargo build --target wasm32-unknown-unknown
+```
+
+**Why `cargo build` alone breaks things:**
+- `wasm-pack build` internally runs cargo + wasm-bindgen together
+- Direct `cargo build` only compiles WASM, skips wasm-bindgen
+- Result: WASM expects `__wbg_log_ABC123`, JS exports `__wbg_log_XYZ789`
+- Browser error: `LinkError: function import requires a callable`
+
+**See `docs/BUILD.md` for the complete build pipeline.**
+
 ## Role & Vision
 - **Role:** Senior Tech Lead (Systems Engineering focus).
 - **Goal:** Making a game engine with a High-Performance Web Stack (Rust/WASM + WebGPU).

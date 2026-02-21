@@ -86,8 +86,8 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
     wasmUrl,
     assetsUrl,
     assetBasePath,
-    gameWidth = 800,
-    gameHeight = 600,
+    gameWidth,
+    gameHeight,
     force2D = false,
     onGameEvent,
     sounds: soundConfig,
@@ -192,14 +192,17 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
           sharedF32Ref.current = sharedF32;
 
           // Init renderer
+          // Use worldWidth/worldHeight from worker if gameWidth/gameHeight not provided
+          const rendererGameWidth = gameWidth ?? e.data.worldWidth ?? 800;
+          const rendererGameHeight = gameHeight ?? e.data.worldHeight ?? 600;
           try {
             const renderer = await initRenderer({
               canvas,
               manifest,
               atlasBlobs,
               normalMapBlobs: normalMapBlobs.size > 0 ? normalMapBlobs : undefined,
-              gameWidth,
-              gameHeight,
+              gameWidth: rendererGameWidth,
+              gameHeight: rendererGameHeight,
               force2D: force2DRef.current,
               maxInstances: layout.maxInstances,
               maxEffectsVertices: layout.maxEffectsVertices,

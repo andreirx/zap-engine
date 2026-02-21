@@ -63,7 +63,7 @@ impl ChemistryLab {
     }
 
     /// Handle custom events from React UI.
-    fn handle_custom_event(&mut self, kind: u32, a: f32) {
+    fn handle_custom_event(&mut self, kind: u32, a: f32, b: f32, c: f32) {
         match kind {
             events::SELECT_ELEMENT => {
                 self.sim.set_selected_element(a as u32);
@@ -78,7 +78,14 @@ impl ChemistryLab {
             }
             // Camera controls - disable auto-follow when user takes manual control
             events::CAMERA_ZOOM => {
-                self.camera.zoom(a);
+                // a = direction (+1 zoom in, -1 zoom out)
+                // b = normalized screen x (0-1), c = normalized screen y (0-1)
+                // If b/c are provided (non-zero), use zoom-to-point
+                if b != 0.0 || c != 0.0 {
+                    self.camera.zoom_toward(a, b, c);
+                } else {
+                    self.camera.zoom(a);
+                }
                 self.auto_follow = false;
             }
             events::CAMERA_PAN_X => {
@@ -188,8 +195,8 @@ impl Game for ChemistryLab {
         // Process input events
         for event in input.iter() {
             match event {
-                InputEvent::Custom { kind, a, .. } => {
-                    self.handle_custom_event(*kind, *a);
+                InputEvent::Custom { kind, a, b, c } => {
+                    self.handle_custom_event(*kind, *a, *b, *c);
                 }
                 InputEvent::PointerDown { x, y } => {
                     let pos = Vec2::new(*x, *y);

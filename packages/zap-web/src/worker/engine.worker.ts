@@ -198,9 +198,12 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
   worldHeight = wasm.get_world_height();
 
   // Send initial viewport dimensions if canvas size is already known
+  // and process immediately with a zero-dt tick so the game has correct
+  // dimensions before the first render
   if (canvasWidth > 0 && canvasHeight > 0) {
     const proj = computeProjection(canvasWidth, canvasHeight, worldWidth, worldHeight);
     wasm.game_custom_event?.(99, proj.projWidth, proj.projHeight, 0);
+    wasm.game_tick(0); // Process resize event before first render
   }
 
   // Build layout from WASM-reported capacities
@@ -223,7 +226,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_LAYER_BATCH_OFFSET] = layout.layerBatchDataOffset;
     sharedF32[HEADER_MAX_LIGHTS] = layout.maxLights;
 
-    self.postMessage({ type: 'ready', sharedBuffer });
+    self.postMessage({ type: 'ready', sharedBuffer, worldWidth, worldHeight });
   } else {
     console.warn('[worker] SharedArrayBuffer unavailable, using postMessage fallback');
     const buf = new ArrayBuffer(layout.bufferTotalBytes);
@@ -252,6 +255,8 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
       maxVectorVertices: layout.maxVectorVertices,
       maxLayerBatches: layout.maxLayerBatches,
       maxLights: layout.maxLights,
+      worldWidth,
+      worldHeight,
     });
   }
 }

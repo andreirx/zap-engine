@@ -88,7 +88,7 @@ const DRAG_THRESHOLD: f32 = 5.0;
 const ZOOM_MIN: f64 = 0.15;
 const ZOOM_MAX: f64 = 8.0;
 /// Multiplicative zoom per scroll tick.
-const ZOOM_STEP: f64 = 1.1;
+const ZOOM_STEP: f64 = 1.05;
 
 // ── Coordinate conversion ────────────────────────────────────────────
 
@@ -217,17 +217,23 @@ impl SolarSystem {
     }
 
     /// Zoom toward a screen point (keeps that point fixed).
+    /// Uses the formula: worldX = (screenX - cx) / zoom + cam
+    ///                   newCam = worldX - (screenX - cx) / newZoom
     fn zoom_toward(&mut self, screen_x: f32, screen_y: f32, new_zoom: f64) {
         let new_zoom = new_zoom.clamp(ZOOM_MIN, ZOOM_MAX);
         let old_zoom = self.zoom;
         if (new_zoom - old_zoom).abs() < 1e-10 {
             return;
         }
-        // Adjust camera so screen point stays at the same position after zoom.
-        let factor = 1.0 / old_zoom - 1.0 / new_zoom;
         let (cx, cy) = self.screen_center();
-        self.cam_x += (screen_x as f64 - cx as f64) * factor;
-        self.cam_y += (screen_y as f64 - cy as f64) * factor;
+
+        // Get world point under cursor
+        let world_x = (screen_x as f64 - cx as f64) / old_zoom + self.cam_x;
+        let world_y = (screen_y as f64 - cy as f64) / old_zoom + self.cam_y;
+
+        // Calculate new camera position so world point stays at same screen position
+        self.cam_x = world_x - (screen_x as f64 - cx as f64) / new_zoom;
+        self.cam_y = world_y - (screen_y as f64 - cy as f64) / new_zoom;
         self.zoom = new_zoom;
     }
 

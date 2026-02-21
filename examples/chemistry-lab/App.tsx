@@ -155,6 +155,24 @@ export function App() {
     onGameEvent,
   });
 
+  // ── Wheel-to-zoom with cursor position (non-passive to allow preventDefault) ──────────
+  // Custom event kind 10 = CAMERA_ZOOM, a = direction, b = normalized x, c = normalized y
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !sendEvent) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const fx = (e.clientX - rect.left) / rect.width;  // 0-1 normalized
+      const fy = (e.clientY - rect.top) / rect.height;
+      const direction = e.deltaY < 0 ? 1 : -1; // scroll up = zoom in
+      sendEvent({ type: 'custom', kind: 10, a: direction, b: fx, c: fy });
+    };
+    canvas.addEventListener('wheel', handler, { passive: false });
+    return () => canvas.removeEventListener('wheel', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendEvent, canvasKey]);
+
   const selectElement = (atomicNumber: number) => {
     setSelected(atomicNumber);
     sendEvent({ type: 'custom', kind: 1, a: atomicNumber });

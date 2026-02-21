@@ -221,6 +221,61 @@ impl Camera3D {
         self.distance = self.distance.clamp(Self::MIN_DISTANCE, Self::MAX_DISTANCE);
     }
 
+    /// Zoom toward a screen point, keeping that point stationary.
+    /// `fx` and `fy` are normalized screen coordinates (0-1).
+    pub fn zoom_toward(&mut self, delta: f32, fx: f32, fy: f32) {
+        let old_distance = self.distance;
+
+        // Apply zoom
+        self.distance *= 1.0 - delta * Self::ZOOM_SPEED;
+        self.distance = self.distance.clamp(Self::MIN_DISTANCE, Self::MAX_DISTANCE);
+
+        let new_distance = self.distance;
+        if (new_distance - old_distance).abs() < 1e-6 {
+            return; // No change
+        }
+
+        // Convert normalized coords to screen space
+        let screen_x = fx * self.screen_width;
+        let screen_y = fy * self.screen_height;
+        let cx = self.screen_width / 2.0;
+        let cy = self.screen_height / 2.0;
+
+        // Offset from screen center
+        let offset_x = screen_x - cx;
+        let offset_y = screen_y - cy;
+
+        // For orbit camera zoom-to-point:
+        // The world point under cursor should stay at the same screen position.
+        // When we zoom (change distance), the perspective scale changes.
+        // We compensate by shifting the target.
+        //
+        // fov_scale = distance * 0.8 (from project())
+        // screen_offset = view_offset * scale
+        // view_offset = screen_offset / scale
+        //
+        // old_view_offset = screen_offset / (old_distance * 0.8)
+        // new_view_offset = screen_offset / (new_distance * 0.8)
+        // delta_view = old_view_offset - new_view_offset
+        //            = screen_offset * (1/(old*0.8) - 1/(new*0.8))
+        //            = screen_offset / 0.8 * (1/old - 1/new)
+
+        let factor = (1.0 / old_distance - 1.0 / new_distance) / 0.8;
+        let view_dx = offset_x * factor;
+        let view_dy = -offset_y * factor; // Y is flipped in screen coords
+
+        // Convert view-space offset to world-space target shift
+        // View space: X = right, Y = up (camera-relative)
+        let right = Vec3::new(1.0, 0.0, 0.0)
+            .rotate_x(self.elevation)
+            .rotate_y(self.azimuth);
+        let up = Vec3::new(0.0, 1.0, 0.0)
+            .rotate_x(self.elevation)
+            .rotate_y(self.azimuth);
+
+        self.target = self.target + right * view_dx + up * view_dy;
+    }
+
     /// Pan camera target in world space.
     pub fn pan(&mut self, dx: f32, dy: f32, dz: f32) {
         // Scale pan speed by distance for consistent feel
