@@ -1,139 +1,202 @@
-# DEPLOYMENT.md
+# Deployment Process
 
-This guide covers the build pipeline, infrastructure (AWS CDK), and browser compatibility strategies required to deploy **ZapEngine** games to production.
-
-## 1. The Build Pipeline
-
-Unlike standard React apps, ZapEngine requires three distinct artifacts to be built in a specific order.
-
-### The Artifacts
-
-1. **WASM Binary (`.wasm`):** The Rust game logic.
-2. **Assets (`.png`, `.mp3`):** Extracted from source files (or `.xcassets`).
-3. **Application Bundle (`.js`, `.html`):** The React host and Worker glue.
-
-### The "Golden" Build Sequence
-
-**Critical:** You must extract assets *before* running the Vite build, or `dist/assets` will be empty.
-
-```bash
-# 1. Compile Rust to WebAssembly
-make wasm
-# OR: wasm-pack build crates/zapzap --target web --out-dir src/generated
-
-# 2. Extract Assets (Crucial step often missed)
-# Ensures public/assets/ contains the actual images, not just references
-python3 scripts/extract_assets.py
-
-# 3. Build React Application
-# Copies WASM and public/assets into dist/
-npm run build
+## Infrastructure Overview
 
 ```
-
-### Verification Before Upload
-
-Before deploying, verify the `dist` folder locally. If these are missing, the game will crash silently or fail to load textures.
-
-```bash
-# Check if the heavy assets actually made it
-ls -lh dist/assets/
-# Check if the WASM is present
-ls -lh dist/*.wasm
-
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         PRODUCTION STACK                                 │
+│                                                                          │
+│  ┌─────────────┐      ┌─────────────────┐      ┌──────────────────────┐ │
+│  │   Browser   │ ───► │   CloudFront    │ ───► │         S3           │ │
+│  │             │      │   E2V1S8E7G1... │      │  zapexamplesstack-   │ │
+│  │             │      │                 │      │  zapexamplesbucket-  │ │
+│  │             │      │  COOP/COEP      │      │  ...dznsdxx9br2k     │ │
+│  │             │      │  headers        │      │                      │ │
+│  └─────────────┘      └─────────────────┘      └──────────────────────┘ │
+│                                                                          │
+│  URL: https://zapengine.bijup.com                                        │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 2. Infrastructure (AWS CDK)
+## Two Types of Deployment
 
-We use AWS CDK to deploy a serverless stack consisting of S3 (Storage) and CloudFront (CDN).
+### 1. Content Update (Most Common)
 
-### The "Magic" Headers (SharedArrayBuffer)
+When you change game code, assets, or examples — infrastructure stays the same.
 
-To enable high-performance multithreading, the browser enforces strict security isolation. The CloudFront distribution **must** serve these headers on every response, or the `SharedArrayBuffer` will be disabled (forcing the engine into `postMessage` fallback mode).
+```bash
+# Step 1: Build everything
+bash scripts/build-all.sh
 
-**Required Headers:**
+# Step 2: Sync to S3
+aws s3 sync dist/ s3://zapexamplesstack-zapexamplesbucketc673a298-dznsdxx9br2k --delete
 
-```http
-Cross-Origin-Opener-Policy: same-origin
-Cross-Origin-Embedder-Policy: require-corp
-
+# Step 3: Invalidate CloudFront cache
+aws cloudfront create-invalidation --distribution-id E2V1S8E7G1IDCZ --paths "/*"
 ```
 
-### Deployment Commands
+**Or use the deploy script:**
+```bash
+bash scripts/deploy.sh
+```
+
+### 2. Infrastructure Update (Rare)
+
+When you change CDK stack (S3 settings, CloudFront config, headers, domain).
 
 ```bash
 cd infra
-
-# 1. Install AWS dependencies
-npm install
-
-# 2. Bootstrap (First time only per region)
-npx cdk bootstrap
-
-# 3. Deploy (Builds dist/ and syncs to S3)
-npx cdk deploy
-
+npm run deploy
 ```
 
-### Infrastructure Verification script
+This runs `cdk deploy` which:
+- Updates AWS resources if changed
+- Deploys `dist/` folder to S3 (built into CDK stack)
+- Invalidates CloudFront automatically
 
-Use the `verify-s3.js` script (in root) to ensure assets uploaded correctly and have the correct MIME types.
+---
+
+## Quick Reference
+
+| Task | Command |
+|------|---------|
+| Build everything | `bash scripts/build-all.sh` |
+| Sync to S3 | `aws s3 sync dist/ s3://zapexamplesstack-zapexamplesbucketc673a298-dznsdxx9br2k --delete` |
+| Invalidate cache | `aws cloudfront create-invalidation --distribution-id E2V1S8E7G1IDCZ --paths "/*"` |
+| Full infra deploy | `cd infra && npm run deploy` |
+
+---
+
+## What Gets Deployed Where
+
+### Source → Build → Deploy
+
+```
+examples/*/src/*.rs          (Rust source)
+         │
+         ▼
+    wasm-pack build
+         │
+         ▼
+examples/*/pkg/              (WASM + JS bindings)
+         │
+         ▼
+    vite build
+         │
+         ▼
+dist/                        (Production bundle)
+├── index.html
+├── assets/                  (JS bundles, hashed filenames)
+│   ├── manifest-Su724chU.js
+│   ├── TimingBars-C2WAiApP.js
+│   └── ...
+└── examples/
+    ├── solar-system/
+    │   ├── index.html
+    │   ├── pkg/             (WASM + JS)
+    │   │   ├── solar_system_bg.wasm
+    │   │   └── solar_system.js
+    │   └── public/          (assets.json, images)
+    │       └── assets/
+    ├── pool-game/
+    │   └── ...
+    └── ...
+         │
+         ▼
+    aws s3 sync
+         │
+         ▼
+S3: zapexamplesstack-zapexamplesbucketc673a298-dznsdxx9br2k
+         │
+         ▼
+CloudFront: E2V1S8E7G1IDCZ (adds COOP/COEP headers)
+         │
+         ▼
+https://zapengine.bijup.com
+```
+
+---
+
+## AWS Resources
+
+| Resource | ID / Name | Purpose |
+|----------|-----------|---------|
+| S3 Bucket | `zapexamplesstack-zapexamplesbucketc673a298-dznsdxx9br2k` | Stores all static files |
+| CloudFront | `E2V1S8E7G1IDCZ` | CDN, HTTPS, COOP/COEP headers |
+| ACM Cert | `arn:aws:acm:us-east-1:324037297014:certificate/ebf61d12-...` | SSL for zapengine.bijup.com |
+| Domain | `zapengine.bijup.com` | Custom domain |
+
+---
+
+## CloudFront Headers
+
+CloudFront adds these headers required for SharedArrayBuffer:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+Without these, browsers block SharedArrayBuffer and the engine falls back to slow postMessage.
+
+---
+
+## Cache Invalidation
+
+CloudFront caches files. After S3 sync, you MUST invalidate:
 
 ```bash
-node verify-s3.js
+aws cloudfront create-invalidation --distribution-id E2V1S8E7G1IDCZ --paths "/*"
+```
 
+Invalidation takes 1-5 minutes to propagate globally.
+
+To check status:
+```bash
+aws cloudfront get-invalidation --distribution-id E2V1S8E7G1IDCZ --id <INVALIDATION_ID>
 ```
 
 ---
 
-## 3. Browser Compatibility & Hardening
+## Deployment Checklist
 
-WebGPU is bleeding-edge tech. Deployment requires specific handling for each browser engine to prevent crashes.
-
-### The "Canvas Locking" Issue
-
-**Problem:** If you call `canvas.getContext('webgpu')` and it fails, that canvas element is **permanently locked**. You cannot subsequently call `getContext('2d')` on it.
-**Solution:** The engine uses a **Probe Strategy**.
-
-1. Create a disposable `document.createElement('canvas')` off-screen.
-2. Attempt WebGPU initialization on the disposable canvas.
-3. If successful, mount the real canvas with WebGPU.
-4. If failed, mount a *fresh* canvas element with `getContext('2d')`.
-
-### Safari (WebKit) Specifics
-
-* **Pipeline Layouts:** Safari is stricter than Chrome. You cannot have "gaps" in `bindGroupLayouts`. Use an empty layout object instead of `null`.
-* **HDR:** Requires `toneMapping: { mode: 'extended' }`.
-* **User Action:** Users on Safari 17 or older must enable "WebGPU" in **Develop > Feature Flags**. Safari 18+ works out of the box.
-
-### Firefox (Gecko) Specifics
-
-* **Status:** WebGPU is often behind a flag or blocked by blocklists on Linux/Windows.
-* **Fallback:** The engine must catch the `requestAdapter()` promise rejection silently and fallback to Canvas 2D.
-* **User Action:** Users must set `dom.webgpu.enabled = true` in `about:config`.
+```
+□ 1. Build: bash scripts/build-all.sh
+□ 2. Test locally: npm run dev → check examples work
+□ 3. Sync: aws s3 sync dist/ s3://zapexamplesstack-... --delete
+□ 4. Invalidate: aws cloudfront create-invalidation ...
+□ 5. Verify: https://zapengine.bijup.com
+```
 
 ---
 
-## 4. Troubleshooting Production
+## Troubleshooting
 
-### Issue: "Failed to get Canvas 2D context"
+### Changes not appearing on production
 
-* **Cause:** The engine tried WebGPU on the main canvas, failed, and then tried 2D on the *same* canvas.
-* **Fix:** Ensure `initRenderer` throws an error on failure, and React listens for that error to increment a `rendererKey`, forcing the DOM node to be destroyed and recreated.
+1. Did you run `build-all.sh`? Check `dist/` has fresh files.
+2. Did you sync to S3? Check with `aws s3 ls s3://zapexamplesstack-.../examples/solar-system/pkg/`
+3. Did you invalidate CloudFront? Check invalidation status.
+4. Browser cache? Hard refresh (Cmd+Shift+R).
 
-### Issue: Game Loads but Screen is Black (Console: `TypeError`)
+### SharedArrayBuffer not working on production
 
-* **Cause:** Asset fetch failure. The `fetch()` returned a 404 (HTML page) or 403 (XML), but the code tried to pass that text to `createImageBitmap`.
-* **Fix:** Check `dist/assets`. Did you run the extraction script?
+CloudFront must send COOP/COEP headers. Verify:
+```bash
+curl -I https://zapengine.bijup.com | grep -i cross-origin
+```
 
-### Issue: Low FPS / Stuttering
+Should show:
+```
+cross-origin-opener-policy: same-origin
+cross-origin-embedder-policy: require-corp
+```
 
-* **Cause:** `SharedArrayBuffer` is disabled because headers are missing.
-* **Check:** Open DevTools > Network. Look at the response headers for `index.html`. If `Cross-Origin-Embedder-Policy` is missing, the worker is using slower `postMessage` copying.
+If missing, check CDK stack's `ResponseHeadersPolicy`.
 
-### Issue: Colors look washed out (No HDR)
+### S3 Access Denied
 
-* **Cause:** Browser doesn't support `display-p3` or the monitor is SDR.
-* **Fallback:** The engine automatically falls back to `srgb`. This is expected behavior on most non-Apple displays and Firefox.
+The bucket is private (CloudFront-only). You can't access S3 URLs directly. Always use the CloudFront URL.

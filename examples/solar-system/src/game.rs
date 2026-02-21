@@ -88,7 +88,7 @@ const DRAG_THRESHOLD: f32 = 5.0;
 const ZOOM_MIN: f64 = 0.15;
 const ZOOM_MAX: f64 = 8.0;
 /// Multiplicative zoom per scroll tick.
-const ZOOM_STEP: f64 = 1.05;
+const ZOOM_STEP: f64 = 1.01;
 
 // ── Coordinate conversion ────────────────────────────────────────────
 
