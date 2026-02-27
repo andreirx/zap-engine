@@ -1580,3 +1580,78 @@ Change from binary atlas bucketing to per-atlas batching:
 
 ### Migration
 No game code changes required. Games using `AtlasId(0)` and `AtlasId(1)` continue to work. Games can now use `AtlasId(2)`, `AtlasId(3)`, etc. freely.
+
+---
+
+## ADR-037: Extensions Module (Easing, Transforms, Tweens)
+
+**Date:** 2026-02-27
+**Status:** Accepted
+
+### Context
+Games need common utilities like easing functions, transform hierarchies (parent-child relationships), and tweening (animated value transitions). The existing Fat Entity model (ADR-001) keeps Entity simple, but these features are frequently requested.
+
+Adding these directly to Entity/Scene would:
+1. Violate the Fat Entity simplicity principle
+2. Force all games to pay for features they don't use
+3. Couple core engine to animation/hierarchy concerns
+
+### Decision
+Create an `extensions/` module with decoupled, opt-in systems that operate on `EntityId` keys rather than Entity references.
+
+**Module structure:**
+```
+crates/zap-engine/src/extensions/
+├── mod.rs           # Re-exports
+├── easing.rs        # Pure math functions (19 easings)
+├── transform.rs     # TransformGraph — parent-child by EntityId
+└── tween.rs         # TweenState — animated transitions by EntityId
+```
+
+**Key design principles:**
+
+1. **EntityId as key**: Extensions use `EntityId` to look up entities in Scene. They never hold references to Entity, avoiding borrow conflicts.
+
+2. **Explicit tick calls**: Games call `tweens.tick(dt, &mut scene)` and `transforms.propagate(&mut scene)` explicitly in their update loop. No hidden magic.
+
+3. **No Entity/Scene modifications**: The core Entity struct and Scene storage remain unchanged. Extensions are purely additive.
+
+4. **Pure math where possible**: Easing functions have no state or dependencies — just `Easing::QuadOut.apply(t)`.
+
+**API summary:**
+
+```rust
+// Easing (pure math)
+let eased = Easing::QuadOut.apply(0.5);  // 0.75
+let pos = ease_vec2(from, to, t, Easing::BackOut);
+
+// Transform hierarchy
+let mut graph = TransformGraph::new();
+graph.register_with(child, LocalTransform::new().with_offset(Vec2::new(50.0, 0.0)));
+graph.set_parent(child, Some(parent));
+graph.propagate(&mut scene);  // Updates entity positions
+
+// Tweening
+let mut tweens = TweenState::new();
+tweens.add(entity, Tween::position(from, to, 0.5, Easing::QuadOut));
+tweens.tick(dt, &mut scene);  // Advances all tweens
+```
+
+### Alternatives Considered
+
+1. **Add fields to Entity**: Rejected — bloats Entity, violates Fat Entity simplicity
+2. **ECS with transform components**: Rejected — premature complexity (see ADR-033)
+3. **External crate (`interpolation`, `keyframe`)**: Considered but adds dependency; our easing is 180 lines
+4. **Bevy-style plugins**: Rejected — over-engineered for current scope
+
+### Consequences
+- **Pro:** Zero changes to existing Entity/Scene code
+- **Pro:** Games only pay for what they use (opt-in)
+- **Pro:** Clean separation of concerns
+- **Pro:** Composable — use any combination of extensions
+- **Pro:** Testable in isolation (all extensions have unit tests)
+- **Con:** Games must manage extension state alongside Scene
+- **Con:** Two places to update entities (Scene + extensions)
+
+### Existing Games Impact
+**None.** All 9 example games continue to work unchanged. Extensions are purely additive — existing games don't use them and don't need to change.

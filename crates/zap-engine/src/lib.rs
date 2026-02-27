@@ -6,6 +6,7 @@ pub mod renderer;
 pub mod bridge;
 pub mod input;
 pub mod assets;
+pub mod extensions;
 
 // Re-export key types at crate root for convenience
 pub use api::game::{Game, GameConfig, EngineContext, RenderContext, BakeState};
@@ -44,3 +45,10 @@ pub use core::physics::{
 
 #[cfg(feature = "vectors")]
 pub use systems::vector::{VectorState, VectorVertex, VectorColor};
+
+// Extensions — decoupled optional systems
+pub use extensions::{
+    Easing, lerp, lerp_vec2, ease, ease_vec2,
+    TransformGraph, LocalTransform,
+    TweenState, Tween, TweenId, TweenTarget, TweenLoop,
+};
