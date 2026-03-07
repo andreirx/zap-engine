@@ -16,6 +16,7 @@ CRATES=(
   "examples/flag-parade"
   "examples/solar-system"
   "examples/pool-game"
+  "examples/thread-town"
 )
 
 echo "==> Building WASM crates..."

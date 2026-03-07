@@ -36,6 +36,7 @@ pub fn build_render_buffer<'a>(
     struct SortEntry {
         layer: RenderLayer,
         atlas: u32,
+        entity_id: u32, // Tiebreaker for deterministic ordering within batches
         instance: RenderInstance,
     }
 
@@ -65,14 +66,17 @@ pub fn build_render_buffer<'a>(
         entries.push(SortEntry {
             layer: entity.layer,
             atlas: sprite.atlas.0,
+            entity_id: entity.id.0,
             instance,
         });
     }
 
-    // Sort by (layer, atlas) — full atlas ID ordering for N-atlas support
-    entries.sort_by(|a, b| {
+    // Sort by (layer, atlas, entity_id) — deterministic ordering prevents flicker
+    // Using unstable sort for ~2x speed; entity_id tiebreaker ensures consistent results
+    entries.sort_unstable_by(|a, b| {
         a.layer.cmp(&b.layer)
             .then_with(|| a.atlas.cmp(&b.atlas))
+            .then_with(|| a.entity_id.cmp(&b.entity_id))
     });
 
     // Build buffer and extract batch boundaries — one batch per (layer, atlas) pair

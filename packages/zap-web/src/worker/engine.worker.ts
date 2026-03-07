@@ -385,8 +385,24 @@ function gameLoop() {
     return;
   }
 
-  if (running) {
+  // Vsync-driven: main thread sends 'vsync' message to trigger next frame
+  // Fallback to setTimeout if vsync messages stop arriving
+  if (running && !vsyncDriven) {
     setTimeout(gameLoop, 16);
+  }
+}
+
+// Vsync synchronization state
+let vsyncDriven = false;
+let lastVsyncTime = 0;
+const VSYNC_TIMEOUT = 100; // Fall back to setTimeout if no vsync for 100ms
+
+function checkVsyncFallback() {
+  if (vsyncDriven && performance.now() - lastVsyncTime > VSYNC_TIMEOUT) {
+    vsyncDriven = false;
+    if (running) {
+      gameLoop();
+    }
   }
 }
 
@@ -472,6 +488,15 @@ self.onmessage = (e: MessageEvent) => {
     case 'resume':
       if (!running && sharedF32 && sharedI32 && wasmMemory) {
         running = true;
+        gameLoop();
+      }
+      break;
+
+    case 'vsync':
+      // Main thread rAF is driving the frame timing
+      vsyncDriven = true;
+      lastVsyncTime = performance.now();
+      if (running && sharedF32 && sharedI32 && wasmMemory && wasm && layout) {
         gameLoop();
       }
       break;

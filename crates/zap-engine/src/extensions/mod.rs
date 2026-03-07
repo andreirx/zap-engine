@@ -6,9 +6,11 @@
 // Clean architecture: core stays simple, complexity is additive.
 
 pub mod easing;
+pub mod spatial;
 pub mod transform;
 pub mod tween;
 
 pub use easing::{Easing, lerp, lerp_vec2, ease, ease_vec2};
+pub use spatial::SpatialHash;
 pub use transform::{TransformGraph, LocalTransform};
 pub use tween::{TweenState, Tween, TweenId, TweenTarget, TweenLoop};

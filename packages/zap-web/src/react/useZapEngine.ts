@@ -362,6 +362,9 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       prevFrameTimeRef.current = performance.now();
 
       function frame() {
+        // Signal worker to run next game tick (vsync-synchronized)
+        workerRef.current?.postMessage({ type: 'vsync' });
+
         // Measure frame-to-frame time
         const now = performance.now();
         const frameTimeUs = (now - prevFrameTimeRef.current) * 1000; // ms to μs

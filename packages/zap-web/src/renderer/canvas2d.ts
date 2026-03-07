@@ -366,7 +366,7 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     vectorVertexCount?: number,
     layerBatches?: LayerBatchDescriptor[],
     bakeState?: BakeState,
-    _lightingState?: LightingState,
+    lightingState?: LightingState,
   ): DrawTiming {
     const drawStart = performance.now();
 
@@ -450,6 +450,72 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     }
 
     ctx!.restore();
+
+    // --- Canvas2D Lighting Pass ---
+    // Apply ambient darkening and additive point lights as a post-process
+    if (lightingState) {
+      const [ar, ag, ab] = lightingState.ambient;
+      const lightCount = lightingState.lightCount;
+      const lightData = lightingState.lightData;
+      const ambientBrightness = (ar + ag + ab) / 3;
+      const needsDarkening = ambientBrightness < 0.99;
+      const hasLights = lightCount > 0;
+
+      // Only run lighting pass if there's something to do
+      if (needsDarkening || hasLights) {
+        // Step 1: Darken scene by ambient color (multiply blend)
+        if (needsDarkening) {
+          ctx!.globalCompositeOperation = 'multiply';
+          ctx!.fillStyle = `rgb(${Math.round(ar * 255)}, ${Math.round(ag * 255)}, ${Math.round(ab * 255)})`;
+          ctx!.fillRect(0, 0, w, h);
+        }
+
+        // Step 2: Add point light contributions (additive radial gradients)
+        // Light format: 8 floats per light (x, y, r, g, b, intensity, radius, layer_mask)
+        if (hasLights) {
+          ctx!.globalCompositeOperation = 'lighter';
+          for (let i = 0; i < lightCount; i++) {
+            const off = i * 8;
+            const lx = lightData[off];
+            const ly = lightData[off + 1];
+            const lr = lightData[off + 2];
+            const lg = lightData[off + 3];
+            const lb = lightData[off + 4];
+            const intensity = Math.min(lightData[off + 5], 2); // Clamp to avoid over-saturation
+            const radius = lightData[off + 6];
+            // layer_mask at off + 7 (unused in Canvas2D)
+
+            // Transform light position from world to screen coordinates
+            const screenX = lx * scaleX;
+            const screenY = ly * scaleY;
+            const screenRadius = radius * Math.max(scaleX, scaleY);
+
+            // Create radial gradient with quadratic falloff approximation
+            const grad = ctx!.createRadialGradient(
+              screenX, screenY, 0,
+              screenX, screenY, screenRadius,
+            );
+
+            // Approximate (1 - d/r)^2 with gradient color stops
+            const r = Math.round(lr * 255);
+            const g = Math.round(lg * 255);
+            const b = Math.round(lb * 255);
+
+            grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${intensity * 0.8})`);
+            grad.addColorStop(0.3, `rgba(${r}, ${g}, ${b}, ${intensity * 0.5})`);
+            grad.addColorStop(0.6, `rgba(${r}, ${g}, ${b}, ${intensity * 0.2})`);
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+            ctx!.fillStyle = grad;
+            ctx!.beginPath();
+            ctx!.arc(screenX, screenY, screenRadius, 0, Math.PI * 2);
+            ctx!.fill();
+          }
+        }
+
+        ctx!.globalCompositeOperation = 'source-over';
+      }
+    }
 
     // Measure draw call submission time
     const drawUs = (performance.now() - drawStart) * 1000;

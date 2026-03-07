@@ -11,5 +11,6 @@ members = [
     "examples/flag-parade",
     "examples/solar-system",
     "examples/pool-game",
+    "examples/thread-town",
 ]
 resolver = "2"
