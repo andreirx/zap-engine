@@ -16,7 +16,6 @@ const examples = [
   'flag-parade',
   'solar-system',
   'pool-game',
-  'thread-town',
 ];
 
 export default defineConfig({
@@ -57,7 +56,6 @@ export default defineConfig({
         'flag-parade': resolve(__dirname, 'examples/flag-parade/index.html'),
         'solar-system': resolve(__dirname, 'examples/solar-system/index.html'),
         'pool-game': resolve(__dirname, 'examples/pool-game/index.html'),
-        'thread-town': resolve(__dirname, 'examples/thread-town/index.html'),
       },
     },
   },
