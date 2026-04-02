@@ -55,6 +55,8 @@ export interface RendererConfig {
   maxSdfInstances?: number;
   /** Max vector vertices for GPU buffer allocation (default: 16384). */
   maxVectorVertices?: number;
+  /** Max alpha effects vertices for GPU buffer allocation (default: 8192). */
+  maxAlphaEffectsVertices?: number;
 }
 
 /**
@@ -64,13 +66,13 @@ export interface RendererConfig {
  * remount the canvas before retrying with force2D=true.
  */
 export async function initRenderer(config: RendererConfig): Promise<Renderer> {
-  const { canvas, manifest, atlasBlobs, normalMapBlobs, gameWidth, gameHeight, force2D = false, maxInstances, maxEffectsVertices, maxSdfInstances, maxVectorVertices } = config;
+  const { canvas, manifest, atlasBlobs, normalMapBlobs, gameWidth, gameHeight, force2D = false, maxInstances, maxEffectsVertices, maxSdfInstances, maxVectorVertices, maxAlphaEffectsVertices } = config;
 
   if (!force2D) {
     const webgpuAvailable = await probeWebGPU();
     if (webgpuAvailable) {
       try {
-        return await initWebGPURenderer({ canvas, manifest, atlasBlobs, normalMapBlobs, gameWidth, gameHeight, maxInstances, maxEffectsVertices, maxSdfInstances, maxVectorVertices });
+        return await initWebGPURenderer({ canvas, manifest, atlasBlobs, normalMapBlobs, gameWidth, gameHeight, maxInstances, maxEffectsVertices, maxSdfInstances, maxVectorVertices, maxAlphaEffectsVertices });
       } catch (e) {
         console.warn('[renderer] WebGPU init failed:', e);
         throw new Error('WebGPUInitFailed');

@@ -11,6 +11,7 @@ use crate::bridge::protocol::{DEFAULT_MAX_LAYER_BATCHES, DEFAULT_MAX_LIGHTS};
 use crate::components::layer::RenderLayer;
 use crate::components::sprite::SpriteComponent;
 use crate::systems::lighting::LightState;
+use crate::systems::visibility::{VisibilityMask, VisibilityInterpolation};
 use glam::Vec2;
 #[cfg(feature = "physics")]
 use crate::core::physics::{
@@ -54,6 +55,12 @@ pub struct GameConfig {
     pub max_layer_batches: usize,
     /// Maximum number of point lights (default: 64).
     pub max_lights: usize,
+    /// Visibility mask grid width in cells (0 = disabled). Default: 0.
+    pub visibility_cols: u32,
+    /// Visibility mask grid height in cells (0 = disabled). Default: 0.
+    pub visibility_rows: u32,
+    /// Visibility mask interpolation mode. Default: Nearest.
+    pub visibility_interpolation: VisibilityInterpolation,
     /// Seed for effects RNG (default: 42). Change for different random sequences.
     pub effects_seed: u64,
     /// Gravity vector for physics simulation. Default: zero (no gravity).
@@ -84,6 +91,9 @@ impl Default for GameConfig {
             max_vector_vertices: 16384,
             max_layer_batches: DEFAULT_MAX_LAYER_BATCHES,
             max_lights: DEFAULT_MAX_LIGHTS,
+            visibility_cols: 0,
+            visibility_rows: 0,
+            visibility_interpolation: VisibilityInterpolation::Nearest,
             effects_seed: 42,
             #[cfg(feature = "physics")]
             gravity: glam::Vec2::ZERO,
@@ -194,6 +204,8 @@ pub struct EngineContext {
     pub lights: LightState,
     /// Layer baking state for render caching.
     pub bake: BakeState,
+    /// Optional visibility mask for fog-of-war. Created when GameConfig has visibility_cols > 0.
+    pub visibility: Option<VisibilityMask>,
 
     // -- Optional systems --
     #[cfg(feature = "vectors")]
@@ -220,6 +232,7 @@ impl EngineContext {
             camera: Camera2D::new(800.0, 600.0),
             lights: LightState::new(),
             bake: BakeState::new(),
+            visibility: None,
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
             #[cfg(feature = "vectors")]
@@ -234,6 +247,15 @@ impl EngineContext {
     /// Create an EngineContext configured from a GameConfig.
     /// This wires capacity settings to all subsystems.
     pub fn with_config(config: &GameConfig) -> Self {
+        let visibility = if config.visibility_cols > 0 && config.visibility_rows > 0 {
+            Some(VisibilityMask::with_interpolation(
+                config.visibility_cols,
+                config.visibility_rows,
+                config.visibility_interpolation,
+            ))
+        } else {
+            None
+        };
         Self {
             scene: Scene::with_capacity(config.max_entities),
             effects: EffectsState::with_capacity(config.effects_seed, config.max_effects_vertices),
@@ -242,6 +264,7 @@ impl EngineContext {
             camera: Camera2D::new(config.world_width, config.world_height),
             lights: LightState::with_capacity(config.max_lights),
             bake: BakeState::new(),
+            visibility,
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
             #[cfg(feature = "vectors")]
@@ -264,6 +287,7 @@ impl EngineContext {
             camera: Camera2D::new(800.0, 600.0),
             lights: LightState::new(),
             bake: BakeState::new(),
+            visibility: None,
             next_id: 1,
             sprite_registry: SpriteRegistry::new(),
             #[cfg(feature = "vectors")]

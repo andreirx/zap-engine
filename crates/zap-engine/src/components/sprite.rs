@@ -4,13 +4,24 @@
 pub struct AtlasId(pub u32);
 
 /// Blend mode for sprite rendering.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+///
+/// Ordering: Alpha < Additive. Within a layer, alpha sprites render first
+/// (standard compositing), then additive sprites (glow on top).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(u8)]
 pub enum BlendMode {
     /// Standard alpha blending (src-alpha, one-minus-src-alpha).
     #[default]
-    Alpha,
+    Alpha = 0,
     /// Additive blending for HDR glow effects (src-alpha, one).
-    Additive,
+    Additive = 1,
+}
+
+impl BlendMode {
+    /// Convert to u8 for protocol serialization.
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
 }
 
 /// Sprite component — defines how an entity appears visually.

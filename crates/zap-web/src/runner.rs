@@ -6,7 +6,7 @@ use zap_engine::{
 use zap_engine::systems::render::build_render_buffer;
 use zap_engine::systems::emitter::tick_emitters;
 use zap_engine::renderer::sdf_instance::SDFBuffer;
-use zap_engine::bridge::protocol::LAYER_BATCH_FLOATS;
+use zap_engine::bridge::protocol::{LAYER_BATCH_FLOATS, ALPHA_EFFECTS_BATCH_FLOATS};
 /// Generic game runner that wires up the engine loop.
 ///
 /// Each concrete game (e.g., `basic-demo`) creates a `thread_local!` GameRunner
@@ -27,8 +27,11 @@ pub struct GameRunner<G: Game> {
     /// Layer batch descriptors from the most recent frame.
     layer_batches: Vec<LayerBatch>,
     /// Flat f32 buffer of layer batch data for SharedArrayBuffer reads.
-    /// Each batch: [layer_id, start, end, atlas_id] = 4 floats.
+    /// Each batch: [layer_id, start, end, atlas_id, blend_mode] = 5 floats.
     layer_batch_buffer: Vec<f32>,
+    /// Flat f32 buffer of alpha effects batch data for SharedArrayBuffer reads.
+    /// Each batch: [layer_id, start_vertex, end_vertex] = 3 floats.
+    alpha_effects_batch_buffer: Vec<f32>,
 }
 
 impl<G: Game> GameRunner<G> {
@@ -41,6 +44,9 @@ impl<G: Game> GameRunner<G> {
         let sdf_buffer = SDFBuffer::with_capacity(config.max_sdf_instances);
         let sound_buffer = Vec::with_capacity(config.max_sounds);
         let layer_batch_buffer = Vec::with_capacity(config.max_layer_batches * LAYER_BATCH_FLOATS);
+        let alpha_effects_batch_buffer = Vec::with_capacity(
+            layout.max_alpha_effects_batches * ALPHA_EFFECTS_BATCH_FLOATS,
+        );
 
         // Use with_config to wire capacity settings through all subsystems
         #[allow(unused_mut)]
@@ -65,6 +71,7 @@ impl<G: Game> GameRunner<G> {
             sound_buffer,
             layer_batches: Vec::new(),
             layer_batch_buffer,
+            alpha_effects_batch_buffer,
         }
     }
 
@@ -134,6 +141,7 @@ impl<G: Game> GameRunner<G> {
             self.layer_batch_buffer.push(batch.start as f32);
             self.layer_batch_buffer.push(batch.end as f32);
             self.layer_batch_buffer.push(batch.atlas_id as f32);
+            self.layer_batch_buffer.push(batch.blend.as_u8() as f32);
         }
 
         // Build SDF buffer from entities with mesh components
@@ -147,8 +155,16 @@ impl<G: Game> GameRunner<G> {
             self.game.render(&mut render_ctx);
         }
 
-        // Rebuild effects buffer
+        // Rebuild effects buffers (additive + alpha)
         self.ctx.effects.rebuild_effects_buffer();
+
+        // Serialize alpha effects batch descriptors to flat f32 buffer for SAB
+        self.alpha_effects_batch_buffer.clear();
+        for batch in &self.ctx.effects.alpha_effects_batches {
+            self.alpha_effects_batch_buffer.push(batch.layer.as_u8() as f32);
+            self.alpha_effects_batch_buffer.push(batch.start_vertex as f32);
+            self.alpha_effects_batch_buffer.push(batch.end_vertex as f32);
+        }
 
         // Pack sound events into flat buffer
         self.sound_buffer.clear();
@@ -306,5 +322,66 @@ impl<G: Game> GameRunner<G> {
 
     pub fn layer_batch_data_offset(&self) -> u32 {
         self.layout.layer_batch_data_offset as u32
+    }
+
+    // ---- Alpha effects accessors ----
+
+    pub fn alpha_effects_ptr(&self) -> *const f32 {
+        self.ctx.effects.alpha_effects_buffer_ptr()
+    }
+
+    pub fn alpha_effects_vertex_count(&self) -> u32 {
+        self.ctx.effects.alpha_effects_vertex_count() as u32
+    }
+
+    pub fn max_alpha_effects_vertices(&self) -> u32 {
+        self.layout.max_alpha_effects_vertices as u32
+    }
+
+    pub fn alpha_effects_batch_count(&self) -> u32 {
+        self.ctx.effects.alpha_effects_batch_count() as u32
+    }
+
+    /// Pointer to flat f32 array of alpha effects batches (3 floats each: layer, start, end).
+    pub fn alpha_effects_batches_ptr(&self) -> *const f32 {
+        self.alpha_effects_batch_buffer.as_ptr()
+    }
+
+    pub fn max_alpha_effects_batches(&self) -> u32 {
+        self.layout.max_alpha_effects_batches as u32
+    }
+
+    // ---- Visibility mask accessors ----
+
+    pub fn visibility_cols(&self) -> u32 {
+        self.config.visibility_cols
+    }
+
+    pub fn visibility_rows(&self) -> u32 {
+        self.config.visibility_rows
+    }
+
+    pub fn visibility_interpolation(&self) -> u32 {
+        self.config.visibility_interpolation as u32
+    }
+
+    /// Pointer to raw visibility bytes. Returns null if no visibility mask.
+    pub fn visibility_ptr(&self) -> *const u8 {
+        match &self.ctx.visibility {
+            Some(mask) => mask.as_bytes().as_ptr(),
+            None => std::ptr::null(),
+        }
+    }
+
+    /// Number of visibility bytes.
+    pub fn visibility_byte_count(&self) -> u32 {
+        match &self.ctx.visibility {
+            Some(mask) => mask.byte_count() as u32,
+            None => 0,
+        }
+    }
+
+    pub fn visibility_data_byte_offset(&self) -> u32 {
+        self.layout.visibility_data_byte_offset as u32
     }
 }

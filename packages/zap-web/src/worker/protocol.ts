@@ -5,7 +5,7 @@
 // TypeScript reads them from the header to compute offsets dynamically.
 
 /** Number of floats in the header section. */
-export const HEADER_FLOATS = 28;
+export const HEADER_FLOATS = 36;
 
 /** Header field indices. */
 export const HEADER_LOCK = 0;
@@ -40,9 +40,19 @@ export const HEADER_AMBIENT_G = 25;
 export const HEADER_AMBIENT_B = 26;
 /** WASM tick execution time in microseconds (written each frame by worker). */
 export const HEADER_WASM_TIME_US = 27;
+// Phase 13: Alpha effects (smoke/dust particles with alpha blending)
+export const HEADER_MAX_ALPHA_EFFECTS_VERTICES = 28;
+export const HEADER_ALPHA_EFFECTS_VERTEX_COUNT = 29;
+export const HEADER_ALPHA_EFFECTS_BATCH_COUNT = 30;
+export const HEADER_RESERVED_31 = 31;
+// Phase 14: Visibility mask
+export const HEADER_VISIBILITY_COLS = 32;
+export const HEADER_VISIBILITY_ROWS = 33;
+export const HEADER_VISIBILITY_INTERPOLATION = 34;
+export const HEADER_RESERVED_35 = 35;
 
 /** Protocol version written into the header. */
-export const PROTOCOL_VERSION = 4.0;
+export const PROTOCOL_VERSION = 5.0;
 
 /** Floats per render instance (wire format — never changes). */
 export const INSTANCE_FLOATS = 8;
@@ -59,11 +69,14 @@ export const SDF_INSTANCE_FLOATS = 12;
 /** Floats per vector vertex: x, y, r, g, b, a (wire format — never changes). */
 export const VECTOR_VERTEX_FLOATS = 6;
 
-/** Floats per layer batch descriptor: layer_id, start, end, atlas_id. */
-export const LAYER_BATCH_FLOATS = 4;
+/** Floats per layer batch descriptor: layer_id, start, end, atlas_id, blend_mode. */
+export const LAYER_BATCH_FLOATS = 5;
 
 /** Floats per point light: x, y, r, g, b, intensity, radius, layer_mask. */
 export const LIGHT_FLOATS = 8;
+
+/** Floats per alpha effects batch descriptor: layer_id, start_vertex, end_vertex. */
+export const ALPHA_EFFECTS_BATCH_FLOATS = 3;
 
 // ============================================================================
 // Byte Strides (for buffer layout calculations)
@@ -88,11 +101,17 @@ export const LIGHT_STRIDE_BYTES = LIGHT_FLOATS * 4; // 32
 // Defaults
 // ============================================================================
 
-/** Default maximum layer batches (one per (layer, atlas) pair). */
-export const DEFAULT_MAX_LAYER_BATCHES = 48;
+/** Default maximum layer batches (one per (layer, blend, atlas) triple). */
+export const DEFAULT_MAX_LAYER_BATCHES = 96;
 
 /** Default maximum point lights. */
 export const DEFAULT_MAX_LIGHTS = 64;
+
+/** Default maximum alpha effects vertices. */
+export const DEFAULT_MAX_ALPHA_EFFECTS_VERTICES = 8192;
+
+/** Default maximum alpha effects batches. */
+export const DEFAULT_MAX_ALPHA_EFFECTS_BATCHES = 6;
 
 /**
  * Runtime-computed buffer layout. Replaces the old compile-time MAX_* constants.
@@ -107,6 +126,10 @@ export class ProtocolLayout {
   readonly maxVectorVertices: number;
   readonly maxLayerBatches: number;
   readonly maxLights: number;
+  readonly maxAlphaEffectsVertices: number;
+  readonly maxAlphaEffectsBatches: number;
+  readonly visibilityCols: number;
+  readonly visibilityRows: number;
 
   readonly instanceDataFloats: number;
   readonly effectsDataFloats: number;
@@ -116,6 +139,10 @@ export class ProtocolLayout {
   readonly vectorDataFloats: number;
   readonly layerBatchDataFloats: number;
   readonly lightDataFloats: number;
+  readonly alphaEffectsDataFloats: number;
+  readonly alphaEffectsBatchDataFloats: number;
+  readonly visibilityDataBytes: number;
+  readonly visibilityDataFloats: number;
 
   readonly instanceDataOffset: number;
   readonly effectsDataOffset: number;
@@ -125,6 +152,10 @@ export class ProtocolLayout {
   readonly vectorDataOffset: number;
   readonly layerBatchDataOffset: number;
   readonly lightDataOffset: number;
+  readonly alphaEffectsDataOffset: number;
+  readonly alphaEffectsBatchDataOffset: number;
+  readonly visibilityDataOffset: number;
+  readonly visibilityDataByteOffset: number;
 
   readonly bufferTotalFloats: number;
   readonly bufferTotalBytes: number;
@@ -138,6 +169,10 @@ export class ProtocolLayout {
     maxVectorVertices: number = 0,
     maxLayerBatches: number = DEFAULT_MAX_LAYER_BATCHES,
     maxLights: number = DEFAULT_MAX_LIGHTS,
+    maxAlphaEffectsVertices: number = DEFAULT_MAX_ALPHA_EFFECTS_VERTICES,
+    maxAlphaEffectsBatches: number = DEFAULT_MAX_ALPHA_EFFECTS_BATCHES,
+    visibilityCols: number = 0,
+    visibilityRows: number = 0,
   ) {
     this.maxInstances = maxInstances;
     this.maxEffectsVertices = maxEffectsVertices;
@@ -147,6 +182,10 @@ export class ProtocolLayout {
     this.maxVectorVertices = maxVectorVertices;
     this.maxLayerBatches = maxLayerBatches;
     this.maxLights = maxLights;
+    this.maxAlphaEffectsVertices = maxAlphaEffectsVertices;
+    this.maxAlphaEffectsBatches = maxAlphaEffectsBatches;
+    this.visibilityCols = visibilityCols;
+    this.visibilityRows = visibilityRows;
 
     this.instanceDataFloats = maxInstances * INSTANCE_FLOATS;
     this.effectsDataFloats = maxEffectsVertices * EFFECTS_VERTEX_FLOATS;
@@ -156,6 +195,10 @@ export class ProtocolLayout {
     this.vectorDataFloats = maxVectorVertices * VECTOR_VERTEX_FLOATS;
     this.layerBatchDataFloats = maxLayerBatches * LAYER_BATCH_FLOATS;
     this.lightDataFloats = maxLights * LIGHT_FLOATS;
+    this.alphaEffectsDataFloats = maxAlphaEffectsVertices * EFFECTS_VERTEX_FLOATS;
+    this.alphaEffectsBatchDataFloats = maxAlphaEffectsBatches * ALPHA_EFFECTS_BATCH_FLOATS;
+    this.visibilityDataBytes = visibilityCols * visibilityRows;
+    this.visibilityDataFloats = Math.ceil(this.visibilityDataBytes / 4);
 
     this.instanceDataOffset = HEADER_FLOATS;
     this.effectsDataOffset = this.instanceDataOffset + this.instanceDataFloats;
@@ -165,8 +208,12 @@ export class ProtocolLayout {
     this.vectorDataOffset = this.sdfDataOffset + this.sdfDataFloats;
     this.layerBatchDataOffset = this.vectorDataOffset + this.vectorDataFloats;
     this.lightDataOffset = this.layerBatchDataOffset + this.layerBatchDataFloats;
+    this.alphaEffectsDataOffset = this.lightDataOffset + this.lightDataFloats;
+    this.alphaEffectsBatchDataOffset = this.alphaEffectsDataOffset + this.alphaEffectsDataFloats;
+    this.visibilityDataOffset = this.alphaEffectsBatchDataOffset + this.alphaEffectsBatchDataFloats;
+    this.visibilityDataByteOffset = this.visibilityDataOffset * 4;
 
-    this.bufferTotalFloats = this.lightDataOffset + this.lightDataFloats;
+    this.bufferTotalFloats = this.visibilityDataOffset + this.visibilityDataFloats;
     this.bufferTotalBytes = this.bufferTotalFloats * 4;
   }
 
@@ -181,6 +228,10 @@ export class ProtocolLayout {
       f32[HEADER_MAX_VECTOR_VERTICES],
       f32[HEADER_MAX_LAYER_BATCHES],
       f32[HEADER_MAX_LIGHTS],
+      f32[HEADER_MAX_ALPHA_EFFECTS_VERTICES] || DEFAULT_MAX_ALPHA_EFFECTS_VERTICES,
+      DEFAULT_MAX_ALPHA_EFFECTS_BATCHES,
+      f32[HEADER_VISIBILITY_COLS] || 0,
+      f32[HEADER_VISIBILITY_ROWS] || 0,
     );
   }
 
@@ -194,6 +245,10 @@ export class ProtocolLayout {
     get_max_vector_vertices?: () => number;
     get_max_layer_batches?: () => number;
     get_max_lights?: () => number;
+    get_max_alpha_effects_vertices?: () => number;
+    get_max_alpha_effects_batches?: () => number;
+    get_visibility_cols?: () => number;
+    get_visibility_rows?: () => number;
   }): ProtocolLayout {
     return new ProtocolLayout(
       exports.get_max_instances(),
@@ -204,6 +259,10 @@ export class ProtocolLayout {
       exports.get_max_vector_vertices?.() ?? 0,
       exports.get_max_layer_batches?.() ?? DEFAULT_MAX_LAYER_BATCHES,
       exports.get_max_lights?.() ?? DEFAULT_MAX_LIGHTS,
+      exports.get_max_alpha_effects_vertices?.() ?? DEFAULT_MAX_ALPHA_EFFECTS_VERTICES,
+      exports.get_max_alpha_effects_batches?.() ?? DEFAULT_MAX_ALPHA_EFFECTS_BATCHES,
+      exports.get_visibility_cols?.() ?? 0,
+      exports.get_visibility_rows?.() ?? 0,
     );
   }
 }

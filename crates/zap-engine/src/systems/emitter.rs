@@ -27,6 +27,8 @@ pub fn tick_emitters(scene: &mut Scene, effects: &mut EffectsState, dt: f32) {
             emitter.drag,
             emitter.attract_strength,
             emitter.speed_factor,
+            emitter.blend,
+            emitter.particle_layer,
         );
     }
 }

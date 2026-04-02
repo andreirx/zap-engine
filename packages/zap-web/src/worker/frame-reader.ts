@@ -17,14 +17,20 @@ import {
   HEADER_AMBIENT_G,
   HEADER_AMBIENT_B,
   HEADER_WASM_TIME_US,
+  HEADER_ALPHA_EFFECTS_VERTEX_COUNT,
+  HEADER_ALPHA_EFFECTS_BATCH_COUNT,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
   SDF_INSTANCE_FLOATS,
   VECTOR_VERTEX_FLOATS,
   LAYER_BATCH_FLOATS,
   LIGHT_FLOATS,
+  ALPHA_EFFECTS_BATCH_FLOATS,
+  HEADER_VISIBILITY_COLS,
+  HEADER_VISIBILITY_ROWS,
+  HEADER_VISIBILITY_INTERPOLATION,
 } from './protocol';
-import type { LayerBatchDescriptor, BakeState, LightingState } from '../renderer/types';
+import type { LayerBatchDescriptor, AlphaEffectsBatchDescriptor, BakeState, LightingState, VisibilityState } from '../renderer/types';
 
 /** Complete frame state extracted from SharedArrayBuffer. */
 export interface FrameState {
@@ -52,6 +58,14 @@ export interface FrameState {
   bakeState?: BakeState;
   /** Dynamic lighting state. */
   lightingState?: LightingState;
+  /** Alpha effects vertex data (smoke/dust particles). */
+  alphaEffectsData?: Float32Array;
+  /** Number of alpha effects vertices. */
+  alphaEffectsVertexCount: number;
+  /** Alpha effects batch descriptors (one per layer with alpha particles). */
+  alphaEffectsBatches?: AlphaEffectsBatchDescriptor[];
+  /** Visibility mask state. */
+  visibilityState?: VisibilityState;
   /** WASM tick execution time in microseconds. */
   wasmTimeUs: number;
 }
@@ -70,8 +84,14 @@ export function readFrameState(buf: Float32Array, layout: ProtocolLayout): Frame
   const vectorVertexCount = buf[HEADER_VECTOR_VERTEX_COUNT];
   const layerBatchCount = buf[HEADER_LAYER_BATCH_COUNT] ?? 0;
 
+  const alphaEffectsVertexCount = buf[HEADER_ALPHA_EFFECTS_VERTEX_COUNT] ?? 0;
+  const visCols = buf[HEADER_VISIBILITY_COLS] ?? 0;
+  const visRows = buf[HEADER_VISIBILITY_ROWS] ?? 0;
+
   // Nothing to render
-  if (instanceCount === 0 && sdfInstanceCount === 0 && vectorVertexCount === 0) {
+  if (instanceCount === 0 && sdfInstanceCount === 0 && vectorVertexCount === 0
+      && effectsVertexCount === 0 && alphaEffectsVertexCount === 0
+      && (visCols === 0 || visRows === 0)) {
     return null;
   }
 
@@ -119,6 +139,7 @@ export function readFrameState(buf: Float32Array, layout: ProtocolLayout): Frame
         start: buf[base + 1],
         end: buf[base + 2],
         atlasId: buf[base + 3],
+        blendMode: buf[base + 4] ?? 0,
       });
     }
   }
@@ -160,6 +181,48 @@ export function readFrameState(buf: Float32Array, layout: ProtocolLayout): Frame
     }
   }
 
+  // Alpha effects data
+  const alphaEffectsBatchCount = buf[HEADER_ALPHA_EFFECTS_BATCH_COUNT] ?? 0;
+  let alphaEffectsData: Float32Array | undefined;
+  let alphaEffectsBatches: AlphaEffectsBatchDescriptor[] | undefined;
+
+  if (alphaEffectsVertexCount > 0) {
+    alphaEffectsData = buf.subarray(
+      layout.alphaEffectsDataOffset,
+      layout.alphaEffectsDataOffset + alphaEffectsVertexCount * EFFECTS_VERTEX_FLOATS,
+    );
+  }
+
+  if (alphaEffectsBatchCount > 0) {
+    alphaEffectsBatches = [];
+    for (let i = 0; i < alphaEffectsBatchCount; i++) {
+      const base = layout.alphaEffectsBatchDataOffset + i * ALPHA_EFFECTS_BATCH_FLOATS;
+      alphaEffectsBatches.push({
+        layerId: buf[base],
+        startVertex: buf[base + 1],
+        endVertex: buf[base + 2],
+      });
+    }
+  }
+
+  // Visibility mask data
+  let visibilityState: VisibilityState | undefined;
+  if (visCols > 0 && visRows > 0) {
+    const byteCount = visCols * visRows;
+    // Read raw bytes from SAB at the computed byte offset
+    const sharedU8 = new Uint8Array(buf.buffer, buf.byteOffset);
+    const visData = sharedU8.subarray(
+      layout.visibilityDataByteOffset,
+      layout.visibilityDataByteOffset + byteCount,
+    );
+    visibilityState = {
+      cols: visCols,
+      rows: visRows,
+      data: visData,
+      interpolation: buf[HEADER_VISIBILITY_INTERPOLATION] ?? 0,
+    };
+  }
+
   // Read WASM timing
   const wasmTimeUs = buf[HEADER_WASM_TIME_US] ?? 0;
 
@@ -176,6 +239,10 @@ export function readFrameState(buf: Float32Array, layout: ProtocolLayout): Frame
     layerBatches,
     bakeState,
     lightingState,
+    alphaEffectsData,
+    alphaEffectsVertexCount,
+    alphaEffectsBatches,
+    visibilityState,
     wasmTimeUs,
   };
 }

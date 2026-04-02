@@ -15,8 +15,26 @@ pub use rng::Rng;
 pub use segment_color::{SegmentColor, SegmentUVs};
 pub use geometry::{build_strip_vertices, strip_to_triangles};
 pub use electric_arc::ElectricArc;
-pub use particle::Particle;
+pub use particle::{Particle, ParticleBlend};
 pub use debug_line::DebugLine;
+
+use crate::components::layer::RenderLayer;
+
+/// Describes a contiguous range of alpha-effect vertices sharing the same layer.
+#[derive(Debug, Clone, Copy)]
+pub struct AlphaEffectsBatch {
+    /// Which render layer these alpha particles belong to.
+    pub layer: RenderLayer,
+    /// Start vertex index (inclusive) in the alpha effects buffer.
+    pub start_vertex: u32,
+    /// End vertex index (exclusive) in the alpha effects buffer.
+    pub end_vertex: u32,
+}
+
+impl AlphaEffectsBatch {
+    /// Floats per AlphaEffectsBatch in the protocol wire format.
+    pub const FLOATS: usize = 3;
+}
 
 /// Container for all visual effects (arcs + particles + debug lines).
 /// Generic — games add arcs and particles via public methods.
@@ -24,7 +42,12 @@ pub struct EffectsState {
     pub arcs: Vec<(ElectricArc, f32, SegmentColor)>,
     pub particles: Vec<Particle>,
     pub debug_lines: Vec<DebugLine>,
+    /// Additive effects vertex buffer (arcs, additive particles, debug lines).
     pub effects_buffer: Vec<f32>,
+    /// Alpha-blended effects vertex buffer (smoke/dust particles).
+    pub alpha_effects_buffer: Vec<f32>,
+    /// Layer batch descriptors for alpha effects (one per layer that has alpha particles).
+    pub alpha_effects_batches: Vec<AlphaEffectsBatch>,
     pub rng: Rng,
     pub attractor: [f32; 2],
 }
@@ -37,6 +60,8 @@ impl EffectsState {
             particles: Vec::new(),
             debug_lines: Vec::new(),
             effects_buffer: Vec::with_capacity(4096),
+            alpha_effects_buffer: Vec::with_capacity(2048),
+            alpha_effects_batches: Vec::new(),
             rng: Rng::new(seed.wrapping_add(7919)),
             attractor: [0.0, 0.0],
         }
@@ -49,6 +74,8 @@ impl EffectsState {
             particles: Vec::new(),
             debug_lines: Vec::new(),
             effects_buffer: Vec::with_capacity(max_vertices * 5), // 5 floats per vertex
+            alpha_effects_buffer: Vec::with_capacity(max_vertices * 5),
+            alpha_effects_batches: Vec::new(),
             rng: Rng::new(seed.wrapping_add(7919)),
             attractor: [0.0, 0.0],
         }
@@ -95,6 +122,8 @@ impl EffectsState {
         drag: f32,
         attract_strength: f32,
         speed_factor: f32,
+        blend: ParticleBlend,
+        layer: RenderLayer,
     ) {
         use crate::components::emitter::ParticleColorMode;
         for _ in 0..count {
@@ -120,6 +149,37 @@ impl EffectsState {
                 drag,
                 attract_strength,
                 speed_factor,
+                blend,
+                layer,
+            });
+        }
+    }
+
+    /// Spawn alpha-blended particles (smoke/dust/debris) at a position.
+    pub fn spawn_alpha_particles(
+        &mut self,
+        center: [f32; 2],
+        count: usize,
+        speed_limit: f32,
+        width: f32,
+        lifetime: f32,
+        layer: RenderLayer,
+    ) {
+        for _ in 0..count {
+            let sx = (self.rng.next_int(20000) as f32 / 1000.0) - 10.0;
+            let sy = (self.rng.next_int(20000) as f32 / 1000.0) - 10.0;
+            let color = SegmentColor::random(&mut self.rng);
+            self.particles.push(Particle {
+                position: center,
+                speed: [sx * speed_limit / 10.0, sy * speed_limit / 10.0],
+                width,
+                color,
+                lifetime,
+                drag: Particle::DEFAULT_DRAG,
+                attract_strength: Particle::DEFAULT_ATTRACT_STRENGTH,
+                speed_factor: Particle::DEFAULT_SPEED_FACTOR,
+                blend: ParticleBlend::Alpha,
+                layer,
             });
         }
     }
@@ -143,22 +203,83 @@ impl EffectsState {
         self.debug_lines.clear();
     }
 
-    /// Rebuild the effects vertex buffer (triangle list, 5 floats per vertex).
+    /// Rebuild both effects vertex buffers (triangle list, 5 floats per vertex).
+    /// Additive particles, arcs, and debug lines go into `effects_buffer`.
+    /// Alpha particles go into `alpha_effects_buffer`, sorted by layer with batch descriptors.
     pub fn rebuild_effects_buffer(&mut self) {
         self.effects_buffer.clear();
+        self.alpha_effects_buffer.clear();
+        self.alpha_effects_batches.clear();
 
+        // Arcs → additive buffer
         for (arc, width, color) in &self.arcs {
             let strip = build_strip_vertices(&arc.points, *width, *color);
             let tris = strip_to_triangles(&strip, 5);
             self.effects_buffer.extend_from_slice(&tris);
         }
 
-        for p in &self.particles {
-            let strip = p.to_vertices();
-            let tris = strip_to_triangles(&strip, 5);
-            self.effects_buffer.extend_from_slice(&tris);
+        // Partition particles by blend mode
+        // Collect alpha particle indices sorted by layer for batch generation
+        let mut alpha_indices: Vec<usize> = Vec::new();
+
+        for (i, p) in self.particles.iter().enumerate() {
+            match p.blend {
+                ParticleBlend::Additive => {
+                    let strip = p.to_vertices();
+                    let tris = strip_to_triangles(&strip, 5);
+                    self.effects_buffer.extend_from_slice(&tris);
+                }
+                ParticleBlend::Alpha => {
+                    alpha_indices.push(i);
+                }
+            }
         }
 
+        // Sort alpha particles by layer for batching
+        alpha_indices.sort_unstable_by_key(|&i| self.particles[i].layer);
+
+        // Build alpha effects buffer with layer batch descriptors
+        let mut current_layer: Option<RenderLayer> = None;
+        let mut batch_start_vertex: u32 = 0;
+
+        for &idx in &alpha_indices {
+            let p = &self.particles[idx];
+            let layer = p.layer;
+
+            if current_layer != Some(layer) {
+                // Close previous batch
+                let vert_count = (self.alpha_effects_buffer.len() / 5) as u32;
+                if let Some(prev_layer) = current_layer {
+                    if vert_count > batch_start_vertex {
+                        self.alpha_effects_batches.push(AlphaEffectsBatch {
+                            layer: prev_layer,
+                            start_vertex: batch_start_vertex,
+                            end_vertex: vert_count,
+                        });
+                    }
+                }
+                current_layer = Some(layer);
+                batch_start_vertex = vert_count;
+            }
+
+            let strip = p.to_vertices();
+            let tris = strip_to_triangles(&strip, 5);
+            self.alpha_effects_buffer.extend_from_slice(&tris);
+        }
+
+        // Close final alpha batch
+        let final_vert_count = (self.alpha_effects_buffer.len() / 5) as u32;
+        if let Some(layer) = current_layer {
+            if final_vert_count > batch_start_vertex {
+                self.alpha_effects_batches.push(AlphaEffectsBatch {
+                    layer,
+                    start_vertex: batch_start_vertex,
+                    end_vertex: final_vert_count,
+                });
+            }
+        }
+
+        // Debug lines → additive buffer
         for line in &self.debug_lines {
             let strip = build_strip_vertices(&line.points, line.width, line.color);
             let tris = strip_to_triangles(&strip, 5);
@@ -172,7 +293,11 @@ impl EffectsState {
         self.particles.clear();
         self.debug_lines.clear();
         self.effects_buffer.clear();
+        self.alpha_effects_buffer.clear();
+        self.alpha_effects_batches.clear();
     }
+
+    // ---- Additive effects accessors ----
 
     pub fn effects_vertex_count(&self) -> usize {
         self.effects_buffer.len() / 5
@@ -180,6 +305,20 @@ impl EffectsState {
 
     pub fn effects_buffer_ptr(&self) -> *const f32 {
         self.effects_buffer.as_ptr()
+    }
+
+    // ---- Alpha effects accessors ----
+
+    pub fn alpha_effects_vertex_count(&self) -> usize {
+        self.alpha_effects_buffer.len() / 5
+    }
+
+    pub fn alpha_effects_buffer_ptr(&self) -> *const f32 {
+        self.alpha_effects_buffer.as_ptr()
+    }
+
+    pub fn alpha_effects_batch_count(&self) -> usize {
+        self.alpha_effects_batches.len()
     }
 }
 

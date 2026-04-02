@@ -1,4 +1,5 @@
-use crate::systems::effects::SegmentColor;
+use crate::components::layer::RenderLayer;
+use crate::systems::effects::{SegmentColor, ParticleBlend};
 
 /// How the emitter releases particles.
 #[derive(Debug, Clone)]
@@ -47,6 +48,10 @@ pub struct EmitterComponent {
     pub attract_strength: f32,
     /// Per-particle speed factor.
     pub speed_factor: f32,
+    /// Particle blend mode: Additive (glow, default) or Alpha (smoke/dust).
+    pub blend: ParticleBlend,
+    /// Render layer for alpha particles (controls draw order relative to sprites).
+    pub particle_layer: RenderLayer,
     /// Internal accumulator for continuous emission.
     accumulator: f32,
     /// Internal timer for burst intervals.
@@ -70,6 +75,8 @@ impl Default for EmitterComponent {
             drag: 0.02,
             attract_strength: 0.3,
             speed_factor: 0.8,
+            blend: ParticleBlend::Additive,
+            particle_layer: RenderLayer::VFX,
             accumulator: 0.0,
             burst_timer: 0.0,
             burst_fired: false,
@@ -136,6 +143,16 @@ impl EmitterComponent {
 
     pub fn with_speed_factor(mut self, factor: f32) -> Self {
         self.speed_factor = factor;
+        self
+    }
+
+    pub fn with_blend(mut self, blend: ParticleBlend) -> Self {
+        self.blend = blend;
+        self
+    }
+
+    pub fn with_particle_layer(mut self, layer: RenderLayer) -> Self {
+        self.particle_layer = layer;
         self
     }
 

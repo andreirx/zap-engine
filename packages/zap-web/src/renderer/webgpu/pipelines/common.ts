@@ -78,12 +78,29 @@ export function alphaBlendTargets(format: GPUTextureFormat): GPUColorTargetState
 
 /**
  * Additive blend targets for effects/glow rendering.
+ * Uses src-alpha because fs_additive outputs non-premultiplied RGB + separate alpha.
  */
 export function additiveBlendTargets(format: GPUTextureFormat): GPUColorTargetState[] {
   return [{
     format,
     blend: {
       color: { srcFactor: 'src-alpha', dstFactor: 'one', operation: 'add' },
+      alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+    },
+  }];
+}
+
+/**
+ * Additive blend targets for premultiplied-alpha sprites.
+ * Uses srcFactor 'one' because fs_main already premultiplies (textureSample * alpha),
+ * and atlas textures are loaded with premultiplied alpha. Using 'src-alpha' would
+ * double-multiply, dimming translucent edges.
+ */
+export function premultipliedAdditiveBlendTargets(format: GPUTextureFormat): GPUColorTargetState[] {
+  return [{
+    format,
+    blend: {
+      color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
       alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
     },
   }];

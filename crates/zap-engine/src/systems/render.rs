@@ -1,9 +1,10 @@
 use crate::components::entity::Entity;
 use crate::components::layer::RenderLayer;
+use crate::components::sprite::BlendMode;
 use crate::renderer::instance::{RenderBuffer, RenderInstance};
 
-/// Describes a contiguous batch of instances sharing the same layer AND atlas.
-/// One batch per (layer, atlas) pair enables N-atlas rendering.
+/// Describes a contiguous batch of instances sharing the same layer, blend mode, AND atlas.
+/// One batch per (layer, blend, atlas) triple enables N-atlas rendering with mixed blend modes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayerBatch {
     /// Which render layer this batch belongs to.
@@ -14,11 +15,13 @@ pub struct LayerBatch {
     pub end: u32,
     /// Which atlas this batch uses (index into manifest's atlas list).
     pub atlas_id: u32,
+    /// Blend mode for this batch (Alpha or Additive).
+    pub blend: BlendMode,
 }
 
 impl LayerBatch {
     /// Floats per LayerBatch in the protocol wire format.
-    pub const FLOATS: usize = 4;
+    pub const FLOATS: usize = 5;
 }
 
 /// Build the render buffer from a set of entities.
@@ -35,6 +38,7 @@ pub fn build_render_buffer<'a>(
     // Collect active sprite entities with their sort key
     struct SortEntry {
         layer: RenderLayer,
+        blend: BlendMode,
         atlas: u32,
         entity_id: u32, // Tiebreaker for deterministic ordering within batches
         instance: RenderInstance,
@@ -65,37 +69,41 @@ pub fn build_render_buffer<'a>(
 
         entries.push(SortEntry {
             layer: entity.layer,
+            blend: sprite.blend,
             atlas: sprite.atlas.0,
             entity_id: entity.id.0,
             instance,
         });
     }
 
-    // Sort by (layer, atlas, entity_id) — deterministic ordering prevents flicker
-    // Using unstable sort for ~2x speed; entity_id tiebreaker ensures consistent results
+    // Sort by (layer, blend, atlas, entity_id) — deterministic ordering prevents flicker.
+    // Within each layer: alpha sprites first, then additive (correct compositing order).
+    // Using unstable sort for ~2x speed; entity_id tiebreaker ensures consistent results.
     entries.sort_unstable_by(|a, b| {
         a.layer.cmp(&b.layer)
+            .then_with(|| a.blend.cmp(&b.blend))
             .then_with(|| a.atlas.cmp(&b.atlas))
             .then_with(|| a.entity_id.cmp(&b.entity_id))
     });
 
-    // Build buffer and extract batch boundaries — one batch per (layer, atlas) pair
+    // Build buffer and extract batch boundaries — one batch per (layer, blend, atlas) triple
     let mut batches: Vec<LayerBatch> = Vec::new();
-    let mut current_key: Option<(RenderLayer, u32)> = None;
+    let mut current_key: Option<(RenderLayer, BlendMode, u32)> = None;
     let mut batch_start: u32 = 0;
 
     for entry in &entries {
         let idx = buffer.instance_count();
-        let key = (entry.layer, entry.atlas);
+        let key = (entry.layer, entry.blend, entry.atlas);
 
         if current_key != Some(key) {
             // Close previous batch
-            if let Some((layer, atlas)) = current_key {
+            if let Some((layer, blend, atlas)) = current_key {
                 batches.push(LayerBatch {
                     layer,
                     start: batch_start,
                     end: idx,
                     atlas_id: atlas,
+                    blend,
                 });
             }
             // Start new batch
@@ -107,12 +115,13 @@ pub fn build_render_buffer<'a>(
     }
 
     // Close final batch
-    if let Some((layer, atlas)) = current_key {
+    if let Some((layer, blend, atlas)) = current_key {
         batches.push(LayerBatch {
             layer,
             start: batch_start,
             end: buffer.instance_count(),
             atlas_id: atlas,
+            blend,
         });
     }
 
@@ -355,5 +364,118 @@ mod tests {
         let batches = build_render_buffer(entities.iter(), &mut buffer);
         assert_eq!(buffer.instance_count(), 0);
         assert!(batches.is_empty());
+    }
+
+    #[test]
+    fn blend_mode_splits_batches_within_layer() {
+        let entities = vec![
+            // Alpha sprite on Objects
+            Entity::new(EntityId(1))
+                .with_pos(Vec2::new(10.0, 10.0))
+                .with_sprite(SpriteComponent {
+                    blend: BlendMode::Alpha,
+                    ..Default::default()
+                }),
+            // Additive sprite on Objects (same atlas)
+            Entity::new(EntityId(2))
+                .with_pos(Vec2::new(20.0, 20.0))
+                .with_sprite(SpriteComponent {
+                    blend: BlendMode::Additive,
+                    ..Default::default()
+                }),
+            // Another alpha sprite on Objects
+            Entity::new(EntityId(3))
+                .with_pos(Vec2::new(30.0, 30.0))
+                .with_sprite(SpriteComponent {
+                    blend: BlendMode::Alpha,
+                    ..Default::default()
+                }),
+        ];
+
+        let mut buffer = RenderBuffer::new();
+        let batches = build_render_buffer(entities.iter(), &mut buffer);
+
+        assert_eq!(buffer.instance_count(), 3);
+        // Two batches: (Objects, Alpha, atlas 0) and (Objects, Additive, atlas 0)
+        assert_eq!(batches.len(), 2);
+
+        // Alpha first (correct compositing order)
+        assert_eq!(batches[0].blend, BlendMode::Alpha);
+        assert_eq!(batches[0].start, 0);
+        assert_eq!(batches[0].end, 2); // entities 1 and 3
+
+        // Additive second
+        assert_eq!(batches[1].blend, BlendMode::Additive);
+        assert_eq!(batches[1].start, 2);
+        assert_eq!(batches[1].end, 3); // entity 2
+
+        // Both on Objects layer
+        assert_eq!(batches[0].layer, RenderLayer::Objects);
+        assert_eq!(batches[1].layer, RenderLayer::Objects);
+
+        // Verify draw order: alpha sprites first
+        assert_eq!(buffer.instances[0].x, 10.0); // Alpha entity 1
+        assert_eq!(buffer.instances[1].x, 30.0); // Alpha entity 3
+        assert_eq!(buffer.instances[2].x, 20.0); // Additive entity 2
+    }
+
+    #[test]
+    fn blend_mode_interacts_with_layers() {
+        let entities = vec![
+            // Additive on Background
+            Entity::new(EntityId(1))
+                .with_layer(RenderLayer::Background)
+                .with_sprite(SpriteComponent {
+                    blend: BlendMode::Additive,
+                    ..Default::default()
+                }),
+            // Alpha on Background
+            Entity::new(EntityId(2))
+                .with_layer(RenderLayer::Background)
+                .with_sprite(SpriteComponent {
+                    blend: BlendMode::Alpha,
+                    ..Default::default()
+                }),
+            // Alpha on Objects
+            Entity::new(EntityId(3))
+                .with_layer(RenderLayer::Objects)
+                .with_sprite(SpriteComponent {
+                    blend: BlendMode::Alpha,
+                    ..Default::default()
+                }),
+        ];
+
+        let mut buffer = RenderBuffer::new();
+        let batches = build_render_buffer(entities.iter(), &mut buffer);
+
+        assert_eq!(batches.len(), 3);
+
+        // Background Alpha first
+        assert_eq!(batches[0].layer, RenderLayer::Background);
+        assert_eq!(batches[0].blend, BlendMode::Alpha);
+
+        // Background Additive second (same layer, blend after alpha)
+        assert_eq!(batches[1].layer, RenderLayer::Background);
+        assert_eq!(batches[1].blend, BlendMode::Additive);
+
+        // Objects Alpha third (next layer)
+        assert_eq!(batches[2].layer, RenderLayer::Objects);
+        assert_eq!(batches[2].blend, BlendMode::Alpha);
+    }
+
+    #[test]
+    fn all_default_batches_have_alpha_blend() {
+        let entities = vec![
+            Entity::new(EntityId(1))
+                .with_sprite(SpriteComponent::default()),
+            Entity::new(EntityId(2))
+                .with_sprite(SpriteComponent::default()),
+        ];
+
+        let mut buffer = RenderBuffer::new();
+        let batches = build_render_buffer(entities.iter(), &mut buffer);
+
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].blend, BlendMode::Alpha);
     }
 }

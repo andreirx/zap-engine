@@ -237,6 +237,38 @@ macro_rules! export_game {
             with_runner(|r| r.bake_state())
         }
 
+        // ---- Alpha effects accessors ----
+
+        #[wasm_bindgen]
+        pub fn get_alpha_effects_ptr() -> *const f32 {
+            with_runner(|r| r.alpha_effects_ptr())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_alpha_effects_vertex_count() -> u32 {
+            with_runner(|r| r.alpha_effects_vertex_count())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_max_alpha_effects_vertices() -> u32 {
+            with_runner(|r| r.max_alpha_effects_vertices())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_alpha_effects_batch_count() -> u32 {
+            with_runner(|r| r.alpha_effects_batch_count())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_alpha_effects_batches_ptr() -> *const f32 {
+            with_runner(|r| r.alpha_effects_batches_ptr())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_max_alpha_effects_batches() -> u32 {
+            with_runner(|r| r.max_alpha_effects_batches())
+        }
+
         // ---- Lighting accessors ----
 
         #[wasm_bindgen]
@@ -267,6 +299,38 @@ macro_rules! export_game {
         #[wasm_bindgen]
         pub fn get_ambient_b() -> f32 {
             with_runner(|r| r.ambient_b())
+        }
+
+        // ---- Visibility mask accessors ----
+
+        #[wasm_bindgen]
+        pub fn get_visibility_cols() -> u32 {
+            with_runner(|r| r.visibility_cols())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_visibility_rows() -> u32 {
+            with_runner(|r| r.visibility_rows())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_visibility_interpolation() -> u32 {
+            with_runner(|r| r.visibility_interpolation())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_visibility_ptr() -> *const u8 {
+            with_runner(|r| r.visibility_ptr())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_visibility_byte_count() -> u32 {
+            with_runner(|r| r.visibility_byte_count())
+        }
+
+        #[wasm_bindgen]
+        pub fn get_visibility_data_byte_offset() -> u32 {
+            with_runner(|r| r.visibility_data_byte_offset())
         }
     };
 

@@ -2,6 +2,17 @@
 
 use super::geometry::build_strip_vertices;
 use super::segment_color::SegmentColor;
+use crate::components::layer::RenderLayer;
+
+/// Blend mode for particles — determines which render pipeline is used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ParticleBlend {
+    /// Additive blending (glow/fire/sparks). Renders in the final effects pass.
+    #[default]
+    Additive,
+    /// Alpha blending (smoke/dust/debris). Renders within its layer, after sprites.
+    Alpha,
+}
 
 /// A single particle with physics and rendering state.
 #[derive(Debug, Clone)]
@@ -14,6 +25,11 @@ pub struct Particle {
     pub drag: f32,
     pub attract_strength: f32,
     pub speed_factor: f32,
+    /// Blend mode: Additive (glow, default) or Alpha (smoke/dust).
+    pub blend: ParticleBlend,
+    /// Render layer for alpha particles (controls draw order relative to sprites).
+    /// Ignored for additive particles (they always render in the final effects pass).
+    pub layer: RenderLayer,
 }
 
 impl Particle {
@@ -27,6 +43,8 @@ impl Particle {
             drag: Self::DEFAULT_DRAG,
             attract_strength: Self::DEFAULT_ATTRACT_STRENGTH,
             speed_factor: Self::DEFAULT_SPEED_FACTOR,
+            blend: ParticleBlend::Additive,
+            layer: RenderLayer::VFX,
         }
     }
 

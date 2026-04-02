@@ -169,3 +169,16 @@ fn fs_additive(in: VertexOutput) -> @location(0) vec4<f32> {
     let a = halo * tip;
     return vec4<f32>(rgb, a);
 }
+
+// Alpha-blended fragment shader for opaque/translucent effects (smoke, dust, debris).
+// Gaussian soft-circle profile with SegmentColor tint. Premultiplied alpha output.
+@fragment
+fn fs_alpha_effects(in: VertexOutput) -> @location(0) vec4<f32> {
+    let d = abs(in.tex_coord.x * 2.0 - 1.0);
+    let soft = exp(-d * d * 4.0);
+    let tip = in.tex_coord.y;
+
+    let base = segment_color(in.color_idx);
+    let a = soft * tip * 0.7;  // Max ~70% opacity for layerable smoke
+    return vec4<f32>(base * a, a);
+}

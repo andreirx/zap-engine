@@ -6,5 +6,6 @@ pub mod sdf_render;
 pub mod debug;
 pub mod text;
 pub mod lighting;
+pub mod visibility;
 #[cfg(feature = "vectors")]
 pub mod vector;

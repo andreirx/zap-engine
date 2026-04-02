@@ -185,6 +185,12 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
               e.data.maxEvents,
               e.data.maxSdfInstances,
               e.data.maxVectorVertices ?? 0,
+              e.data.maxLayerBatches,
+              e.data.maxLights,
+              e.data.maxAlphaEffectsVertices,
+              undefined, // maxAlphaEffectsBatches — use default
+              e.data.visibilityCols ?? 0,
+              e.data.visibilityRows ?? 0,
             );
           }
 
@@ -208,6 +214,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
               maxEffectsVertices: layout.maxEffectsVertices,
               maxSdfInstances: layout.maxSdfInstances,
               maxVectorVertices: layout.maxVectorVertices,
+              maxAlphaEffectsVertices: layout.maxAlphaEffectsVertices,
             });
             if (cancelled) return;
             rendererRef.current = renderer;
@@ -348,6 +355,10 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         frame.layerBatches,
         frame.bakeState,
         frame.lightingState,
+        frame.alphaEffectsData,
+        frame.alphaEffectsVertexCount,
+        frame.alphaEffectsBatches,
+        frame.visibilityState,
       );
 
       return {

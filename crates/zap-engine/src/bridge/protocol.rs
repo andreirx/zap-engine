@@ -20,7 +20,7 @@
 use crate::api::game::GameConfig;
 
 /// Number of floats in the header section.
-pub const HEADER_FLOATS: usize = 28;
+pub const HEADER_FLOATS: usize = 36;
 
 /// Header field indices.
 pub const HEADER_LOCK: usize = 0;
@@ -53,10 +53,21 @@ pub const HEADER_LIGHT_COUNT: usize = 23;
 pub const HEADER_AMBIENT_R: usize = 24;
 pub const HEADER_AMBIENT_G: usize = 25;
 pub const HEADER_AMBIENT_B: usize = 26;
-pub const HEADER_RESERVED_27: usize = 27;
+/// WASM tick execution time in microseconds (written each frame by worker).
+pub const HEADER_WASM_TIME_US: usize = 27;
+// Phase 13: Alpha effects (smoke/dust particles with alpha blending)
+pub const HEADER_MAX_ALPHA_EFFECTS_VERTICES: usize = 28;
+pub const HEADER_ALPHA_EFFECTS_VERTEX_COUNT: usize = 29;
+pub const HEADER_ALPHA_EFFECTS_BATCH_COUNT: usize = 30;
+pub const HEADER_RESERVED_31: usize = 31;
+// Phase 14: Visibility mask
+pub const HEADER_VISIBILITY_COLS: usize = 32;
+pub const HEADER_VISIBILITY_ROWS: usize = 33;
+pub const HEADER_VISIBILITY_INTERPOLATION: usize = 34;
+pub const HEADER_RESERVED_35: usize = 35;
 
 /// Protocol version written into the header.
-pub const PROTOCOL_VERSION: f32 = 4.0;
+pub const PROTOCOL_VERSION: f32 = 5.0;
 
 /// Floats per render instance (wire format — never changes).
 pub const INSTANCE_FLOATS: usize = 8;
@@ -73,25 +84,34 @@ pub const SDF_INSTANCE_FLOATS: usize = 12;
 /// Floats per vector vertex: x, y, r, g, b, a (wire format — never changes).
 pub const VECTOR_VERTEX_FLOATS: usize = 6;
 
-/// Floats per layer batch descriptor: layer_id, start, end, atlas_id.
-pub const LAYER_BATCH_FLOATS: usize = 4;
+/// Floats per layer batch descriptor: layer_id, start, end, atlas_id, blend_mode.
+pub const LAYER_BATCH_FLOATS: usize = 5;
 
 /// Floats per point light: x, y, r, g, b, intensity, radius, layer_mask.
 pub const LIGHT_FLOATS: usize = 8;
 
-/// Default maximum layer batches (one per (layer, atlas) pair).
-/// With 6 layers and up to 8 atlases, 48 is a reasonable default.
-pub const DEFAULT_MAX_LAYER_BATCHES: usize = 48;
+/// Floats per alpha effects batch descriptor: layer_id, start_vertex, end_vertex.
+pub const ALPHA_EFFECTS_BATCH_FLOATS: usize = 3;
+
+/// Default maximum layer batches (one per (layer, blend, atlas) triple).
+/// With 6 layers, 2 blend modes, and up to 8 atlases, 96 is a reasonable default.
+pub const DEFAULT_MAX_LAYER_BATCHES: usize = 96;
 
 /// Default maximum point lights.
 pub const DEFAULT_MAX_LIGHTS: usize = 64;
+
+/// Default maximum alpha effects vertices.
+pub const DEFAULT_MAX_ALPHA_EFFECTS_VERTICES: usize = 8192;
+
+/// Default maximum alpha effects batches (one per layer with alpha particles).
+pub const DEFAULT_MAX_ALPHA_EFFECTS_BATCHES: usize = 6;
 
 /// Runtime-computed buffer layout. Replaces the old compile-time MAX_* constants.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProtocolLayout {
     /// Maximum render instances.
     pub max_instances: usize,
-    /// Maximum effects vertices.
+    /// Maximum effects vertices (additive).
     pub max_effects_vertices: usize,
     /// Maximum sound events per frame.
     pub max_sounds: usize,
@@ -105,6 +125,14 @@ pub struct ProtocolLayout {
     pub max_layer_batches: usize,
     /// Maximum point lights.
     pub max_lights: usize,
+    /// Maximum alpha effects vertices (smoke/dust).
+    pub max_alpha_effects_vertices: usize,
+    /// Maximum alpha effects batches.
+    pub max_alpha_effects_batches: usize,
+    /// Visibility mask grid width in cells (0 = disabled).
+    pub visibility_cols: u32,
+    /// Visibility mask grid height in cells (0 = disabled).
+    pub visibility_rows: u32,
 
     /// Size of instance data section in floats.
     pub instance_data_floats: usize,
@@ -122,6 +150,14 @@ pub struct ProtocolLayout {
     pub layer_batch_data_floats: usize,
     /// Size of light data section in floats.
     pub light_data_floats: usize,
+    /// Size of alpha effects data section in floats.
+    pub alpha_effects_data_floats: usize,
+    /// Size of alpha effects batch data section in floats.
+    pub alpha_effects_batch_data_floats: usize,
+    /// Size of visibility data section in bytes (raw u8 grid, 4-byte aligned).
+    pub visibility_data_bytes: usize,
+    /// Size of visibility data section in floats (for SAB offset computation).
+    pub visibility_data_floats: usize,
 
     /// Offset (in floats) where instance data begins.
     pub instance_data_offset: usize,
@@ -139,6 +175,14 @@ pub struct ProtocolLayout {
     pub layer_batch_data_offset: usize,
     /// Offset (in floats) where light data begins.
     pub light_data_offset: usize,
+    /// Offset (in floats) where alpha effects data begins.
+    pub alpha_effects_data_offset: usize,
+    /// Offset (in floats) where alpha effects batch data begins.
+    pub alpha_effects_batch_data_offset: usize,
+    /// Offset (in bytes) where visibility data begins.
+    pub visibility_data_byte_offset: usize,
+    /// Offset (in floats) where visibility data begins (for SAB alignment).
+    pub visibility_data_offset: usize,
 
     /// Total buffer size in floats.
     pub buffer_total_floats: usize,
@@ -147,7 +191,7 @@ pub struct ProtocolLayout {
 }
 
 impl ProtocolLayout {
-    /// Compute layout from raw capacity values.
+    /// Compute layout from raw capacity values (no visibility).
     pub fn new(
         max_instances: usize,
         max_effects_vertices: usize,
@@ -158,6 +202,36 @@ impl ProtocolLayout {
         max_layer_batches: usize,
         max_lights: usize,
     ) -> Self {
+        Self::full(
+            max_instances,
+            max_effects_vertices,
+            max_sounds,
+            max_events,
+            max_sdf_instances,
+            max_vector_vertices,
+            max_layer_batches,
+            max_lights,
+            DEFAULT_MAX_ALPHA_EFFECTS_VERTICES,
+            DEFAULT_MAX_ALPHA_EFFECTS_BATCHES,
+            0, 0,
+        )
+    }
+
+    /// Compute layout with all capacities specified.
+    pub fn full(
+        max_instances: usize,
+        max_effects_vertices: usize,
+        max_sounds: usize,
+        max_events: usize,
+        max_sdf_instances: usize,
+        max_vector_vertices: usize,
+        max_layer_batches: usize,
+        max_lights: usize,
+        max_alpha_effects_vertices: usize,
+        max_alpha_effects_batches: usize,
+        visibility_cols: u32,
+        visibility_rows: u32,
+    ) -> Self {
         let instance_data_floats = max_instances * INSTANCE_FLOATS;
         let effects_data_floats = max_effects_vertices * EFFECTS_VERTEX_FLOATS;
         let sound_data_floats = max_sounds;
@@ -166,6 +240,8 @@ impl ProtocolLayout {
         let vector_data_floats = max_vector_vertices * VECTOR_VERTEX_FLOATS;
         let layer_batch_data_floats = max_layer_batches * LAYER_BATCH_FLOATS;
         let light_data_floats = max_lights * LIGHT_FLOATS;
+        let alpha_effects_data_floats = max_alpha_effects_vertices * EFFECTS_VERTEX_FLOATS;
+        let alpha_effects_batch_data_floats = max_alpha_effects_batches * ALPHA_EFFECTS_BATCH_FLOATS;
 
         let instance_data_offset = HEADER_FLOATS;
         let effects_data_offset = instance_data_offset + instance_data_floats;
@@ -175,8 +251,17 @@ impl ProtocolLayout {
         let vector_data_offset = sdf_data_offset + sdf_data_floats;
         let layer_batch_data_offset = vector_data_offset + vector_data_floats;
         let light_data_offset = layer_batch_data_offset + layer_batch_data_floats;
+        let alpha_effects_data_offset = light_data_offset + light_data_floats;
+        let alpha_effects_batch_data_offset = alpha_effects_data_offset + alpha_effects_data_floats;
 
-        let buffer_total_floats = light_data_offset + light_data_floats;
+        // Visibility mask: raw bytes, stored at 4-byte aligned offset within the f32 SAB.
+        let visibility_data_bytes = (visibility_cols as usize) * (visibility_rows as usize);
+        // Round up to 4-byte boundary (1 float) for SAB alignment
+        let visibility_data_floats = (visibility_data_bytes + 3) / 4;
+        let visibility_data_offset = alpha_effects_batch_data_offset + alpha_effects_batch_data_floats;
+        let visibility_data_byte_offset = visibility_data_offset * 4;
+
+        let buffer_total_floats = visibility_data_offset + visibility_data_floats;
         let buffer_total_bytes = buffer_total_floats * 4;
 
         Self {
@@ -188,6 +273,10 @@ impl ProtocolLayout {
             max_vector_vertices,
             max_layer_batches,
             max_lights,
+            max_alpha_effects_vertices,
+            max_alpha_effects_batches,
+            visibility_cols,
+            visibility_rows,
             instance_data_floats,
             effects_data_floats,
             sound_data_floats,
@@ -196,6 +285,10 @@ impl ProtocolLayout {
             vector_data_floats,
             layer_batch_data_floats,
             light_data_floats,
+            alpha_effects_data_floats,
+            alpha_effects_batch_data_floats,
+            visibility_data_bytes,
+            visibility_data_floats,
             instance_data_offset,
             effects_data_offset,
             sound_data_offset,
@@ -204,6 +297,10 @@ impl ProtocolLayout {
             vector_data_offset,
             layer_batch_data_offset,
             light_data_offset,
+            alpha_effects_data_offset,
+            alpha_effects_batch_data_offset,
+            visibility_data_byte_offset,
+            visibility_data_offset,
             buffer_total_floats,
             buffer_total_bytes,
         }
@@ -212,7 +309,7 @@ impl ProtocolLayout {
     /// Compute layout from a GameConfig.
     #[cfg(feature = "vectors")]
     pub fn from_config(config: &GameConfig) -> Self {
-        Self::new(
+        Self::full(
             config.max_instances,
             config.max_effects_vertices,
             config.max_sounds,
@@ -221,13 +318,17 @@ impl ProtocolLayout {
             config.max_vector_vertices,
             config.max_layer_batches,
             config.max_lights,
+            DEFAULT_MAX_ALPHA_EFFECTS_VERTICES,
+            DEFAULT_MAX_ALPHA_EFFECTS_BATCHES,
+            config.visibility_cols,
+            config.visibility_rows,
         )
     }
 
     /// Compute layout from a GameConfig (without vectors).
     #[cfg(not(feature = "vectors"))]
     pub fn from_config(config: &GameConfig) -> Self {
-        Self::new(
+        Self::full(
             config.max_instances,
             config.max_effects_vertices,
             config.max_sounds,
@@ -236,6 +337,10 @@ impl ProtocolLayout {
             0, // No vector vertices when vectors feature is disabled
             config.max_layer_batches,
             config.max_lights,
+            DEFAULT_MAX_ALPHA_EFFECTS_VERTICES,
+            DEFAULT_MAX_ALPHA_EFFECTS_BATCHES,
+            config.visibility_cols,
+            config.visibility_rows,
         )
     }
 }
@@ -280,8 +385,14 @@ mod tests {
         assert_eq!(layout.event_data_floats, 64 * 4);
         assert_eq!(layout.sdf_data_floats, 64 * 12);
         assert_eq!(layout.vector_data_floats, 4096 * 6);
-        assert_eq!(layout.layer_batch_data_floats, 8 * 4);
+        assert_eq!(layout.layer_batch_data_floats, 8 * 5);
         assert_eq!(layout.light_data_floats, 32 * 8);
+        // Default alpha effects capacities are applied via new()
+        assert_eq!(layout.alpha_effects_data_floats, DEFAULT_MAX_ALPHA_EFFECTS_VERTICES * 5);
+        assert_eq!(layout.alpha_effects_batch_data_floats, DEFAULT_MAX_ALPHA_EFFECTS_BATCHES * 3);
+
+        // new() passes visibility_cols=0, visibility_rows=0, so visibility section is 0 floats
+        assert_eq!(layout.visibility_data_floats, 0);
 
         let expected_total = HEADER_FLOATS
             + 256 * 8
@@ -290,8 +401,11 @@ mod tests {
             + 64 * 4
             + 64 * 12
             + 4096 * 6
-            + 8 * 4
-            + 32 * 8;
+            + 8 * 5
+            + 32 * 8
+            + DEFAULT_MAX_ALPHA_EFFECTS_VERTICES * 5
+            + DEFAULT_MAX_ALPHA_EFFECTS_BATCHES * 3
+            + 0; // visibility
         assert_eq!(layout.buffer_total_floats, expected_total);
         assert_eq!(layout.buffer_total_bytes, expected_total * 4);
     }
@@ -308,18 +422,24 @@ mod tests {
         assert_eq!(layout.vector_data_offset, layout.sdf_data_offset + layout.sdf_data_floats);
         assert_eq!(layout.layer_batch_data_offset, layout.vector_data_offset + layout.vector_data_floats);
         assert_eq!(layout.light_data_offset, layout.layer_batch_data_offset + layout.layer_batch_data_floats);
-        assert_eq!(layout.buffer_total_floats, layout.light_data_offset + layout.light_data_floats);
+        assert_eq!(layout.alpha_effects_data_offset, layout.light_data_offset + layout.light_data_floats);
+        assert_eq!(layout.alpha_effects_batch_data_offset, layout.alpha_effects_data_offset + layout.alpha_effects_data_floats);
+        assert_eq!(layout.visibility_data_offset, layout.alpha_effects_batch_data_offset + layout.alpha_effects_batch_data_floats);
+        assert_eq!(layout.buffer_total_floats, layout.visibility_data_offset + layout.visibility_data_floats);
     }
 
     #[test]
-    fn header_size_is_28() {
-        assert_eq!(HEADER_FLOATS, 28);
+    fn header_size_is_36() {
+        assert_eq!(HEADER_FLOATS, 36);
         assert_eq!(HEADER_MAX_LAYER_BATCHES, 18);
         assert_eq!(HEADER_LAYER_BATCH_COUNT, 19);
         assert_eq!(HEADER_LAYER_BATCH_OFFSET, 20);
         assert_eq!(HEADER_MAX_LIGHTS, 22);
         assert_eq!(HEADER_LIGHT_COUNT, 23);
         assert_eq!(HEADER_AMBIENT_R, 24);
+        assert_eq!(HEADER_MAX_ALPHA_EFFECTS_VERTICES, 28);
+        assert_eq!(HEADER_ALPHA_EFFECTS_VERTEX_COUNT, 29);
+        assert_eq!(HEADER_ALPHA_EFFECTS_BATCH_COUNT, 30);
     }
 
     #[test]
@@ -329,7 +449,50 @@ mod tests {
     }
 
     #[test]
-    fn protocol_version_is_4() {
-        assert_eq!(PROTOCOL_VERSION, 4.0);
+    fn alpha_effects_section_comes_after_lights() {
+        let layout = ProtocolLayout::new(512, 16384, 32, 32, 128, 8192, 6, 64);
+        assert_eq!(layout.alpha_effects_data_offset, layout.light_data_offset + layout.light_data_floats);
+        assert_eq!(layout.alpha_effects_batch_data_offset, layout.alpha_effects_data_offset + layout.alpha_effects_data_floats);
+    }
+
+    #[test]
+    fn visibility_section_layout() {
+        // 32x32 = 1024 bytes = 256 floats
+        let layout = ProtocolLayout::full(
+            512, 16384, 32, 32, 128, 8192, 6, 64,
+            DEFAULT_MAX_ALPHA_EFFECTS_VERTICES, DEFAULT_MAX_ALPHA_EFFECTS_BATCHES,
+            32, 32,
+        );
+        assert_eq!(layout.visibility_cols, 32);
+        assert_eq!(layout.visibility_rows, 32);
+        assert_eq!(layout.visibility_data_bytes, 1024);
+        assert_eq!(layout.visibility_data_floats, 256); // 1024 / 4
+        assert_eq!(layout.visibility_data_byte_offset, layout.visibility_data_offset * 4);
+    }
+
+    #[test]
+    fn visibility_section_alignment() {
+        // 10x10 = 100 bytes → ceil(100/4) = 25 floats
+        let layout = ProtocolLayout::full(
+            64, 256, 8, 8, 16, 0, 6, 8,
+            0, 0,
+            10, 10,
+        );
+        assert_eq!(layout.visibility_data_bytes, 100);
+        assert_eq!(layout.visibility_data_floats, 25);
+    }
+
+    #[test]
+    fn no_visibility_adds_zero_floats() {
+        let layout = ProtocolLayout::new(64, 256, 8, 8, 16, 0, 6, 8);
+        assert_eq!(layout.visibility_cols, 0);
+        assert_eq!(layout.visibility_rows, 0);
+        assert_eq!(layout.visibility_data_bytes, 0);
+        assert_eq!(layout.visibility_data_floats, 0);
+    }
+
+    #[test]
+    fn protocol_version_is_5() {
+        assert_eq!(PROTOCOL_VERSION, 5.0);
     }
 }

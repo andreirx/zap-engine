@@ -22,10 +22,11 @@ pub use input::queue::{InputEvent, InputQueue};
 pub use assets::manifest::AssetManifest;
 pub use assets::registry::SpriteRegistry;
 pub use bridge::protocol::ProtocolLayout;
-pub use systems::effects::{EffectsState, ElectricArc, Particle, SegmentColor, DebugLine};
+pub use systems::effects::{EffectsState, ElectricArc, Particle, ParticleBlend, SegmentColor, DebugLine, AlphaEffectsBatch};
 pub use systems::render::LayerBatch;
 pub use systems::text::FontConfig;
 pub use systems::lighting::{PointLight, LightState};
+pub use systems::visibility::{VisibilityMask, VisibilityInterpolation};
 pub use bridge::protocol::{LIGHT_FLOATS, DEFAULT_MAX_LIGHTS};
 #[cfg(feature = "physics")]
 pub use systems::debug::debug_draw_colliders;

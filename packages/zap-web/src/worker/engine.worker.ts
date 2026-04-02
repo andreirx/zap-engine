@@ -31,6 +31,12 @@ import {
   HEADER_AMBIENT_G,
   HEADER_AMBIENT_B,
   HEADER_WASM_TIME_US,
+  HEADER_MAX_ALPHA_EFFECTS_VERTICES,
+  HEADER_ALPHA_EFFECTS_VERTEX_COUNT,
+  HEADER_ALPHA_EFFECTS_BATCH_COUNT,
+  HEADER_VISIBILITY_COLS,
+  HEADER_VISIBILITY_ROWS,
+  HEADER_VISIBILITY_INTERPOLATION,
   PROTOCOL_VERSION,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
@@ -39,6 +45,7 @@ import {
   VECTOR_VERTEX_FLOATS,
   LAYER_BATCH_FLOATS,
   LIGHT_FLOATS,
+  ALPHA_EFFECTS_BATCH_FLOATS,
   ProtocolLayout,
 } from './protocol';
 import { computeProjection } from '../renderer/camera';
@@ -95,6 +102,20 @@ interface GameWasmExports {
   get_ambient_r?: () => number;
   get_ambient_g?: () => number;
   get_ambient_b?: () => number;
+  // Alpha effects exports
+  get_alpha_effects_ptr?: () => number;
+  get_alpha_effects_vertex_count?: () => number;
+  get_max_alpha_effects_vertices?: () => number;
+  get_alpha_effects_batch_count?: () => number;
+  get_alpha_effects_batches_ptr?: () => number;
+  get_max_alpha_effects_batches?: () => number;
+  // Visibility mask exports
+  get_visibility_cols?: () => number;
+  get_visibility_rows?: () => number;
+  get_visibility_interpolation?: () => number;
+  get_visibility_ptr?: () => number;
+  get_visibility_byte_count?: () => number;
+  get_visibility_data_byte_offset?: () => number;
 }
 
 const HAS_SAB = typeof SharedArrayBuffer !== 'undefined';
@@ -179,6 +200,20 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     get_ambient_r: mod.get_ambient_r,
     get_ambient_g: mod.get_ambient_g,
     get_ambient_b: mod.get_ambient_b,
+    // Alpha effects exports
+    get_alpha_effects_ptr: mod.get_alpha_effects_ptr,
+    get_alpha_effects_vertex_count: mod.get_alpha_effects_vertex_count,
+    get_max_alpha_effects_vertices: mod.get_max_alpha_effects_vertices,
+    get_alpha_effects_batch_count: mod.get_alpha_effects_batch_count,
+    get_alpha_effects_batches_ptr: mod.get_alpha_effects_batches_ptr,
+    get_max_alpha_effects_batches: mod.get_max_alpha_effects_batches,
+    // Visibility mask exports
+    get_visibility_cols: mod.get_visibility_cols,
+    get_visibility_rows: mod.get_visibility_rows,
+    get_visibility_interpolation: mod.get_visibility_interpolation,
+    get_visibility_ptr: mod.get_visibility_ptr,
+    get_visibility_byte_count: mod.get_visibility_byte_count,
+    get_visibility_data_byte_offset: mod.get_visibility_data_byte_offset,
     // Game-specific exports for level/script/manifest loading
     load_level: mod.load_level,
     reload_scripts: mod.reload_scripts,
@@ -225,6 +260,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_MAX_LAYER_BATCHES] = layout.maxLayerBatches;
     sharedF32[HEADER_LAYER_BATCH_OFFSET] = layout.layerBatchDataOffset;
     sharedF32[HEADER_MAX_LIGHTS] = layout.maxLights;
+    sharedF32[HEADER_MAX_ALPHA_EFFECTS_VERTICES] = layout.maxAlphaEffectsVertices;
 
     self.postMessage({ type: 'ready', sharedBuffer, worldWidth, worldHeight });
   } else {
@@ -244,6 +280,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_MAX_LAYER_BATCHES] = layout.maxLayerBatches;
     sharedF32[HEADER_LAYER_BATCH_OFFSET] = layout.layerBatchDataOffset;
     sharedF32[HEADER_MAX_LIGHTS] = layout.maxLights;
+    sharedF32[HEADER_MAX_ALPHA_EFFECTS_VERTICES] = layout.maxAlphaEffectsVertices;
 
     self.postMessage({
       type: 'ready',
@@ -255,6 +292,9 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
       maxVectorVertices: layout.maxVectorVertices,
       maxLayerBatches: layout.maxLayerBatches,
       maxLights: layout.maxLights,
+      maxAlphaEffectsVertices: layout.maxAlphaEffectsVertices,
+      visibilityCols: layout.visibilityCols,
+      visibilityRows: layout.visibilityRows,
       worldWidth,
       worldHeight,
     });
@@ -284,6 +324,12 @@ function gameLoop() {
     const lightCount = wasm.get_light_count
       ? Math.min(wasm.get_light_count(), layout.maxLights)
       : 0;
+    const alphaEffectsVertexCount = wasm.get_alpha_effects_vertex_count
+      ? Math.min(wasm.get_alpha_effects_vertex_count(), layout.maxAlphaEffectsVertices)
+      : 0;
+    const alphaEffectsBatchCount = wasm.get_alpha_effects_batch_count
+      ? Math.min(wasm.get_alpha_effects_batch_count(), layout.maxAlphaEffectsBatches)
+      : 0;
 
     // Write header
     sharedF32[HEADER_FRAME_COUNTER] += 1;
@@ -303,6 +349,8 @@ function gameLoop() {
     sharedF32[HEADER_AMBIENT_G] = wasm.get_ambient_g?.() ?? 1.0;
     sharedF32[HEADER_AMBIENT_B] = wasm.get_ambient_b?.() ?? 1.0;
     sharedF32[HEADER_WASM_TIME_US] = wasmTimeUs;
+    sharedF32[HEADER_ALPHA_EFFECTS_VERTEX_COUNT] = alphaEffectsVertexCount;
+    sharedF32[HEADER_ALPHA_EFFECTS_BATCH_COUNT] = alphaEffectsBatchCount;
 
     // Copy instance data
     if (instanceCount > 0) {
@@ -346,6 +394,37 @@ function gameLoop() {
       sharedF32.set(lightData, layout.lightDataOffset);
     }
 
+    // Copy alpha effects vertex data
+    if (alphaEffectsVertexCount > 0 && wasm.get_alpha_effects_ptr) {
+      const ptr = wasm.get_alpha_effects_ptr();
+      const alphaData = new Float32Array(wasmMemory.buffer, ptr, alphaEffectsVertexCount * EFFECTS_VERTEX_FLOATS);
+      sharedF32.set(alphaData, layout.alphaEffectsDataOffset);
+    }
+
+    // Copy alpha effects batch descriptors
+    if (alphaEffectsBatchCount > 0 && wasm.get_alpha_effects_batches_ptr) {
+      const ptr = wasm.get_alpha_effects_batches_ptr();
+      const batchData = new Float32Array(wasmMemory.buffer, ptr, alphaEffectsBatchCount * ALPHA_EFFECTS_BATCH_FLOATS);
+      sharedF32.set(batchData, layout.alphaEffectsBatchDataOffset);
+    }
+
+    // Copy visibility mask data (raw bytes via Uint8Array view)
+    const visCols = wasm.get_visibility_cols?.() ?? 0;
+    const visRows = wasm.get_visibility_rows?.() ?? 0;
+    if (visCols > 0 && visRows > 0 && wasm.get_visibility_ptr) {
+      const ptr = wasm.get_visibility_ptr();
+      if (ptr !== 0) {
+        const byteCount = wasm.get_visibility_byte_count?.() ?? (visCols * visRows);
+        const visData = new Uint8Array(wasmMemory.buffer, ptr, byteCount);
+        // Write as raw bytes at the computed byte offset
+        const sharedU8 = new Uint8Array(sharedF32!.buffer);
+        sharedU8.set(visData, layout.visibilityDataByteOffset);
+      }
+    }
+    sharedF32[HEADER_VISIBILITY_COLS] = visCols;
+    sharedF32[HEADER_VISIBILITY_ROWS] = visRows;
+    sharedF32[HEADER_VISIBILITY_INTERPOLATION] = wasm.get_visibility_interpolation?.() ?? 0;
+
     // Forward sound events
     if (soundLen > 0) {
       const ptr = wasm.get_sound_events_ptr();
@@ -374,9 +453,16 @@ function gameLoop() {
       Atomics.store(sharedI32!, 0, 1);
       Atomics.notify(sharedI32!, 0);
     } else {
-      // Send frame data copy (only the used portion)
-      const usedFloats = HEADER_FLOATS + layout.instanceDataFloats
-        + effectsVertexCount * EFFECTS_VERTEX_FLOATS;
+      // Send frame data copy — include all active sections through the last populated one.
+      // Layout: header → instances → effects → sounds → events → SDF → vectors →
+      // layer batches → lights → alpha effects → alpha effect batches → visibility.
+      let usedFloats = HEADER_FLOATS + layout.instanceDataFloats + layout.effectsDataFloats;
+      if (visCols > 0 && visRows > 0) {
+        // Visibility is the last section — include everything through it
+        usedFloats = layout.visibilityDataOffset + layout.visibilityDataFloats;
+      } else if (sdfCount > 0 || vectorVertexCount > 0 || layerBatchCount > 0 || lightCount > 0 || alphaEffectsVertexCount > 0) {
+        usedFloats = layout.alphaEffectsBatchDataOffset + layout.alphaEffectsBatchDataFloats;
+      }
       self.postMessage({ type: 'frame', buffer: sharedF32!.buffer.slice(0, usedFloats * 4) });
     }
   } catch (err) {

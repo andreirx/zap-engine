@@ -367,6 +367,10 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     layerBatches?: LayerBatchDescriptor[],
     bakeState?: BakeState,
     lightingState?: LightingState,
+    alphaEffectsData?: Float32Array,
+    alphaEffectsVertexCount?: number,
+    _alphaEffectsBatches?: import('./types').AlphaEffectsBatchDescriptor[],
+    visibilityState?: import('./types').VisibilityState,
   ): DrawTiming {
     const drawStart = performance.now();
 
@@ -384,37 +388,64 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
 
     const hasBaking = bakeState && bakeState.bakedMask !== 0 && layerBatches && layerBatches.length > 0;
 
+    const hasVisibility = visibilityState && visibilityState.cols > 0 && visibilityState.rows > 0;
+    // UI layer ID (5 = RenderLayer::UI)
+    const UI_LAYER = 5;
+
+    // Helper: draw a batch with blend mode support
+    function drawBatch(batch: LayerBatchDescriptor) {
+      const isAdditive = batch.blendMode === 1;
+      if (isAdditive) ctx!.globalCompositeOperation = 'lighter';
+
+      if (hasBaking && (bakeState!.bakedMask & (1 << batch.layerId)) !== 0) {
+        const cache = getOrCreateLayerCache(batch.layerId, w, h, scaleX, scaleY);
+        if (cache.lastBakeGen !== bakeState!.bakeGen) {
+          cache.offCtx.clearRect(0, 0, w, h);
+          cache.offCtx.save();
+          cache.offCtx.scale(scaleX, scaleY);
+          drawBatchRange(cache.offCtx as unknown as CanvasRenderingContext2D, instanceData, batch.start, batch.end, batch.atlasId);
+          cache.offCtx.restore();
+          cache.lastBakeGen = bakeState!.bakeGen;
+        }
+        ctx!.save();
+        ctx!.setTransform(1, 0, 0, 1, 0, 0);
+        ctx!.drawImage(cache.offscreen, 0, 0);
+        ctx!.restore();
+      } else {
+        drawBatchRange(ctx!, instanceData, batch.start, batch.end, batch.atlasId);
+      }
+
+      if (isAdditive) ctx!.globalCompositeOperation = 'source-over';
+    }
+
     // Draw sprite instances — use layer batches if available, else legacy path
     if (layerBatches && layerBatches.length > 0) {
-      for (const batch of layerBatches) {
-        if (hasBaking && (bakeState!.bakedMask & (1 << batch.layerId)) !== 0) {
-          // Baked layer: render to cache if dirty, then blit
-          const cache = getOrCreateLayerCache(batch.layerId, w, h, scaleX, scaleY);
-          if (cache.lastBakeGen !== bakeState!.bakeGen) {
-            // Re-render to offscreen canvas
-            cache.offCtx.clearRect(0, 0, w, h);
-            cache.offCtx.save();
-            cache.offCtx.scale(scaleX, scaleY);
-            drawBatchRange(cache.offCtx as unknown as CanvasRenderingContext2D, instanceData, batch.start, batch.end, batch.atlasId);
-            cache.offCtx.restore();
-            cache.lastBakeGen = bakeState!.bakeGen;
-          }
-          // Blit cached layer (undo the current scale transform temporarily)
-          ctx!.save();
-          ctx!.setTransform(1, 0, 0, 1, 0, 0);
-          ctx!.drawImage(cache.offscreen, 0, 0);
-          ctx!.restore();
-        } else {
-          // Live layer: draw directly
-          drawBatchRange(ctx!, instanceData, batch.start, batch.end, batch.atlasId);
+      if (hasVisibility) {
+        // Split: draw world layers (< UI), then visibility, then UI layer
+        for (const batch of layerBatches) {
+          if (batch.layerId < UI_LAYER) drawBatch(batch);
+        }
+      } else {
+        for (const batch of layerBatches) {
+          drawBatch(batch);
         }
       }
     } else {
       // Legacy path: atlasSplit marks where atlas 0 ends
-      // Draw atlas 0 portion, then atlas 1 portion (backward compat for old games)
       drawBatchRange(ctx!, instanceData, 0, atlasSplit, 0);
       if (atlasSplit < instanceCount) {
         drawBatchRange(ctx!, instanceData, atlasSplit, instanceCount, 1);
+      }
+    }
+
+    // Alpha effects (smoke/dust — drawn between sprites and vectors, source-over blend)
+    const hasAlphaEffects = alphaEffectsData && alphaEffectsVertexCount && alphaEffectsVertexCount > 0;
+    if (hasAlphaEffects) {
+      ctx!.globalCompositeOperation = 'source-over';
+      ctx!.globalAlpha = 1;
+      const triCount = Math.floor(alphaEffectsVertexCount / 3);
+      for (let t = 0; t < triCount; t++) {
+        drawEffectsTriangle(ctx!, alphaEffectsData, t * 3);
       }
     }
 
@@ -515,6 +546,38 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
 
         ctx!.globalCompositeOperation = 'source-over';
       }
+    }
+
+    // --- Canvas2D Visibility Mask ---
+    // Approximate fog-of-war by drawing semi-transparent black cells over hidden regions.
+    // Applied after world content + lighting but before UI, matching WebGPU behavior.
+    if (hasVisibility) {
+      const { cols: vc, rows: vr, data: vd } = visibilityState;
+      const cellW = (gameWidth / vc) * scaleX;
+      const cellH = (gameHeight / vr) * scaleY;
+      ctx!.globalCompositeOperation = 'source-over';
+      for (let vy = 0; vy < vr; vy++) {
+        for (let vx = 0; vx < vc; vx++) {
+          const val = vd[vy * vc + vx];
+          if (val >= 255) continue; // Fully visible, skip
+          const darkness = 1.0 - val / 255;
+          ctx!.globalAlpha = darkness;
+          ctx!.fillStyle = '#000';
+          ctx!.fillRect(vx * cellW, vy * cellH, cellW + 1, cellH + 1); // +1 to avoid seams
+        }
+      }
+      ctx!.globalAlpha = 1;
+    }
+
+    // --- Canvas2D UI Layer (after visibility) ---
+    // Draw UI batches on top of the visibility-composited world content.
+    if (hasVisibility && layerBatches && layerBatches.length > 0) {
+      ctx!.save();
+      ctx!.scale(scaleX, scaleY);
+      for (const batch of layerBatches) {
+        if (batch.layerId >= UI_LAYER) drawBatch(batch);
+      }
+      ctx!.restore();
     }
 
     // Measure draw call submission time

@@ -13,6 +13,8 @@ export interface LayerBatchDescriptor {
   end: number;
   /** Atlas ID for this batch (index into manifest's atlas list). All instances in batch use this atlas. */
   atlasId: number;
+  /** Blend mode: 0 = Alpha (standard), 1 = Additive (glow). */
+  blendMode: number;
 }
 
 /** Bake state decoded from SAB header — controls layer caching. */
@@ -23,6 +25,16 @@ export interface BakeState {
   bakeGen: number;
 }
 
+/** Alpha effects batch descriptor — one per layer that has alpha particles. */
+export interface AlphaEffectsBatchDescriptor {
+  /** RenderLayer enum value. */
+  layerId: number;
+  /** Start vertex index (inclusive) in the alpha effects buffer. */
+  startVertex: number;
+  /** End vertex index (exclusive) in the alpha effects buffer. */
+  endVertex: number;
+}
+
 /** Lighting state decoded from SAB header + light data section. */
 export interface LightingState {
   /** Flat f32 array of point lights (8 floats each: x, y, r, g, b, intensity, radius, layer_mask). */
@@ -31,6 +43,18 @@ export interface LightingState {
   lightCount: number;
   /** Ambient light RGB. */
   ambient: [number, number, number];
+}
+
+/** Visibility mask state decoded from SAB. */
+export interface VisibilityState {
+  /** Grid width in cells. */
+  cols: number;
+  /** Grid height in cells. */
+  rows: number;
+  /** Raw visibility bytes (0=hidden, 255=visible). */
+  data: Uint8Array;
+  /** Interpolation: 0=nearest, 1=linear. */
+  interpolation: number;
 }
 
 /** Timing data returned from renderer.draw() */
@@ -77,6 +101,10 @@ export interface Renderer {
     layerBatches?: LayerBatchDescriptor[],
     bakeState?: BakeState,
     lightingState?: LightingState,
+    alphaEffectsData?: Float32Array,
+    alphaEffectsVertexCount?: number,
+    alphaEffectsBatches?: AlphaEffectsBatchDescriptor[],
+    visibilityState?: VisibilityState,
   ) => DrawTiming;
 
   /** Handle canvas resize. */

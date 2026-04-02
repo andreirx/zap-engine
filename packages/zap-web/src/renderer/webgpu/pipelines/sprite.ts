@@ -2,7 +2,7 @@
 
 import shaderSource from '../../shaders.wgsl?raw';
 import type { AssetManifest } from '../../../assets/manifest';
-import { alphaBlendTargets, normalBlendTargets } from './common';
+import { alphaBlendTargets, premultipliedAdditiveBlendTargets, normalBlendTargets } from './common';
 
 export interface SpritePipelineConfig {
   device: GPUDevice;
@@ -39,6 +39,34 @@ export function createSpritePipelines(
         module: shaderModule,
         entryPoint: 'fs_main',
         targets: alphaBlendTargets(format),
+      },
+      primitive: { topology: 'triangle-list' },
+    })
+  );
+}
+
+/**
+ * Create one additive-blend pipeline per atlas for glowing sprites.
+ * Same vertex/fragment shaders as alpha sprites, but with additive blend state.
+ */
+export function createAdditiveSpritePipelines(
+  config: SpritePipelineConfig,
+  shaderModule: GPUShaderModule,
+): GPURenderPipeline[] {
+  const { device, layout, format, manifest } = config;
+
+  return manifest.atlases.map((atlas) =>
+    device.createRenderPipeline({
+      layout,
+      vertex: {
+        module: shaderModule,
+        entryPoint: 'vs_main',
+        constants: { ATLAS_COLS: atlas.cols, ATLAS_ROWS: atlas.rows },
+      },
+      fragment: {
+        module: shaderModule,
+        entryPoint: 'fs_main',
+        targets: premultipliedAdditiveBlendTargets(format),
       },
       primitive: { topology: 'triangle-list' },
     })
