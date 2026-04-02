@@ -13,6 +13,7 @@ import {
   loadNormalMapBlobs,
   ProtocolLayout,
   SoundManager,
+  type AssetManifest,
   createEngineWorker,
   readFrameState,
 } from '../index';
@@ -53,6 +54,17 @@ export interface ZapEngineConfig {
   assetsUrl: string;
   /** Base path for asset files (defaults to directory of assetsUrl). */
   assetBasePath?: string;
+  /**
+   * Pre-loaded manifest override. When provided, skips fetching assetsUrl
+   * and uses this manifest directly. Useful when the caller needs to merge
+   * baked user assets into the seed manifest before engine init.
+   */
+  manifestOverride?: AssetManifest;
+  /**
+   * Additional atlas blobs to merge with fetched atlases. Keys must match
+   * atlas names in the manifest. Used for user-baked atlases loaded from IDB.
+   */
+  extraAtlasBlobs?: Map<string, Blob>;
   /** Game world width in world units (default: 800). */
   gameWidth?: number;
   /** Game world height in world units (default: 600). */
@@ -61,8 +73,21 @@ export interface ZapEngineConfig {
   force2D?: boolean;
   /** Callback for game events from the worker. */
   onGameEvent?: (events: GameEvent[]) => void;
+  /** Callback for worker messages not handled by the hook (e.g. world_export). */
+  onWorkerMessage?: (data: Record<string, unknown>) => void;
   /** Sound configuration. If provided, audio is initialized on first interaction. */
   sounds?: SoundConfig;
+  /**
+   * Enable SharedArrayBuffer lock checking.
+   *
+   * When true, the render loop checks Atomics.load(sharedI32, 0) before reading
+   * the frame buffer. Only reads when the worker signals a completed write (value 1),
+   * then resets to 0. Prevents tearing from reading mid-copy.
+   *
+   * When false (default), reads every rAF frame regardless — current behavior.
+   * May read stale or partially-written data, but never skips a render opportunity.
+   */
+  useSabLock?: boolean;
 }
 
 /** Return value of the useZapEngine hook. */
@@ -86,11 +111,15 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
     wasmUrl,
     assetsUrl,
     assetBasePath,
+    manifestOverride,
+    extraAtlasBlobs,
     gameWidth,
     gameHeight,
     force2D = false,
     onGameEvent,
+    onWorkerMessage,
     sounds: soundConfig,
+    useSabLock = false,
   } = config;
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -111,10 +140,13 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
   const rendererRef = useRef<Renderer | null>(null);
   const layoutRef = useRef<ProtocolLayout | null>(null);
   const sharedF32Ref = useRef<Float32Array | null>(null);
+  const sharedI32Ref = useRef<Int32Array | null>(null);
   const rafIdRef = useRef<number>(0);
   const soundManagerRef = useRef<SoundManager | null>(null);
   const onGameEventRef = useRef(onGameEvent);
+  const onWorkerMessageRef = useRef(onWorkerMessage);
   const force2DRef = useRef(force2D);
+  const useSabLockRef = useRef(useSabLock);
 
   // Timing history refs (mutable arrays to avoid state updates every frame)
   const wasmHistoryRef = useRef<number[]>([]);
@@ -123,9 +155,11 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
   const lastTimingUpdateRef = useRef<number>(0);
   const prevFrameTimeRef = useRef<number>(0);
 
-  // Keep callback ref fresh
+  // Keep callback refs fresh
   onGameEventRef.current = onGameEvent;
+  onWorkerMessageRef.current = onWorkerMessage;
   force2DRef.current = force2D;
+  useSabLockRef.current = useSabLock;
 
   const sendEvent = useCallback((event: Record<string, unknown>) => {
     workerRef.current?.postMessage(event);
@@ -145,11 +179,14 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       // Compute asset base path from manifest URL
       const basePath = assetBasePath ?? assetsUrl.substring(0, assetsUrl.lastIndexOf('/') + 1);
 
-      // Load manifest and atlas blobs (+ optional normal maps)
-      const manifest = await loadManifest(assetsUrl);
+      // Load manifest and atlas blobs (+ optional normal maps).
+      // When manifestOverride is provided, skip the fetch and use it directly.
+      // extraAtlasBlobs are forwarded to the loader so pre-loaded blobs
+      // (e.g. user-baked atlases from IDB) skip the network fetch entirely.
+      const manifest = manifestOverride ?? await loadManifest(assetsUrl);
       if (cancelled) return;
       const [atlasBlobs, normalMapBlobs] = await Promise.all([
-        loadAssetBlobs(manifest, basePath),
+        loadAssetBlobs(manifest, basePath, extraAtlasBlobs),
         loadNormalMapBlobs(manifest, basePath),
       ]);
       if (cancelled) return;
@@ -176,6 +213,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
 
           if (e.data.sharedBuffer) {
             sharedF32 = new Float32Array(e.data.sharedBuffer);
+            sharedI32Ref.current = new Int32Array(e.data.sharedBuffer);
             layout = ProtocolLayout.fromHeader(sharedF32);
           } else {
             layout = new ProtocolLayout(
@@ -243,6 +281,9 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
           // postMessage fallback
           const buf = new Float32Array(e.data.buffer);
           drawFromBuffer(buf);
+        } else {
+          // Forward unhandled messages (e.g. world_export) to consumer
+          onWorkerMessageRef.current?.(e.data);
         }
       };
 
@@ -327,6 +368,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         rendererRef.current = null;
         layoutRef.current = null;
         sharedF32Ref.current = null;
+        sharedI32Ref.current = null;
         setIsReady(false);
       };
     }
@@ -384,7 +426,20 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         const buf = sharedF32Ref.current;
         let frameTiming: { wasmTimeUs: number; drawTimeUs: number } | null = null;
         if (buf) {
-          frameTiming = drawFromBuffer(buf);
+          const i32 = sharedI32Ref.current;
+          if (useSabLockRef.current && i32) {
+            // Lock mode: only read when worker signals a completed write.
+            // Atomics.load returns 1 when worker finished copying frame data.
+            // Reset to 0 after reading so worker can signal the next frame.
+            if (Atomics.load(i32, 0) === 1) {
+              Atomics.store(i32, 0, 0);
+              frameTiming = drawFromBuffer(buf);
+            }
+            // else: skip this rAF — no new data from worker yet
+          } else {
+            // No lock: read every frame (may tear, but never misses a render)
+            frameTiming = drawFromBuffer(buf);
+          }
         }
 
         // Track timing history
@@ -447,7 +502,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
     };
   // Re-run effect when canvasKey changes (WebGPU fallback remount)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wasmUrl, assetsUrl, assetBasePath, gameWidth, gameHeight, canvasKey]);
+  }, [wasmUrl, assetsUrl, assetBasePath, manifestOverride, extraAtlasBlobs, gameWidth, gameHeight, canvasKey]);
 
   return { canvasRef, sendEvent, fps, isReady, canvasKey, timing };
 }

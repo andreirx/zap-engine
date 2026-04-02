@@ -2,23 +2,45 @@
 
 import type { AssetManifest, GPUTextureAsset } from './manifest';
 
-/** Fetch all atlas PNGs as a name→Blob map. */
+/**
+ * Fetch atlas PNGs as a name→Blob map.
+ *
+ * When `preloadedBlobs` is provided, any atlas whose name already exists
+ * in that map is used as-is — no network fetch is issued.  This supports
+ * a layered asset model where seed atlases come from disk/S3 and overlay
+ * atlases (e.g. user-baked characters from IndexedDB) are supplied as
+ * in-memory blobs.
+ *
+ * The returned map contains one entry per manifest atlas: either the
+ * pre-loaded blob or the freshly fetched one.
+ */
 export async function loadAssetBlobs(
   manifest: AssetManifest,
   basePath: string = '/assets/',
+  preloadedBlobs?: Map<string, Blob>,
 ): Promise<Map<string, Blob>> {
-  const entries = await Promise.all(
-    manifest.atlases.map(async (atlas) => {
-      const url = `${basePath}${atlas.path}`;
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        throw new Error(`Failed to fetch atlas ${atlas.name}: HTTP ${resp.status} from ${url}`);
-      }
-      const blob = await resp.blob();
-      return [atlas.name, blob] as const;
-    })
-  );
-  return new Map(entries);
+  const result = new Map<string, Blob>(preloadedBlobs);
+
+  // Only fetch atlases not already satisfied by preloadedBlobs.
+  const toFetch = manifest.atlases.filter((a) => !result.has(a.name));
+  if (toFetch.length > 0) {
+    const entries = await Promise.all(
+      toFetch.map(async (atlas) => {
+        const url = `${basePath}${atlas.path}`;
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          throw new Error(`Failed to fetch atlas ${atlas.name}: HTTP ${resp.status} from ${url}`);
+        }
+        const blob = await resp.blob();
+        return [atlas.name, blob] as const;
+      })
+    );
+    for (const [name, blob] of entries) {
+      result.set(name, blob);
+    }
+  }
+
+  return result;
 }
 
 /** Fetch normal map PNGs (for atlases that have normalMap defined) as a name→Blob map. */

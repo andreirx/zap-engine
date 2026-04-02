@@ -95,6 +95,17 @@ interface GameWasmExports {
   get_layer_batch_data_offset?: () => number;
   // Bake state export
   get_bake_state?: () => number;
+  // World persistence exports (freedom-board)
+  request_world_export?: () => void;
+  take_world_export?: () => string | undefined;
+  import_world?: (json: string) => void;
+  // Game session exports (orchestrator)
+  load_game_definition?: (json: string) => void;
+  start_game?: () => void;
+  stop_game?: () => void;
+  // Character script assignment
+  assign_character_script?: (actor_id: number, script_name: string) => void;
+  take_selected_character_info?: () => string | undefined;
   // Lighting exports
   get_lights_ptr?: () => number;
   get_light_count?: () => number;
@@ -219,6 +230,17 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     reload_scripts: mod.reload_scripts,
     reload_game_manifest: mod.reload_game_manifest,
     reload_sprite_manifest: mod.reload_sprite_manifest,
+    // World persistence exports (freedom-board)
+    request_world_export: mod.request_world_export,
+    take_world_export: mod.take_world_export,
+    import_world: mod.import_world,
+    // Game session exports (orchestrator)
+    load_game_definition: mod.load_game_definition,
+    start_game: mod.start_game,
+    stop_game: mod.stop_game,
+    // Character script assignment
+    assign_character_script: mod.assign_character_script,
+    take_selected_character_info: mod.take_selected_character_info,
   };
 
   wasm.game_init();
@@ -449,6 +471,14 @@ function gameLoop() {
       self.postMessage({ type: 'event', events });
     }
 
+    // Poll selected-character info (written by WASM on selection change or script assignment)
+    if (wasm.take_selected_character_info) {
+      const charInfo = wasm.take_selected_character_info();
+      if (charInfo !== undefined && charInfo !== '') {
+        self.postMessage({ type: 'selected_character', json: charInfo });
+      }
+    }
+
     if (HAS_SAB) {
       Atomics.store(sharedI32!, 0, 1);
       Atomics.notify(sharedI32!, 0);
@@ -564,6 +594,52 @@ self.onmessage = (e: MessageEvent) => {
     case 'reload_sprite_manifest':
       if (wasm?.reload_sprite_manifest && e.data.json) {
         wasm.reload_sprite_manifest(e.data.json);
+      }
+      break;
+
+    case 'export_world':
+      // Two-phase world export: request → tick → take.
+      // The game instance is owned by the engine macro; free WASM functions
+      // can't access it. So we set a flag, run a tick (which serializes),
+      // then read the result.
+      if (wasm?.request_world_export && wasm?.take_world_export) {
+        wasm.request_world_export();
+        // Use a tiny dt to ensure the fixed-timestep accumulator runs at least one
+        // update() call. dt=0 causes zero steps and the export flag is never processed.
+        wasm.game_tick(1 / 60);
+        const json = wasm.take_world_export();
+        self.postMessage({ type: 'world_export', json: json ?? null });
+      }
+      break;
+
+    case 'import_world':
+      // Single-phase: queue JSON, next tick processes it.
+      if (wasm?.import_world && e.data.json) {
+        wasm.import_world(e.data.json);
+      }
+      break;
+
+    case 'load_game_definition':
+      if (wasm?.load_game_definition && e.data.json) {
+        wasm.load_game_definition(e.data.json);
+      }
+      break;
+
+    case 'start_game':
+      if (wasm?.start_game) {
+        wasm.start_game();
+      }
+      break;
+
+    case 'stop_game':
+      if (wasm?.stop_game) {
+        wasm.stop_game();
+      }
+      break;
+
+    case 'assign_character_script':
+      if (wasm?.assign_character_script && e.data.actorId != null && e.data.scriptName != null) {
+        wasm.assign_character_script(e.data.actorId, e.data.scriptName);
       }
       break;
 
