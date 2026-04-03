@@ -106,6 +106,13 @@ interface GameWasmExports {
   // Character script assignment
   assign_character_script?: (actor_id: number, script_name: string) => void;
   take_selected_character_info?: () => string | undefined;
+  // HUD state boundary channels (freedom-board)
+  // TECH DEBT: These are game-specific hooks. Should eventually be generalized
+  // into a "custom JSON drains" mechanism. See zap-squad docs/effects-and-visibility-plan.md.
+  take_game_hud_state?: () => string | undefined;
+  take_start_errors?: () => string | undefined;
+  take_compile_results?: () => string | undefined;
+  toggle_pause?: () => void;
   // Lighting exports
   get_lights_ptr?: () => number;
   get_light_count?: () => number;
@@ -241,6 +248,11 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     // Character script assignment
     assign_character_script: mod.assign_character_script,
     take_selected_character_info: mod.take_selected_character_info,
+    // HUD state boundary channels
+    take_game_hud_state: mod.take_game_hud_state,
+    take_start_errors: mod.take_start_errors,
+    take_compile_results: mod.take_compile_results,
+    toggle_pause: mod.toggle_pause,
   };
 
   wasm.game_init();
@@ -479,6 +491,26 @@ function gameLoop() {
       }
     }
 
+    // Poll HUD state boundary channels (change-gated: only post when non-empty)
+    if (wasm.take_game_hud_state) {
+      const hudState = wasm.take_game_hud_state();
+      if (hudState !== undefined && hudState !== '') {
+        self.postMessage({ type: 'game_hud_state', json: hudState });
+      }
+    }
+    if (wasm.take_start_errors) {
+      const startErrors = wasm.take_start_errors();
+      if (startErrors !== undefined && startErrors !== '') {
+        self.postMessage({ type: 'start_errors', json: startErrors });
+      }
+    }
+    if (wasm.take_compile_results) {
+      const compileResults = wasm.take_compile_results();
+      if (compileResults !== undefined && compileResults !== '') {
+        self.postMessage({ type: 'compile_results', json: compileResults });
+      }
+    }
+
     if (HAS_SAB) {
       Atomics.store(sharedI32!, 0, 1);
       Atomics.notify(sharedI32!, 0);
@@ -634,6 +666,12 @@ self.onmessage = (e: MessageEvent) => {
     case 'stop_game':
       if (wasm?.stop_game) {
         wasm.stop_game();
+      }
+      break;
+
+    case 'toggle_pause':
+      if (wasm?.toggle_pause) {
+        wasm.toggle_pause();
       }
       break;
 

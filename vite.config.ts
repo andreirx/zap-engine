@@ -56,6 +56,7 @@ export default defineConfig({
         'flag-parade': resolve(__dirname, 'examples/flag-parade/index.html'),
         'solar-system': resolve(__dirname, 'examples/solar-system/index.html'),
         'pool-game': resolve(__dirname, 'examples/pool-game/index.html'),
+        'effects-showcase': resolve(__dirname, 'examples/effects-showcase/index.html'),
       },
     },
   },

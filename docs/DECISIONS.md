@@ -1655,3 +1655,37 @@ tweens.tick(dt, &mut scene);  // Advances all tweens
 
 ### Existing Games Impact
 **None.** All 9 example games continue to work unchanged. Extensions are purely additive — existing games don't use them and don't need to change.
+
+---
+
+## ADR-038: export_world Side-Effect (Technical Debt)
+
+**Date:** 2026-04-03
+**Status:** Accepted (documents known defect)
+
+### Context
+`engine.worker.ts` handles the `export_world` message with a two-phase pattern:
+
+```typescript
+wasm.request_world_export();   // sets a flag in WASM
+wasm.game_tick(1 / 60);        // runs update() which reads the flag and serializes
+const json = wasm.take_world_export();
+```
+
+The `GameRunner` processes the export flag inside `update()`, which only executes when the fixed-timestep accumulator has sufficient budget. `dt=0` yields zero steps, so the flag is never processed. The workaround uses `dt=1/60` to guarantee one step.
+
+### Problem
+This advances the full simulation (physics, emitters, animations, game logic) by one frame during what should be a pure read operation.
+
+**Consequences of the defect:**
+1. **Non-idempotent export:** Exporting twice yields different results (each export advances simulation by one frame).
+2. **State divergence:** The phantom frame's state is never written to the SAB, so the renderer never sees it. The simulation is now one frame ahead of what was last rendered.
+3. **Physics drift:** If Rapier2D is active, one full physics step runs, potentially moving bodies and generating collision events that no game logic observes.
+
+### Recommended Fix
+Make `request_world_export` serialize synchronously via the `thread_local!` game state, the same mechanism `take_world_export` already uses. This eliminates the need for a tick. The two-phase pattern was originally chosen under the assumption that free WASM functions cannot access the `GameRunner` state — but `take_world_export` already does, proving that assumption false.
+
+**Alternative:** Add a `flush_export()` method to `GameRunner` that only processes the export flag without stepping the simulation. Less clean but minimally invasive.
+
+### Current Status
+**Not yet fixed.** The workaround is in production. Games using `export_world` should be aware that each export mutates simulation state by one frame.

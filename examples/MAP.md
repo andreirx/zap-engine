@@ -13,6 +13,8 @@ Example games built with ZapEngine, demonstrating the engine's capabilities.
 | `solar-system/` | Interactive orrery: Keplerian orbits, pan/zoom camera, SDF planets, orbit trails |
 | `flag-parade/` | Animated flag cloth simulation using spring joints with country flag patterns |
 | `glypher/` | Handwriting-tracing game: dynamic lighting, viewport-adaptive layout, cursive letters |
+| `pool-game/` | 2D billiards with Rapier2D circle physics and SDF-rendered balls, striped shader bands |
+| `effects-showcase/` | Per-sprite blend modes, alpha particles, visibility masking; programmatic atlas, no external assets |
 
 ## Structure
 
