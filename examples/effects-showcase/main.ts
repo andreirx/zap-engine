@@ -11,7 +11,7 @@ import type { AssetManifest } from '../../packages/zap-web/src/assets/manifest';
 
 // Generate a 256x256 atlas (4 cols x 4 rows = 64x64 cells) as a Blob.
 // Row 0: terrain tiles (muted colors), Row 1: orb (bright circle), Row 2: UI marker, Row 3: spare.
-function generateAtlas(): Blob {
+async function generateAtlas(): Promise<Blob> {
   const size = 256;
   const cellSize = 64;
   const canvas = new OffscreenCanvas(size, size);
@@ -48,7 +48,7 @@ function generateAtlas(): Blob {
   ctx.fillStyle = '#ffcc00';
   ctx.fillRect(cellSize + 4, cellSize * 2 + 4, cellSize - 8, cellSize - 8);
 
-  return canvas.convertToBlob({ type: 'image/png' }) as unknown as Blob;
+  return canvas.convertToBlob({ type: 'image/png' });
 }
 
 const MANIFEST: AssetManifest = {
