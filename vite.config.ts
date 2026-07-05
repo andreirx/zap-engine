@@ -16,6 +16,7 @@ const examples = [
   'flag-parade',
   'solar-system',
   'pool-game',
+  'dino-level-editor',
 ];
 
 export default defineConfig({
@@ -57,6 +58,7 @@ export default defineConfig({
         'solar-system': resolve(__dirname, 'examples/solar-system/index.html'),
         'pool-game': resolve(__dirname, 'examples/pool-game/index.html'),
         'effects-showcase': resolve(__dirname, 'examples/effects-showcase/index.html'),
+        'dino-level-editor': resolve(__dirname, 'examples/dino-level-editor/index.html'),
       },
     },
   },

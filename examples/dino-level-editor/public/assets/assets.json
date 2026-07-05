@@ -1,0 +1,370 @@
+{
+  "atlases": [
+    {
+      "name": "ban-x1",
+      "cols": 1,
+      "rows": 1,
+      "path": "ban-x1.png"
+    },
+    {
+      "name": "ban-x10",
+      "cols": 1,
+      "rows": 1,
+      "path": "ban-x10.png"
+    },
+    {
+      "name": "dino-albastru-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-albastru-1.png"
+    },
+    {
+      "name": "dino-albastru-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-albastru-2.png"
+    },
+    {
+      "name": "dino-albastru-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-albastru-3.png"
+    },
+    {
+      "name": "dino-albastru-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-albastru-4.png"
+    },
+    {
+      "name": "dino-galben-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-galben-1.png"
+    },
+    {
+      "name": "dino-galben-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-galben-2.png"
+    },
+    {
+      "name": "dino-galben-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-galben-3.png"
+    },
+    {
+      "name": "dino-galben-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-galben-4.png"
+    },
+    {
+      "name": "dino-mov-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-mov-1.png"
+    },
+    {
+      "name": "dino-mov-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-mov-2.png"
+    },
+    {
+      "name": "dino-mov-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-mov-3.png"
+    },
+    {
+      "name": "dino-mov-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-mov-4.png"
+    },
+    {
+      "name": "dino-rosu-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-rosu-1.png"
+    },
+    {
+      "name": "dino-rosu-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-rosu-2.png"
+    },
+    {
+      "name": "dino-rosu-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-rosu-3.png"
+    },
+    {
+      "name": "dino-rosu-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-rosu-4.png"
+    },
+    {
+      "name": "dino-verde-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-verde-1.png"
+    },
+    {
+      "name": "dino-verde-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-verde-2.png"
+    },
+    {
+      "name": "dino-verde-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-verde-3.png"
+    },
+    {
+      "name": "dino-verde-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-verde-4.png"
+    },
+    {
+      "name": "finish-spate-square",
+      "cols": 1,
+      "rows": 1,
+      "path": "finish-spate-square.png"
+    },
+    {
+      "name": "finish-fata-square",
+      "cols": 1,
+      "rows": 1,
+      "path": "finish-fata-square.png"
+    },
+    {
+      "name": "pamant",
+      "cols": 1,
+      "rows": 1,
+      "path": "pamant.png"
+    },
+    {
+      "name": "pamant-adanc",
+      "cols": 1,
+      "rows": 1,
+      "path": "pamant-adanc.png"
+    },
+    {
+      "name": "pamant-pietros",
+      "cols": 1,
+      "rows": 1,
+      "path": "pamant-pietros.png"
+    },
+    {
+      "name": "pamant-pietros-diamant",
+      "cols": 1,
+      "rows": 1,
+      "path": "pamant-pietros-diamant.png"
+    },
+    {
+      "name": "vulcan",
+      "cols": 1,
+      "rows": 1,
+      "path": "vulcan.png"
+    },
+    {
+      "name": "fireball",
+      "cols": 1,
+      "rows": 1,
+      "path": "fireball.png"
+    },
+    {
+      "name": "smoke",
+      "cols": 1,
+      "rows": 1,
+      "path": "smoke.png"
+    },
+    {
+      "name": "lava",
+      "cols": 1,
+      "rows": 1,
+      "path": "lava.png"
+    },
+    {
+      "name": "water",
+      "cols": 1,
+      "rows": 1,
+      "path": "water.png"
+    }
+  ],
+  "sprites": {
+    "ban-x1": {
+      "atlas": 0,
+      "col": 0,
+      "row": 0
+    },
+    "ban-x10": {
+      "atlas": 1,
+      "col": 0,
+      "row": 0
+    },
+    "dino-albastru-1": {
+      "atlas": 2,
+      "col": 0,
+      "row": 0
+    },
+    "dino-albastru-2": {
+      "atlas": 3,
+      "col": 0,
+      "row": 0
+    },
+    "dino-albastru-3": {
+      "atlas": 4,
+      "col": 0,
+      "row": 0
+    },
+    "dino-albastru-4": {
+      "atlas": 5,
+      "col": 0,
+      "row": 0
+    },
+    "dino-galben-1": {
+      "atlas": 6,
+      "col": 0,
+      "row": 0
+    },
+    "dino-galben-2": {
+      "atlas": 7,
+      "col": 0,
+      "row": 0
+    },
+    "dino-galben-3": {
+      "atlas": 8,
+      "col": 0,
+      "row": 0
+    },
+    "dino-galben-4": {
+      "atlas": 9,
+      "col": 0,
+      "row": 0
+    },
+    "dino-mov-1": {
+      "atlas": 10,
+      "col": 0,
+      "row": 0
+    },
+    "dino-mov-2": {
+      "atlas": 11,
+      "col": 0,
+      "row": 0
+    },
+    "dino-mov-3": {
+      "atlas": 12,
+      "col": 0,
+      "row": 0
+    },
+    "dino-mov-4": {
+      "atlas": 13,
+      "col": 0,
+      "row": 0
+    },
+    "dino-rosu-1": {
+      "atlas": 14,
+      "col": 0,
+      "row": 0
+    },
+    "dino-rosu-2": {
+      "atlas": 15,
+      "col": 0,
+      "row": 0
+    },
+    "dino-rosu-3": {
+      "atlas": 16,
+      "col": 0,
+      "row": 0
+    },
+    "dino-rosu-4": {
+      "atlas": 17,
+      "col": 0,
+      "row": 0
+    },
+    "dino-verde-1": {
+      "atlas": 18,
+      "col": 0,
+      "row": 0
+    },
+    "dino-verde-2": {
+      "atlas": 19,
+      "col": 0,
+      "row": 0
+    },
+    "dino-verde-3": {
+      "atlas": 20,
+      "col": 0,
+      "row": 0
+    },
+    "dino-verde-4": {
+      "atlas": 21,
+      "col": 0,
+      "row": 0
+    },
+    "finish-spate-square": {
+      "atlas": 22,
+      "col": 0,
+      "row": 0
+    },
+    "finish-fata-square": {
+      "atlas": 23,
+      "col": 0,
+      "row": 0
+    },
+    "pamant": {
+      "atlas": 24,
+      "col": 0,
+      "row": 0
+    },
+    "pamant-adanc": {
+      "atlas": 25,
+      "col": 0,
+      "row": 0
+    },
+    "pamant-pietros": {
+      "atlas": 26,
+      "col": 0,
+      "row": 0
+    },
+    "pamant-pietros-diamant": {
+      "atlas": 27,
+      "col": 0,
+      "row": 0
+    },
+    "vulcan": {
+      "atlas": 28,
+      "col": 0,
+      "row": 0
+    },
+    "fireball": {
+      "atlas": 29,
+      "col": 0,
+      "row": 0
+    },
+    "smoke": {
+      "atlas": 30,
+      "col": 0,
+      "row": 0
+    },
+    "lava": {
+      "atlas": 31,
+      "col": 0,
+      "row": 0
+    },
+    "water": {
+      "atlas": 32,
+      "col": 0,
+      "row": 0
+    }
+  },
+  "sounds": {}
+}

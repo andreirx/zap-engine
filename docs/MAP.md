@@ -13,3 +13,4 @@ Project documentation.
 | `DEV_EXPERIENCE.md` | Developer experience goals and tooling |
 | `COORDINATE_SPACE_CONTRACT.md` | Coordinate space flow from GameConfig to renderer |
 | `SOLAR_SYSTEM_ARCHITECTURE_REPORT.md` | Clean architecture analysis of solar-system example |
+| `DINO_LEVEL_EDITOR.md` | Notes on the dinosaur level editor example data model, camera transform, and sprite-shape adapter |

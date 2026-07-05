@@ -75,6 +75,16 @@ impl<G: Game> GameRunner<G> {
         }
     }
 
+    /// Immutable access to the concrete game for example-specific WASM exports.
+    pub fn game(&self) -> &G {
+        &self.game
+    }
+
+    /// Mutable access to the concrete game for example-specific WASM exports.
+    pub fn game_mut(&mut self) -> &mut G {
+        &mut self.game
+    }
+
     /// Initialize the game. Call once after construction.
     pub fn init(&mut self) {
         self.config = self.game.config();

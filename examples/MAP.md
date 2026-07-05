@@ -15,6 +15,7 @@ Example games built with ZapEngine, demonstrating the engine's capabilities.
 | `glypher/` | Handwriting-tracing game: dynamic lighting, viewport-adaptive layout, cursive letters |
 | `pool-game/` | 2D billiards with Rapier2D circle physics and SDF-rendered balls, striped shader bands |
 | `effects-showcase/` | Per-sprite blend modes, alpha particles, visibility masking; programmatic atlas, no external assets |
+| `dino-level-editor/` | Playable dinosaur platformer level editor with terrain editing, money pickups, finish gate layering, and edit/play camera transition |
 
 ## Structure
 

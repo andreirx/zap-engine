@@ -17,6 +17,7 @@ CRATES=(
   "examples/solar-system"
   "examples/pool-game"
   "examples/effects-showcase"
+  "examples/dino-level-editor"
 )
 
 echo "==> Building WASM crates..."

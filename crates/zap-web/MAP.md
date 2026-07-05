@@ -13,6 +13,7 @@ WASM bridge crate. Provides `GameRunner<G: Game>` — the glue between a Rust ga
 
 Because `wasm-bindgen` cannot export generic structs, each concrete game (e.g., `basic-demo`)
 creates a `thread_local!` GameRunner and exports free functions that delegate to it.
+`GameRunner::game()` and `GameRunner::game_mut()` intentionally expose the concrete game back to those free functions for game-specific JSON boundaries such as example-local level save/load.
 
 ## Key Files
 
