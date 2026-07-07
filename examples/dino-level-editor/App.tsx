@@ -15,21 +15,31 @@ const CUSTOM_RESET_LEVEL = 7;
 
 const EVENT_MODE = 1;
 const EVENT_SCORE = 2;
+const EVENT_LIVES = 3;
 
-type Tool = 'ground' | 'lava' | 'water' | 'money1' | 'money10' | 'dino' | 'finish' | 'volcano';
+type Tool = 'ground' | 'lava' | 'water' | 'money1' | 'money10' | 'powerup' | 'dino' | 'finish' | 'volcano';
 type Action = 'place' | 'erase';
 type DinoColor = 'verde' | 'albastru' | 'galben' | 'mov' | 'rosu';
+type SlotDialog = 'save' | 'load' | null;
 
 const LEVEL_DB_NAME = 'zap-engine-dino-level-editor';
 const LEVEL_DB_VERSION = 1;
 const LEVEL_STORE_NAME = 'levels';
 const DEFAULT_LEVEL_ID = 'default';
 const LEVEL_LOCAL_STORAGE_KEY = 'zap-engine-dino-level-editor:default-level';
+const LEVEL_LOCAL_STORAGE_PREFIX = 'zap-engine-dino-level-editor:level:';
+const LEVEL_LOCAL_STORAGE_INDEX_KEY = 'zap-engine-dino-level-editor:named-slots';
+const AUTO_SAVE_MS = 2500;
 
-let memoryLevelRecord: StoredLevelRecord | null = null;
+const namedSlotId = (name: string) => `named:${name.trim()}`;
+
+const isNamedSlot = (record: StoredLevelRecord) => record.id.startsWith('named:');
+
+let memoryLevelRecords = new Map<string, StoredLevelRecord>();
 
 interface StoredLevelRecord {
   id: string;
+  name?: string;
   json: string;
   savedAt: string;
   schemaVersion: number;
@@ -48,6 +58,7 @@ const toolCodes: Record<Tool, number> = {
   volcano: 5,
   lava: 6,
   water: 7,
+  powerup: 8,
 };
 
 const colorCodes: Record<DinoColor, number> = {
@@ -64,6 +75,7 @@ const toolLabels: { tool: Tool; label: string }[] = [
   { tool: 'water', label: 'Water' },
   { tool: 'money1', label: 'Ban ×1' },
   { tool: 'money10', label: 'Ban ×10' },
+  { tool: 'powerup', label: 'Carne' },
   { tool: 'dino', label: 'Dino Start' },
   { tool: 'finish', label: 'Finish' },
   { tool: 'volcano', label: 'Volcano' },
@@ -102,23 +114,33 @@ function openLevelDb(): Promise<IDBDatabase> {
   });
 }
 
-function levelRecord(json: string): StoredLevelRecord {
+function levelRecord(id: string, json: string, name?: string): StoredLevelRecord {
   return {
-    id: DEFAULT_LEVEL_ID,
+    id,
+    ...(name ? { name } : {}),
     json,
     savedAt: new Date().toISOString(),
     schemaVersion: 1,
   };
 }
 
-async function saveLevelToBrowserStorage(json: string): Promise<string> {
-  const record = levelRecord(json);
+async function saveLevelToBrowserStorage(id: string, json: string, name?: string): Promise<string> {
+  const record = levelRecord(id, json, name);
   if (typeof indexedDB === 'undefined') {
     if (typeof localStorage === 'undefined') {
-      memoryLevelRecord = record;
+      memoryLevelRecords.set(id, record);
       return 'memory';
     }
-    localStorage.setItem(LEVEL_LOCAL_STORAGE_KEY, JSON.stringify(record));
+    localStorage.setItem(`${LEVEL_LOCAL_STORAGE_PREFIX}${id}`, JSON.stringify(record));
+    if (id === DEFAULT_LEVEL_ID) {
+      localStorage.setItem(LEVEL_LOCAL_STORAGE_KEY, JSON.stringify(record));
+    } else {
+      const existing = JSON.parse(localStorage.getItem(LEVEL_LOCAL_STORAGE_INDEX_KEY) ?? '[]') as string[];
+      if (!existing.includes(id)) {
+        existing.push(id);
+        localStorage.setItem(LEVEL_LOCAL_STORAGE_INDEX_KEY, JSON.stringify(existing));
+      }
+    }
     return 'localStorage';
   }
 
@@ -136,12 +158,13 @@ async function saveLevelToBrowserStorage(json: string): Promise<string> {
   }
 }
 
-async function loadLevelFromBrowserStorage(): Promise<StoredLevelRecord | null> {
+async function loadLevelFromBrowserStorage(id = DEFAULT_LEVEL_ID): Promise<StoredLevelRecord | null> {
   if (typeof indexedDB === 'undefined') {
     if (typeof localStorage === 'undefined') {
-      return memoryLevelRecord;
+      return memoryLevelRecords.get(id) ?? null;
     }
-    const raw = localStorage.getItem(LEVEL_LOCAL_STORAGE_KEY);
+    const raw = localStorage.getItem(`${LEVEL_LOCAL_STORAGE_PREFIX}${id}`)
+      ?? (id === DEFAULT_LEVEL_ID ? localStorage.getItem(LEVEL_LOCAL_STORAGE_KEY) : null);
     return raw ? (JSON.parse(raw) as StoredLevelRecord) : null;
   }
 
@@ -149,13 +172,47 @@ async function loadLevelFromBrowserStorage(): Promise<StoredLevelRecord | null> 
   try {
     return await new Promise<StoredLevelRecord | null>((resolve, reject) => {
       const tx = db.transaction(LEVEL_STORE_NAME, 'readonly');
-      const request = tx.objectStore(LEVEL_STORE_NAME).get(DEFAULT_LEVEL_ID);
+      const request = tx.objectStore(LEVEL_STORE_NAME).get(id);
       request.onsuccess = () => resolve((request.result as StoredLevelRecord | undefined) ?? null);
       request.onerror = () => reject(request.error ?? new Error('Failed to load level'));
     });
   } finally {
     db.close();
   }
+}
+
+async function listNamedLevelSlots(): Promise<StoredLevelRecord[]> {
+  if (typeof indexedDB === 'undefined') {
+    if (typeof localStorage === 'undefined') {
+      return [...memoryLevelRecords.values()].filter(isNamedSlot).sort(compareSavedLevels);
+    }
+    const ids = JSON.parse(localStorage.getItem(LEVEL_LOCAL_STORAGE_INDEX_KEY) ?? '[]') as string[];
+    const records = ids
+      .map((id) => localStorage.getItem(`${LEVEL_LOCAL_STORAGE_PREFIX}${id}`))
+      .filter((raw): raw is string => raw !== null)
+      .map((raw) => JSON.parse(raw) as StoredLevelRecord)
+      .filter(isNamedSlot);
+    return records.sort(compareSavedLevels);
+  }
+
+  const db = await openLevelDb();
+  try {
+    return await new Promise<StoredLevelRecord[]>((resolve, reject) => {
+      const tx = db.transaction(LEVEL_STORE_NAME, 'readonly');
+      const request = tx.objectStore(LEVEL_STORE_NAME).getAll();
+      request.onsuccess = () => {
+        const records = (request.result as StoredLevelRecord[]).filter(isNamedSlot).sort(compareSavedLevels);
+        resolve(records);
+      };
+      request.onerror = () => reject(request.error ?? new Error('Failed to list saved levels'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function compareSavedLevels(a: StoredLevelRecord, b: StoredLevelRecord): number {
+  return b.savedAt.localeCompare(a.savedAt);
 }
 
 export function App() {
@@ -165,10 +222,15 @@ export function App() {
   const [rectangle, setRectangle] = useState(false);
   const [dinoColor, setDinoColor] = useState<DinoColor>('verde');
   const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(1);
   const [timingCollapsed, setTimingCollapsed] = useState(true);
-  const [saveStatus, setSaveStatus] = useState('No level loaded from browser storage.');
+  const [saveStatus, setSaveStatus] = useState('Auto-loading browser storage when the engine is ready.');
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
-  const pendingSaveRef = useRef(false);
+  const [slotDialog, setSlotDialog] = useState<SlotDialog>(null);
+  const [slotName, setSlotName] = useState('');
+  const [namedSlots, setNamedSlots] = useState<StoredLevelRecord[]>([]);
+  const pendingExportRef = useRef<{ id: string; name?: string; manual: boolean } | null>(null);
+  const autoLoadTriedRef = useRef(false);
 
   const syncUiFromLevelJson = useCallback((json: string) => {
     try {
@@ -188,6 +250,8 @@ export function App() {
         setMode(event.a >= 0.5 ? 'play' : 'edit');
       } else if (event.kind === EVENT_SCORE) {
         setScore(Math.round(event.a));
+      } else if (event.kind === EVENT_LIVES) {
+        setLives(Math.round(event.a));
       }
     }
   }, []);
@@ -197,16 +261,24 @@ export function App() {
       return;
     }
     const json = typeof data.json === 'string' ? data.json : null;
-    if (!pendingSaveRef.current) {
+    const pendingExport = pendingExportRef.current;
+    if (!pendingExport) {
       return;
     }
-    pendingSaveRef.current = false;
+    pendingExportRef.current = null;
     if (!json) {
       setSaveStatus('Save failed: the game did not return level JSON.');
       return;
     }
-    void saveLevelToBrowserStorage(json)
-      .then((backend) => setSaveStatus(`Saved to ${backend} at ${new Date().toLocaleTimeString()}.`))
+    void saveLevelToBrowserStorage(pendingExport.id, json, pendingExport.name)
+      .then((backend) => {
+        const time = new Date().toLocaleTimeString();
+        if (pendingExport.manual) {
+          setSaveStatus(`Saved "${pendingExport.name}" to ${backend} at ${time}.`);
+        } else {
+          setSaveStatus(`Auto-saved default slot to ${backend} at ${time}.`);
+        }
+      })
       .catch((err: unknown) => {
         setSaveStatus(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
       });
@@ -218,6 +290,43 @@ export function App() {
     onGameEvent,
     onWorkerMessage,
   });
+
+  useEffect(() => {
+    if (!isReady || autoLoadTriedRef.current) {
+      return;
+    }
+    autoLoadTriedRef.current = true;
+    void loadLevelFromBrowserStorage(DEFAULT_LEVEL_ID)
+      .then((record) => {
+        if (!record) {
+          setSaveStatus('No default auto-save found; using the starter level.');
+          return;
+        }
+        sendEvent({ type: 'load_level', json: record.json });
+        syncUiFromLevelJson(record.json);
+        setMode('edit');
+        setScore(0);
+        setLives(1);
+        setSaveStatus(`Auto-loaded default slot saved at ${new Date(record.savedAt).toLocaleString()}.`);
+      })
+      .catch((err: unknown) => {
+        setSaveStatus(`Auto-load failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+  }, [isReady, sendEvent, syncUiFromLevelJson]);
+
+  useEffect(() => {
+    if (!isReady) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      if (mode !== 'edit' || pendingExportRef.current) {
+        return;
+      }
+      pendingExportRef.current = { id: DEFAULT_LEVEL_ID, name: 'default', manual: false };
+      sendEvent({ type: 'export_world' });
+    }, AUTO_SAVE_MS);
+    return () => window.clearInterval(timer);
+  }, [isReady, mode, sendEvent]);
 
   useEffect(() => {
     const preventPageHotkeys = (event: KeyboardEvent) => {
@@ -252,6 +361,7 @@ export function App() {
 
   const play = () => {
     setScore(0);
+    setLives(1);
     setMode('play');
     sendEvent({ type: 'custom', kind: CUSTOM_PLAY });
   };
@@ -261,31 +371,53 @@ export function App() {
     sendEvent({ type: 'custom', kind: CUSTOM_EDIT });
   };
 
-  const saveLevel = () => {
+  const refreshNamedSlots = useCallback(() => {
+    void listNamedLevelSlots()
+      .then(setNamedSlots)
+      .catch((err: unknown) => {
+        setSaveStatus(`Could not list saved levels: ${err instanceof Error ? err.message : String(err)}`);
+      });
+  }, []);
+
+  const openSlotDialog = (dialog: Exclude<SlotDialog, null>) => {
     if (!isReady || mode !== 'edit') {
       return;
     }
-    pendingSaveRef.current = true;
-    setSaveStatus('Saving level...');
+    setSlotDialog(dialog);
+    if (dialog === 'load') {
+      refreshNamedSlots();
+    }
+  };
+
+  const saveNamedSlot = () => {
+    const trimmedName = slotName.trim();
+    if (!isReady || mode !== 'edit' || !trimmedName) {
+      return;
+    }
+    pendingExportRef.current = { id: namedSlotId(trimmedName), name: trimmedName, manual: true };
+    setSaveStatus(`Saving "${trimmedName}"...`);
+    setSlotDialog(null);
     sendEvent({ type: 'export_world' });
   };
 
-  const loadLevel = () => {
+  const loadNamedSlot = (record: StoredLevelRecord) => {
     if (!isReady || mode !== 'edit') {
       return;
     }
-    setSaveStatus('Loading level...');
-    void loadLevelFromBrowserStorage()
-      .then((record) => {
-        if (!record) {
-          setSaveStatus('No saved level found in browser storage.');
+    setSaveStatus(`Loading "${record.name ?? record.id}"...`);
+    void loadLevelFromBrowserStorage(record.id)
+      .then((loadedRecord) => {
+        if (!loadedRecord) {
+          setSaveStatus(`Saved level "${record.name ?? record.id}" was not found.`);
           return;
         }
-        sendEvent({ type: 'load_level', json: record.json });
-        syncUiFromLevelJson(record.json);
+        setSlotDialog(null);
+        sendEvent({ type: 'load_level', json: loadedRecord.json });
+        syncUiFromLevelJson(loadedRecord.json);
         setMode('edit');
         setScore(0);
-        setSaveStatus(`Loaded level saved at ${new Date(record.savedAt).toLocaleString()}.`);
+        setLives(1);
+        setSaveStatus(`Loaded "${loadedRecord.name ?? loadedRecord.id}" saved at ${new Date(loadedRecord.savedAt).toLocaleString()}.`);
       })
       .catch((err: unknown) => {
         setSaveStatus(`Load failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -300,7 +432,8 @@ export function App() {
     setRectangle(false);
     setDinoColor('verde');
     setScore(0);
-    setSaveStatus('Reset to the built-in starter level. Save if you want to overwrite browser storage.');
+    setLives(1);
+    setSaveStatus('Reset to the built-in starter level. The default slot will auto-save while editing.');
   };
 
   return (
@@ -311,6 +444,7 @@ export function App() {
         <button onClick={mode === 'play' ? edit : play} style={primaryButton(mode === 'edit')}>
           {mode === 'play' ? 'Back to Edit' : 'PLAY'}
         </button>
+        <div style={styles.lives}>Lives: {lives}</div>
         <div style={styles.score}>Money: {score}</div>
       </div>
 
@@ -344,8 +478,8 @@ export function App() {
 
             <div style={styles.group}>
               <div style={styles.groupLabel}>Level</div>
-              <button disabled={!isReady} onClick={saveLevel} style={toolButton(false)}>Save</button>
-              <button disabled={!isReady} onClick={loadLevel} style={toolButton(false)}>Load</button>
+              <button disabled={!isReady} onClick={() => openSlotDialog('save')} style={toolButton(false)}>Save Named</button>
+              <button disabled={!isReady} onClick={() => openSlotDialog('load')} style={toolButton(false)}>Load Named</button>
               <button disabled={!isReady} onClick={() => setConfirmResetOpen(true)} style={dangerButton}>
                 Reset
               </button>
@@ -396,6 +530,59 @@ export function App() {
             <div style={styles.modalActions}>
               <button onClick={confirmReset} style={dangerButton}>Yes, reset</button>
               <button onClick={() => setConfirmResetOpen(false)} style={toolButton(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {slotDialog === 'save' && (
+        <div style={styles.modalBackdrop}>
+          <div style={styles.modal}>
+            <div style={styles.modalTitle}>Save named level</div>
+            <div style={styles.modalBody}>
+              The default slot auto-saves. Use this for named snapshots you can load later.
+            </div>
+            <input
+              value={slotName}
+              onChange={(event) => setSlotName(event.target.value)}
+              placeholder="Level name"
+              style={styles.textInput}
+              autoFocus
+            />
+            <div style={styles.modalActions}>
+              <button disabled={!slotName.trim()} onClick={saveNamedSlot} style={primaryButton(Boolean(slotName.trim()))}>
+                Save
+              </button>
+              <button onClick={() => setSlotDialog(null)} style={toolButton(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {slotDialog === 'load' && (
+        <div style={styles.modalBackdrop}>
+          <div style={styles.modal}>
+            <div style={styles.modalTitle}>Load named level</div>
+            <div style={styles.modalBody}>
+              Choose a named snapshot. The default auto-save is loaded automatically when the editor starts.
+            </div>
+            <div style={styles.slotList}>
+              {namedSlots.length === 0 ? (
+                <div style={styles.emptySlots}>No named saves yet.</div>
+              ) : namedSlots.map((record) => (
+                <button
+                  key={record.id}
+                  onClick={() => loadNamedSlot(record)}
+                  style={styles.slotButton}
+                >
+                  <span style={styles.slotName}>{record.name ?? record.id.replace(/^named:/, '')}</span>
+                  <span style={styles.slotTime}>{new Date(record.savedAt).toLocaleString()}</span>
+                </button>
+              ))}
+            </div>
+            <div style={styles.modalActions}>
+              <button onClick={refreshNamedSlots} style={toolButton(false)}>Refresh</button>
+              <button onClick={() => setSlotDialog(null)} style={toolButton(false)}>Cancel</button>
             </div>
           </div>
         </div>
@@ -547,6 +734,14 @@ const styles: Record<string, CSSProperties> = {
     color: '#ffe28a',
     fontWeight: 800,
   },
+  lives: {
+    padding: '8px 12px',
+    borderRadius: 10,
+    background: 'rgba(3,8,14,0.78)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    color: '#ffb1b1',
+    fontWeight: 800,
+  },
   statusPanel: {
     padding: 10,
     borderRadius: 12,
@@ -605,5 +800,48 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     justifyContent: 'flex-end',
     gap: 8,
+  },
+  textInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    border: '1px solid rgba(255,255,255,0.20)',
+    borderRadius: 8,
+    padding: '9px 10px',
+    marginBottom: 14,
+    color: '#eef6ff',
+    background: 'rgba(0,0,0,0.26)',
+    outline: 'none',
+  },
+  slotList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    maxHeight: 260,
+    overflowY: 'auto',
+    marginBottom: 14,
+  },
+  slotButton: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 3,
+    alignItems: 'flex-start',
+    border: '1px solid rgba(255,255,255,0.14)',
+    borderRadius: 8,
+    padding: 10,
+    color: '#eef6ff',
+    background: 'rgba(10,18,28,0.78)',
+    cursor: 'pointer',
+  },
+  slotName: {
+    fontWeight: 800,
+  },
+  slotTime: {
+    color: 'rgba(255,255,255,0.58)',
+    fontSize: 12,
+  },
+  emptySlots: {
+    color: 'rgba(255,255,255,0.62)',
+    fontSize: 13,
+    padding: 8,
   },
 };

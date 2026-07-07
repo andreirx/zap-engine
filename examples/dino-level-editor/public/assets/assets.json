@@ -197,6 +197,132 @@
       "cols": 1,
       "rows": 1,
       "path": "water.png"
+    },
+    {
+      "name": "carne",
+      "cols": 1,
+      "rows": 1,
+      "path": "carne.png"
+    },
+    {
+      "name": "dino-verde-big-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-verde-big-1.png"
+    },
+    {
+      "name": "dino-verde-big-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-verde-big-2.png"
+    },
+    {
+      "name": "dino-verde-big-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-verde-big-3.png"
+    },
+    {
+      "name": "dino-verde-big-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-verde-big-4.png"
+    },
+    {
+      "name": "dino-albastru-big-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-albastru-big-1.png"
+    },
+    {
+      "name": "dino-albastru-big-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-albastru-big-2.png"
+    },
+    {
+      "name": "dino-albastru-big-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-albastru-big-3.png"
+    },
+    {
+      "name": "dino-albastru-big-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-albastru-big-4.png"
+    },
+    {
+      "name": "dino-galben-big-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-galben-big-1.png"
+    },
+    {
+      "name": "dino-galben-big-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-galben-big-2.png"
+    },
+    {
+      "name": "dino-galben-big-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-galben-big-3.png"
+    },
+    {
+      "name": "dino-galben-big-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-galben-big-4.png"
+    },
+    {
+      "name": "dino-mov-big-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-mov-big-1.png"
+    },
+    {
+      "name": "dino-mov-big-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-mov-big-2.png"
+    },
+    {
+      "name": "dino-mov-big-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-mov-big-3.png"
+    },
+    {
+      "name": "dino-mov-big-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-mov-big-4.png"
+    },
+    {
+      "name": "dino-rosu-big-1",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-rosu-big-1.png"
+    },
+    {
+      "name": "dino-rosu-big-2",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-rosu-big-2.png"
+    },
+    {
+      "name": "dino-rosu-big-3",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-rosu-big-3.png"
+    },
+    {
+      "name": "dino-rosu-big-4",
+      "cols": 1,
+      "rows": 1,
+      "path": "dino-rosu-big-4.png"
     }
   ],
   "sprites": {
@@ -362,6 +488,111 @@
     },
     "water": {
       "atlas": 32,
+      "col": 0,
+      "row": 0
+    },
+    "carne": {
+      "atlas": 33,
+      "col": 0,
+      "row": 0
+    },
+    "dino-verde-big-1": {
+      "atlas": 34,
+      "col": 0,
+      "row": 0
+    },
+    "dino-verde-big-2": {
+      "atlas": 35,
+      "col": 0,
+      "row": 0
+    },
+    "dino-verde-big-3": {
+      "atlas": 36,
+      "col": 0,
+      "row": 0
+    },
+    "dino-verde-big-4": {
+      "atlas": 37,
+      "col": 0,
+      "row": 0
+    },
+    "dino-albastru-big-1": {
+      "atlas": 38,
+      "col": 0,
+      "row": 0
+    },
+    "dino-albastru-big-2": {
+      "atlas": 39,
+      "col": 0,
+      "row": 0
+    },
+    "dino-albastru-big-3": {
+      "atlas": 40,
+      "col": 0,
+      "row": 0
+    },
+    "dino-albastru-big-4": {
+      "atlas": 41,
+      "col": 0,
+      "row": 0
+    },
+    "dino-galben-big-1": {
+      "atlas": 42,
+      "col": 0,
+      "row": 0
+    },
+    "dino-galben-big-2": {
+      "atlas": 43,
+      "col": 0,
+      "row": 0
+    },
+    "dino-galben-big-3": {
+      "atlas": 44,
+      "col": 0,
+      "row": 0
+    },
+    "dino-galben-big-4": {
+      "atlas": 45,
+      "col": 0,
+      "row": 0
+    },
+    "dino-mov-big-1": {
+      "atlas": 46,
+      "col": 0,
+      "row": 0
+    },
+    "dino-mov-big-2": {
+      "atlas": 47,
+      "col": 0,
+      "row": 0
+    },
+    "dino-mov-big-3": {
+      "atlas": 48,
+      "col": 0,
+      "row": 0
+    },
+    "dino-mov-big-4": {
+      "atlas": 49,
+      "col": 0,
+      "row": 0
+    },
+    "dino-rosu-big-1": {
+      "atlas": 50,
+      "col": 0,
+      "row": 0
+    },
+    "dino-rosu-big-2": {
+      "atlas": 51,
+      "col": 0,
+      "row": 0
+    },
+    "dino-rosu-big-3": {
+      "atlas": 52,
+      "col": 0,
+      "row": 0
+    },
+    "dino-rosu-big-4": {
+      "atlas": 53,
       "col": 0,
       "row": 0
     }

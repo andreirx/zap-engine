@@ -20,12 +20,14 @@ const CAMERA_LERP: f32 = 0.14;
 
 const PLAYER_HALF_W: f32 = 42.0;
 const PLAYER_HALF_H: f32 = 58.0;
+const PLAYER_BIG_HALF_W: f32 = PLAYER_HALF_W * 2.0;
+const PLAYER_BIG_HALF_H: f32 = PLAYER_HALF_H * 2.0;
 const MOVE_ACCEL: f32 = 2400.0;
 const MOVE_DECEL: f32 = 1800.0;
 const MAX_RUN_SPEED: f32 = 520.0;
 const GRAVITY: f32 = 2200.0;
-const STANDING_JUMP_SPEED: f32 = 900.0;
 const RUNNING_JUMP_SPEED: f32 = 1250.0;
+const STANDING_JUMP_SPEED: f32 = RUNNING_JUMP_SPEED;
 const RUNNING_JUMP_THRESHOLD: f32 = 280.0;
 const WATER_GRAVITY: f32 = 280.0;
 const WATER_HORIZONTAL_ACCEL: f32 = 900.0;
@@ -53,6 +55,7 @@ const GARGLE_FIREBALL_COUNT: usize = 4;
 
 const EVENT_MODE: f32 = 1.0;
 const EVENT_SCORE: f32 = 2.0;
+const EVENT_LIVES: f32 = 3.0;
 
 const CUSTOM_SET_TOOL: u32 = 1;
 const CUSTOM_SET_ACTION: u32 = 2;
@@ -74,6 +77,7 @@ enum EditTool {
     Ground,
     Money1,
     Money10,
+    Powerup,
     DinoStart,
     Finish,
     Volcano,
@@ -91,6 +95,7 @@ impl EditTool {
             5 => Self::Volcano,
             6 => Self::Lava,
             7 => Self::Water,
+            8 => Self::Powerup,
             _ => Self::Ground,
         }
     }
@@ -162,8 +167,12 @@ impl DinoColor {
         }
     }
 
-    fn sprite_name(self, frame: usize) -> String {
-        format!("{}-{}", self.stem(), frame.clamp(1, 4))
+    fn sprite_name(self, frame: usize, powered_up: bool) -> String {
+        if powered_up {
+            format!("{}-big-{}", self.stem(), frame.clamp(1, 4))
+        } else {
+            format!("{}-{}", self.stem(), frame.clamp(1, 4))
+        }
     }
 }
 
@@ -237,6 +246,13 @@ struct Money {
     collected: bool,
 }
 
+#[derive(Debug, Clone)]
+struct Powerup {
+    col: usize,
+    row: usize,
+    collected: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LevelDocument {
     version: Option<u32>,
@@ -245,6 +261,7 @@ struct LevelDocument {
     tiles: Option<Vec<u8>>,
     ground: Option<Vec<bool>>,
     money: Option<Vec<LevelMoney>>,
+    powerups: Option<Vec<LevelPowerup>>,
     dino_start: Option<[f32; 2]>,
     dino_color: Option<u8>,
     finish: Option<[usize; 2]>,
@@ -256,6 +273,12 @@ struct LevelMoney {
     col: usize,
     row: usize,
     value: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct LevelPowerup {
+    col: usize,
+    row: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -290,6 +313,7 @@ struct PlayerState {
     vel: Vec2,
     on_ground: bool,
     anim_time: f32,
+    powered_up: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -322,6 +346,7 @@ struct SmokePuff {
 pub struct DinoLevelEditor {
     tiles: Vec<TileCell>,
     money: Vec<Money>,
+    powerups: Vec<Powerup>,
     mode: Mode,
     edit_tool: EditTool,
     edit_action: EditAction,
@@ -344,6 +369,7 @@ pub struct DinoLevelEditor {
     play_camera_left: f32,
     last_emitted_mode: Mode,
     last_emitted_score: u32,
+    last_emitted_lives: u32,
     gargle_fireballs: [LoopingFireball; GARGLE_FIREBALL_COUNT],
     eruptions: Vec<ActiveEruption>,
     smoke: Vec<SmokePuff>,
@@ -363,6 +389,7 @@ impl DinoLevelEditor {
         let mut editor = Self {
             tiles: vec![TileCell::empty(); LEVEL_COLS * LEVEL_ROWS],
             money: Vec::new(),
+            powerups: Vec::new(),
             mode: Mode::Edit,
             edit_tool: EditTool::Ground,
             edit_action: EditAction::Place,
@@ -377,6 +404,7 @@ impl DinoLevelEditor {
                 vel: Vec2::ZERO,
                 on_ground: false,
                 anim_time: 0.0,
+                powered_up: false,
             },
             finish_col: 56,
             finish_row: 23,
@@ -390,6 +418,7 @@ impl DinoLevelEditor {
             play_camera_left: 0.0,
             last_emitted_mode: Mode::Edit,
             last_emitted_score: 0,
+            last_emitted_lives: 1,
             gargle_fireballs: Self::initial_gargle_fireballs(),
             eruptions: Vec::with_capacity(8),
             smoke: Vec::with_capacity(800),
@@ -422,6 +451,7 @@ impl DinoLevelEditor {
             *tile = TileCell::empty();
         }
         self.money.clear();
+        self.powerups.clear();
         self.mode = Mode::Edit;
         self.edit_tool = EditTool::Ground;
         self.edit_action = EditAction::Place;
@@ -465,6 +495,15 @@ impl DinoLevelEditor {
                         col: money.col,
                         row: money.row,
                         value: money.value,
+                    })
+                    .collect(),
+            ),
+            powerups: Some(
+                self.powerups
+                    .iter()
+                    .map(|powerup| LevelPowerup {
+                        col: powerup.col,
+                        row: powerup.row,
                     })
                     .collect(),
             ),
@@ -515,6 +554,19 @@ impl DinoLevelEditor {
                         col: item.col,
                         row: item.row,
                         value: if item.value == 10 { 10 } else { 1 },
+                        collected: false,
+                    });
+                }
+            }
+        }
+
+        self.powerups.clear();
+        if let Some(powerups) = document.powerups {
+            for item in powerups {
+                if item.col < LEVEL_COLS && item.row < LEVEL_ROWS {
+                    self.powerups.push(Powerup {
+                        col: item.col,
+                        row: item.row,
                         collected: false,
                     });
                 }
@@ -730,6 +782,7 @@ impl DinoLevelEditor {
     fn erase_ground(&mut self, col: usize, row: usize) {
         self.tile_mut(col, row).kind = TileKind::Empty;
         self.money.retain(|m| !(m.col == col && m.row == row));
+        self.powerups.retain(|p| !(p.col == col && p.row == row));
         self.recompute_ground_sprites();
     }
 
@@ -747,6 +800,7 @@ impl DinoLevelEditor {
         if self.money.iter().any(|m| m.col == col && m.row == row) {
             return;
         }
+        self.powerups.retain(|p| !(p.col == col && p.row == row));
         self.money.push(Money {
             col,
             row,
@@ -757,6 +811,22 @@ impl DinoLevelEditor {
 
     fn erase_money(&mut self, col: usize, row: usize) {
         self.money.retain(|m| !(m.col == col && m.row == row));
+    }
+
+    fn place_powerup(&mut self, col: usize, row: usize) {
+        if self.powerups.iter().any(|p| p.col == col && p.row == row) {
+            return;
+        }
+        self.money.retain(|m| !(m.col == col && m.row == row));
+        self.powerups.push(Powerup {
+            col,
+            row,
+            collected: false,
+        });
+    }
+
+    fn erase_powerup(&mut self, col: usize, row: usize) {
+        self.powerups.retain(|p| !(p.col == col && p.row == row));
     }
 
     fn place_dino_start(&mut self, world: Vec2) {
@@ -810,6 +880,8 @@ impl DinoLevelEditor {
             (EditAction::Place, EditTool::Money1) => self.place_money(col, row, 1),
             (EditAction::Place, EditTool::Money10) => self.place_money(col, row, 10),
             (EditAction::Erase, EditTool::Money1 | EditTool::Money10) => self.erase_money(col, row),
+            (EditAction::Place, EditTool::Powerup) => self.place_powerup(col, row),
+            (EditAction::Erase, EditTool::Powerup) => self.erase_powerup(col, row),
             (EditAction::Place, EditTool::DinoStart) => self.place_dino_start(world),
             (EditAction::Erase, EditTool::DinoStart) => {}
             (EditAction::Place, EditTool::Finish) => self.place_finish(col, row),
@@ -853,6 +925,8 @@ impl DinoLevelEditor {
                     (EditAction::Erase, EditTool::Money1 | EditTool::Money10) => {
                         self.erase_money(col, row)
                     }
+                    (EditAction::Place, EditTool::Powerup) => self.place_powerup(col, row),
+                    (EditAction::Erase, EditTool::Powerup) => self.erase_powerup(col, row),
                     _ => {}
                 }
             }
@@ -865,6 +939,10 @@ impl DinoLevelEditor {
             let action = self.edit_action;
             self.money.retain(|m| {
                 tiles[Self::idx(m.col, m.row)].kind == TileKind::Ground
+                    || action == EditAction::Place
+            });
+            self.powerups.retain(|p| {
+                tiles[Self::idx(p.col, p.row)].kind == TileKind::Ground
                     || action == EditAction::Place
             });
             self.recompute_ground_sprites();
@@ -880,6 +958,9 @@ impl DinoLevelEditor {
         for money in &mut self.money {
             money.collected = false;
         }
+        for powerup in &mut self.powerups {
+            powerup.collected = false;
+        }
     }
 
     fn enter_edit(&mut self) {
@@ -894,7 +975,32 @@ impl DinoLevelEditor {
             vel: Vec2::ZERO,
             on_ground: false,
             anim_time: 0.0,
+            powered_up: false,
         };
+    }
+
+    fn player_half_h(&self) -> f32 {
+        if self.player.powered_up {
+            PLAYER_BIG_HALF_H
+        } else {
+            PLAYER_HALF_H
+        }
+    }
+
+    fn player_half_w(&self) -> f32 {
+        if self.player.powered_up {
+            PLAYER_BIG_HALF_W
+        } else {
+            PLAYER_HALF_W
+        }
+    }
+
+    fn player_lives(&self) -> u32 {
+        if self.player.powered_up {
+            2
+        } else {
+            1
+        }
     }
 
     fn solid_at(&self, col: isize, row: isize) -> bool {
@@ -905,10 +1011,12 @@ impl DinoLevelEditor {
     }
 
     fn aabb_collides(&self, pos: Vec2) -> bool {
-        let left = ((pos.x - PLAYER_HALF_W) / TILE).floor() as isize;
-        let right = ((pos.x + PLAYER_HALF_W - 0.1) / TILE).floor() as isize;
-        let top = ((pos.y - PLAYER_HALF_H) / TILE).floor() as isize;
-        let bottom = ((pos.y + PLAYER_HALF_H - 0.1) / TILE).floor() as isize;
+        let half_w = self.player_half_w();
+        let half_h = self.player_half_h();
+        let left = ((pos.x - half_w) / TILE).floor() as isize;
+        let right = ((pos.x + half_w - 0.1) / TILE).floor() as isize;
+        let top = ((pos.y - half_h) / TILE).floor() as isize;
+        let bottom = ((pos.y + half_h - 0.1) / TILE).floor() as isize;
         for row in top..=bottom {
             for col in left..=right {
                 if self.solid_at(col, row) {
@@ -920,10 +1028,12 @@ impl DinoLevelEditor {
     }
 
     fn aabb_overlaps_kind(&self, pos: Vec2, kind: TileKind) -> bool {
-        let left = ((pos.x - PLAYER_HALF_W) / TILE).floor() as isize;
-        let right = ((pos.x + PLAYER_HALF_W - 0.1) / TILE).floor() as isize;
-        let top = ((pos.y - PLAYER_HALF_H) / TILE).floor() as isize;
-        let bottom = ((pos.y + PLAYER_HALF_H - 0.1) / TILE).floor() as isize;
+        let half_w = self.player_half_w();
+        let half_h = self.player_half_h();
+        let left = ((pos.x - half_w) / TILE).floor() as isize;
+        let right = ((pos.x + half_w - 0.1) / TILE).floor() as isize;
+        let top = ((pos.y - half_h) / TILE).floor() as isize;
+        let bottom = ((pos.y + half_h - 0.1) / TILE).floor() as isize;
         for row in top..=bottom {
             for col in left..=right {
                 if Self::in_bounds(col, row) && self.tile(col as usize, row as usize).kind == kind {
@@ -1000,11 +1110,8 @@ impl DinoLevelEditor {
 
         let old_x = self.player.pos.x;
         self.player.pos.x += self.player.vel.x * FIXED_DT;
-        self.player.pos.x = self
-            .player
-            .pos
-            .x
-            .clamp(PLAYER_HALF_W, LEVEL_W - PLAYER_HALF_W);
+        let half_w = self.player_half_w();
+        self.player.pos.x = self.player.pos.x.clamp(half_w, LEVEL_W - half_w);
         if self.aabb_collides(self.player.pos) {
             self.player.pos.x = old_x;
             self.player.vel.x = 0.0;
@@ -1013,13 +1120,14 @@ impl DinoLevelEditor {
         self.player.pos.y += self.player.vel.y * FIXED_DT;
         self.player.on_ground = false;
         if self.aabb_collides(self.player.pos) {
+            let half_h = self.player_half_h();
             if self.player.vel.y > 0.0 {
-                let ground_row = ((self.player.pos.y + PLAYER_HALF_H - 0.1) / TILE).floor();
-                self.player.pos.y = ground_row * TILE - PLAYER_HALF_H;
+                let ground_row = ((self.player.pos.y + half_h - 0.1) / TILE).floor();
+                self.player.pos.y = ground_row * TILE - half_h;
                 self.player.on_ground = true;
             } else if self.player.vel.y < 0.0 {
-                let top_row = ((self.player.pos.y - PLAYER_HALF_H) / TILE).floor();
-                self.player.pos.y = (top_row + 1.0) * TILE + PLAYER_HALF_H;
+                let top_row = ((self.player.pos.y - half_h) / TILE).floor();
+                self.player.pos.y = (top_row + 1.0) * TILE + half_h;
             }
             self.player.vel.y = 0.0;
         }
@@ -1034,6 +1142,7 @@ impl DinoLevelEditor {
         }
 
         self.collect_money();
+        self.collect_powerups();
 
         if self.aabb_overlaps_kind(self.player.pos, TileKind::Lava) {
             self.enter_edit();
@@ -1058,15 +1167,65 @@ impl DinoLevelEditor {
         }
     }
 
+    fn collect_powerups(&mut self) {
+        let mut collected = false;
+        for powerup in &mut self.powerups {
+            if powerup.collected {
+                continue;
+            }
+            let pos = Self::tile_center(powerup.col, powerup.row);
+            if self.player.pos.distance(pos) <= MONEY_PICKUP_RADIUS {
+                powerup.collected = true;
+                collected = true;
+            }
+        }
+        if collected {
+            self.grow_player();
+        }
+    }
+
+    fn grow_player(&mut self) {
+        if self.player.powered_up {
+            return;
+        }
+        let bottom = self.player.pos.y + PLAYER_HALF_H;
+        self.player.powered_up = true;
+        self.player.pos.y = bottom - PLAYER_BIG_HALF_H;
+        self.player.pos.x = self
+            .player
+            .pos
+            .x
+            .clamp(PLAYER_BIG_HALF_W, LEVEL_W - PLAYER_BIG_HALF_W);
+    }
+
+    fn take_fireball_hit(&mut self) {
+        if self.player.powered_up {
+            let bottom = self.player.pos.y + PLAYER_BIG_HALF_H;
+            self.player.powered_up = false;
+            self.player.pos.y = bottom - PLAYER_HALF_H;
+        } else {
+            self.enter_edit();
+        }
+    }
+
+    fn fireball_hits_player(&self, pos: Vec2) -> bool {
+        let half_w = self.player_half_w();
+        let half_h = self.player_half_h();
+        (self.player.pos.x - pos.x).abs() <= half_w + FIREBALL_HIT_RADIUS
+            && (self.player.pos.y - pos.y).abs() <= half_h + FIREBALL_HIT_RADIUS
+    }
+
     fn reached_finish(&self) -> bool {
+        let half_w = self.player_half_w();
+        let half_h = self.player_half_h();
         let gate_left = self.finish_col as f32 * TILE;
         let gate_right = gate_left + TILE * 2.0;
         let gate_bottom = (self.finish_row + 1) as f32 * TILE;
         let gate_top = gate_bottom - TILE * 3.0;
-        self.player.pos.x + PLAYER_HALF_W > gate_left
-            && self.player.pos.x - PLAYER_HALF_W < gate_right
-            && self.player.pos.y + PLAYER_HALF_H > gate_top
-            && self.player.pos.y - PLAYER_HALF_H < gate_bottom
+        self.player.pos.x + half_w > gate_left
+            && self.player.pos.x - half_w < gate_right
+            && self.player.pos.y + half_h > gate_top
+            && self.player.pos.y - half_h < gate_bottom
     }
 
     fn update_hazards(&mut self) {
@@ -1110,12 +1269,10 @@ impl DinoLevelEditor {
 
             let impacted_terrain = self.fireball_overlaps_tile_material(eruption.pos);
             let finished_path = eruption.frame >= eruption.duration_frames;
-            if !impacted_terrain && !finished_path {
-                if self.mode == Mode::Play
-                    && self.player.pos.distance(eruption.pos) <= FIREBALL_HIT_RADIUS + PLAYER_HALF_W
-                {
-                    self.enter_edit();
-                }
+            let hit_player = self.mode == Mode::Play && self.fireball_hits_player(eruption.pos);
+            if hit_player {
+                self.take_fireball_hit();
+            } else if !impacted_terrain && !finished_path {
                 self.eruptions.push(eruption);
             }
         }
@@ -1258,6 +1415,16 @@ impl DinoLevelEditor {
                 c: 0.0,
             });
         }
+        let lives = self.player_lives();
+        if self.last_emitted_lives != lives {
+            self.last_emitted_lives = lives;
+            ctx.emit_event(GameEvent {
+                kind: EVENT_LIVES,
+                a: lives as f32,
+                b: 0.0,
+                c: 0.0,
+            });
+        }
     }
 
     fn sync_scene(&self, ctx: &mut EngineContext) {
@@ -1268,6 +1435,7 @@ impl DinoLevelEditor {
         self.spawn_finish_back(ctx);
         self.spawn_smoke(ctx);
         self.spawn_money(ctx);
+        self.spawn_powerups(ctx);
         self.spawn_dino(ctx);
         self.spawn_fireballs(ctx);
         self.spawn_finish_front(ctx);
@@ -1406,6 +1574,22 @@ impl DinoLevelEditor {
         }
     }
 
+    fn spawn_powerups(&self, ctx: &mut EngineContext) {
+        for powerup in &self.powerups {
+            if powerup.collected {
+                continue;
+            }
+            self.spawn_sprite(
+                ctx,
+                "carne",
+                Self::tile_center(powerup.col, powerup.row),
+                TILE * 0.82,
+                RenderLayer::Objects,
+                1.0,
+            );
+        }
+    }
+
     fn spawn_dino(&self, ctx: &mut EngineContext) {
         let player_in_water =
             self.mode == Mode::Play && self.aabb_overlaps_kind(self.player.pos, TileKind::Water);
@@ -1416,13 +1600,15 @@ impl DinoLevelEditor {
         } else {
             1
         };
-        let sprite = self.dino_color.sprite_name(frame);
+        let powered_up = self.mode == Mode::Play && self.player.powered_up;
+        let sprite = self.dino_color.sprite_name(frame, powered_up);
         let pos = if self.mode == Mode::Play {
             self.player.pos
         } else {
             self.dino_start
         };
-        self.spawn_sprite(ctx, &sprite, pos, TILE, RenderLayer::Objects, 1.0);
+        let size = if powered_up { TILE * 2.0 } else { TILE };
+        self.spawn_sprite(ctx, &sprite, pos, size, RenderLayer::Objects, 1.0);
 
         if self.mode == Mode::Edit {
             let s = self.camera.world_to_screen(pos);

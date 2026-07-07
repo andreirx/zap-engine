@@ -15,6 +15,11 @@ ZapEngine sprite instances are square today: one scalar `scale` reaches the shad
 
 The original files are kept next to them for traceability; the manifest uses the square adapter images so the gate renders at the intended 128×384 visible shape inside a square sprite instance.
 
+## Powerup and Big Dinosaur Adapter Assets
+
+- `carne.png` is a 128×128 collectible powerup sprite.
+- `dino-*-big-1..4.png` are example-local powered-up dinosaur sprites. Each adapter is a square 256×256 image with the original 128×128 frame scaled to 256×256, so the visible dinosaur is two tiles wide and two tiles tall while still matching the current engine sprite instance contract, which carries one uniform scale value.
+
 ## Volcano Hazard Assets
 
 - `vulcan.png` is 1024×1024 and is rendered as an 8×8 tile background object.
