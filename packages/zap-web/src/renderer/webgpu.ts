@@ -104,6 +104,14 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
 
   // ---- Phase 1: Device initialization ----
   const { device, context, format, tier } = await initDevice(canvas);
+  // WebGPU reports allocation and validation errors asynchronously: an
+  // oversized createBuffer returns an invalid buffer and the device records the
+  // error, so without a check initialization resolves and later draws fail
+  // silently. These scopes bracket every resource creation and upload of the
+  // initialization, up to the return, so a resolved initialization proves its
+  // allocations (HODA-ZE1; ADR-039). Lazily created textures are not covered.
+  device.pushErrorScope('out-of-memory');
+  device.pushErrorScope('validation');
   const glowMult = GLOW_MULT[tier as Exclude<typeof tier, 'canvas2d'>];
 
   // ---- Phase 2: Load textures ----
@@ -588,6 +596,17 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     resizeContext(canvas, context, device, format, tier, width, height);
     updateCamera(width, height);
     compositor.resize(width, height);
+  }
+
+  // Pop in stack order; both are popped before either captured GPUError is
+  // thrown. An earlier JavaScript exception bypasses the pops (ADR-039).
+  const validationError = await device.popErrorScope();
+  const outOfMemoryError = await device.popErrorScope();
+  if (validationError) {
+    throw new Error(`WebGPU validation error during renderer initialization: ${validationError.message}`);
+  }
+  if (outOfMemoryError) {
+    throw new Error(`WebGPU out-of-memory error during renderer initialization: ${outOfMemoryError.message}`);
   }
 
   return { backend: 'webgpu', tier, draw, resize };

@@ -1689,3 +1689,30 @@ Make `request_world_export` serialize synchronously via the `thread_local!` game
 
 ### Current Status
 **Not yet fixed.** The workaround is in production. Games using `export_world` should be aware that each export mutates simulation state by one frame.
+
+---
+
+## ADR-039: WebGPU Initialization Checks Its Allocations With Error Scopes
+
+**Date:** 2026-10-24
+**Status:** Accepted
+
+### Context
+HoDA's zap view grows a renderer's capacity by creating the renderer again with larger `maxInstances` or `maxEffectsVertices`, and treats a resolved `initRenderer` as a successful allocation. HoDA's review of its slice HODA-S7b3 (review 0) found that this is not true on WebGPU.
+
+### Problem
+WebGPU reports allocation and validation errors asynchronously. A `createBuffer` with a size over the device's `maxBufferSize` (default 268,435,456 bytes) returns an invalid buffer and records a validation error on the device; an allocation the GPU cannot satisfy records an out-of-memory error. `initWebGPURenderer` had no error scope, so the promise resolved with a renderer whose buffers were invalid, and later draws failed silently. Example: `initRenderer({ ..., maxInstances: 2 ** 28 })` (an instance buffer of 8 GiB) resolved.
+
+### Fix
+`initWebGPURenderer` pushes an `out-of-memory` error scope and then a `validation` error scope immediately after `initDevice` returns. Every resource creation and queue upload of the initialization (textures, buffers, bind groups, shader modules, pipelines, the compositor, the first camera write) happens between the push and the pop. Before it returns, it pops both scopes in stack order (validation, then out-of-memory) and awaits them. Both scopes are popped before either captured `GPUError` is thrown. Earlier JavaScript exceptions can bypass the pops (see Not Covered). When a scope reports a `GPUError`, it throws `WebGPU <filter> error during renderer initialization: <GPUError.message>`; if both report, the validation error is thrown. `initRenderer` keeps its wrapper unchanged: it logs the error with `console.warn` and rejects with `WebGPUInitFailed`.
+
+Error scopes, not an `uncapturederror` listener: a scope is tied to the initialization it brackets and reports to the caller that awaits it. A listener reports later, to whoever listens, and the `Renderer` exposes no device.
+
+### Not Covered
+- The scratch textures and the normal buffer (`ensureScratchTexture`), the visibility texture (`ensureVisTexture`) and the compositor's per-layer targets (`LayerCompositor.getOrCreateTarget`) are created lazily at draw time. They are outside the initialization and are not checked.
+- A JavaScript exception thrown during the initialization before the pops (for example `loadAtlasTextures` rejecting with `Missing blob for atlas: …`) bypasses both pops and leaves both scopes on the device's stack. The device stays reachable through the canvas it configured (`GPUCanvasContext.getConfiguration().device`). The scopes are not cleaned up on this path.
+- A device lost after initialization (`device.lost`) is a different failure and is not handled.
+- An error of a later draw or resize is not checked.
+
+### Current Status
+**Fixed** in `packages/zap-web/src/renderer/webgpu.ts` (`initWebGPURenderer`). No public export, protocol version, instance layout, resource size, format or tier changed.
