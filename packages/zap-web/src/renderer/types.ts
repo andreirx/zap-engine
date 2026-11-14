@@ -1,5 +1,7 @@
 // Common Renderer interface — implemented by both WebGPU and Canvas 2D backends.
 
+import type { Camera } from './camera';
+
 /** Render tier describes the negotiated surface capability. */
 export type RenderTier = 'hdr-edr' | 'hdr-srgb' | 'sdr' | 'canvas2d';
 
@@ -107,6 +109,14 @@ export interface Renderer {
     visibilityState?: VisibilityState,
   ) => DrawTiming;
 
-  /** Handle canvas resize. */
+  /** Handle canvas resize. The camera set by setCamera is kept. */
   resize: (width: number, height: number) => void;
+
+  /**
+   * Set the camera every world draw follows (ADR-040); null (the default) is
+   * the projection of a renderer with no camera. Throws RangeError naming the
+   * field for a non-finite field or a zoom not above 0. A camera different from
+   * the current one invalidates the baked-layer caches.
+   */
+  setCamera: (camera: Camera | null) => void;
 }

@@ -3,7 +3,7 @@
 // Configures rgba16float + display-p3 + extended tone mapping for HDR/EDR.
 // Manifest-driven: accepts N atlases, creates one pipeline per atlas.
 
-import { buildProjectionMatrix, computeProjection } from './camera';
+import { buildProjectionMatrix, cameraChanged, checkCamera, lightUniform, visibilityUniform, type Camera } from './camera';
 import type { Renderer, LayerBatchDescriptor, BakeState, LightingState, DrawTiming } from './types';
 import type { AssetManifest } from '../assets/manifest';
 import { LayerCompositor } from './compositor';
@@ -279,8 +279,11 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
   }
 
   // ---- Phase 6: Camera setup ----
+  // The camera buffer is written only here and in setCamera, always with the
+  // current camera; every world pipeline reads it at group 0 (ADR-040).
+  let camera: Camera | null = null;
   function updateCamera(width: number, height: number) {
-    device.queue.writeBuffer(buffers.cameraBuffer, 0, buildProjectionMatrix(width, height, gameWidth, gameHeight));
+    device.queue.writeBuffer(buffers.cameraBuffer, 0, buildProjectionMatrix(width, height, gameWidth, gameHeight, camera));
   }
   updateCamera(canvas.width, canvas.height);
 
@@ -372,12 +375,10 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
 
     // Upload light data when active
     if (hasLighting) {
-      const { projWidth, projHeight } = computeProjection(canvas.width, canvas.height, gameWidth, gameHeight);
-      const uniforms = new Float32Array([
-        lightingState.ambient[0], lightingState.ambient[1], lightingState.ambient[2],
-        lightingState.lightCount,
-        projWidth, projHeight, 0, 0,
-      ]);
+      const uniforms = lightUniform(
+        lightingState.ambient, lightingState.lightCount,
+        canvas.width, canvas.height, gameWidth, gameHeight, camera,
+      );
       device.queue.writeBuffer(buffers.lightUniformBuffer, 0, uniforms);
 
       if (lightingState.lightCount > 0) {
@@ -394,6 +395,10 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     if (hasVisibility) {
       ensureVisTexture(visibilityState.cols, visibilityState.rows);
       uploadVisibilityData(device, visTexture!, visibilityState.data, visibilityState.cols, visibilityState.rows);
+      device.queue.writeBuffer(
+        visibility.uniformBuffer, 0,
+        visibilityUniform(canvas.width, canvas.height, gameWidth, gameHeight, camera),
+      );
     }
 
     // Ensure scratch textures exist when any post-processing is needed
@@ -489,6 +494,7 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       const visSampler = visibilityState.interpolation === 1 ? visibility.linearSampler : visibility.nearestSampler;
       const visBindGroup = createVisibilityBindGroup(
         device, visibility.bindGroupLayout, worldComposited, lighting.sampler, visTextureView!, visSampler,
+        visibility.uniformBuffer,
       );
       const visPass = encoder.beginRenderPass({
         colorAttachments: [{
@@ -598,6 +604,17 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     compositor.resize(width, height);
   }
 
+  // ---- Camera Function ----
+  function setCamera(next: Camera | null) {
+    if (next) checkCamera(next);
+    if (!cameraChanged(camera, next)) return;
+    // A copy: a later change to the caller's object must not bypass cameraChanged.
+    camera = next ? { x: next.x, y: next.y, zoom: next.zoom } : null;
+    updateCamera(canvas.width, canvas.height);
+    // Baked layers are cached in screen space; they re-bake through the new camera.
+    compositor.invalidate();
+  }
+
   // Pop in stack order; both are popped before either captured GPUError is
   // thrown. An earlier JavaScript exception bypasses the pops (ADR-039).
   const validationError = await device.popErrorScope();
@@ -609,5 +626,5 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
     throw new Error(`WebGPU out-of-memory error during renderer initialization: ${outOfMemoryError.message}`);
   }
 
-  return { backend: 'webgpu', tier, draw, resize };
+  return { backend: 'webgpu', tier, draw, resize, setCamera };
 }

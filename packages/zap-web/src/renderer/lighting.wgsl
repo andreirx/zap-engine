@@ -22,7 +22,8 @@ struct PointLight {
 struct LightUniforms {
     // xyz = ambient RGB, w = light_count as f32
     ambient_and_count: vec4<f32>,
-    // xy = projWidth, projHeight (world-space visible area)
+    // xy = width, height of the world-space visible area; zw = its left, top
+    // (0, 0 with no camera). Written by camera.ts lightUniform (ADR-040).
     proj_size: vec4<f32>,
 };
 
@@ -57,7 +58,7 @@ fn fs_lighting(in: VertexOutput) -> @location(0) vec4<f32> {
     let light_count = u32(uniforms.ambient_and_count.w);
 
     // Convert UV to world position (orthographic projection, Y-down)
-    let world_pos = in.uv * uniforms.proj_size.xy;
+    let world_pos = uniforms.proj_size.zw + in.uv * uniforms.proj_size.xy;
 
     // Decode tangent-space normal from normal buffer: [0,1] → [-1,1]
     let normal_sample = textureSample(normal_tex, scene_sampler, in.uv);

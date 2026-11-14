@@ -107,10 +107,21 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let col = inst.sprite_col % ATLAS_COLS;
     let row = inst.atlas_row;
 
-    // cell_span encodes UV cell count: 1.0 = single cell, 2.0 = 2×2 block
-    let cell_size = max(inst.cell_span, 1.0);
-    let uv_origin = vec2<f32>(col / ATLAS_COLS, row / ATLAS_ROWS);
-    let uv_size = vec2<f32>(cell_size / ATLAS_COLS, cell_size / ATLAS_ROWS);
+    // R-SPAN (ADR-041), a transcription of spanRect in sampling.ts:
+    // cell_span <= 0 or not finite reads as 1; 0 < cell_span < 1 samples the
+    // centred square of that side; cell_span >= 1 samples cell_span x cell_span
+    // cells from the cell's corner. WGSL may assume NaN and infinities absent,
+    // so "not finite" is tested on the bits: all eight exponent bits set.
+    let span_finite = (bitcast<u32>(inst.cell_span) & 0x7f800000u) != 0x7f800000u;
+    var span_inset = 0.0;
+    var span_size = inst.cell_span;
+    if (!span_finite || inst.cell_span <= 0.0) {
+        span_size = 1.0;
+    } else if (inst.cell_span < 1.0) {
+        span_inset = (1.0 - inst.cell_span) / 2.0;
+    }
+    let uv_origin = vec2<f32>((col + span_inset) / ATLAS_COLS, (row + span_inset) / ATLAS_ROWS);
+    let uv_size = vec2<f32>(span_size / ATLAS_COLS, span_size / ATLAS_ROWS);
     out.tex_coord = uv_origin + uv * uv_size;
 
     out.alpha = inst.alpha;

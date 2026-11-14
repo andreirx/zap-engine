@@ -63,7 +63,8 @@ export {
 } from './worker/protocol';
 
 export { SEGMENT_COLORS, SEGMENT_COLORS_RGB8, packColorsForGPU } from './renderer/constants';
-export { computeProjection, buildProjectionMatrix } from './renderer/camera';
+export { computeProjection, buildProjectionMatrix, cameraView, screenToWorld, worldToScreen, zoomAbout } from './renderer/camera';
+export type { Camera } from './renderer/camera';
 export { readFrameState } from './worker/frame-reader';
 export type { FrameState } from './worker/frame-reader';
 

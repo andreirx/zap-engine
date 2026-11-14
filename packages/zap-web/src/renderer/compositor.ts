@@ -168,7 +168,14 @@ export class LayerCompositor {
   resize(width: number, height: number): void {
     this.width = width;
     this.height = height;
-    // Destroy all cached textures — they'll be recreated at the new size on next use
+    this.invalidate();
+  }
+
+  /**
+   * Destroy every cached texture; each baked layer re-bakes on its next draw.
+   * Called by resize and by a camera change (the caches are screen-space; ADR-040).
+   */
+  invalidate(): void {
     for (const cache of this.caches.values()) {
       cache.texture.destroy();
     }

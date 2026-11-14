@@ -20,7 +20,9 @@ pub struct RenderInstance {
     pub sprite_col: f32,
     /// Opacity (0.0 = invisible, 1.0 = opaque, >1.0 for HDR).
     pub alpha: f32,
-    /// UV cell span (1.0 = single cell, 2.0 = 2x2 block).
+    /// UV cell span (R-SPAN, ADR-041): <= 0.0 or not finite reads as 1.0 (the whole
+    /// cell); between 0.0 and 1.0, the centred square of that side (0.8 = the middle
+    /// 80 %); >= 1.0, that many cells from the cell's corner (2.0 = 2x2 block).
     pub cell_span: f32,
     /// Atlas row.
     pub atlas_row: f32,

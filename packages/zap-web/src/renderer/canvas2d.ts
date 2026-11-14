@@ -1,8 +1,9 @@
 // Canvas 2D fallback renderer — used when WebGPU is unavailable.
 // Manifest-driven: accepts N atlases as HTMLImageElements.
 
-import { computeProjection } from './camera';
+import { cameraChanged, cameraView, checkCamera, computeProjection, worldToScreen, type Camera } from './camera';
 import { SEGMENT_COLORS_RGB8 } from './constants';
+import { spanRect } from './sampling';
 import type { Renderer, LayerBatchDescriptor, BakeState, LightingState, DrawTiming } from './types';
 import type { AssetManifest } from '../assets/manifest';
 import { createImageFromBlob } from '../assets/loader';
@@ -67,13 +68,14 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     const img = images[atlasIdx];
     const { cellW, cellH, cols } = cellSizes[atlasIdx];
 
-    const cellCount = Math.max(cellSpan, 1);
     const col = spriteCol % cols;
 
-    const srcX = col * cellW;
-    const srcY = atlasRow * cellH;
-    const srcW = cellCount * cellW;
-    const srcH = cellCount * cellH;
+    // R-SPAN (ADR-041): the source square in sheet-cell units, scaled to pixels.
+    const { u0, v0, size: span } = spanRect(col, atlasRow, cellSpan);
+    const srcX = u0 * cellW;
+    const srcY = v0 * cellH;
+    const srcW = span * cellW;
+    const srcH = span * cellH;
 
     const size = scale;
     const half = size / 2;
@@ -341,6 +343,9 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
   }
   const layerCaches = new Map<number, Canvas2DLayerCache>();
 
+  // The camera every world draw follows (ADR-040); null is the projection of today.
+  let camera: Camera | null = null;
+
   function getOrCreateLayerCache(layerId: number, w: number, h: number, scaleX: number, scaleY: number): Canvas2DLayerCache {
     let cache = layerCaches.get(layerId);
     if (cache && cache.width === w && cache.height === h) {
@@ -377,6 +382,19 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     const w = canvas.width;
     const h = canvas.height;
     const { scaleX, scaleY } = computeProjection(w, h, gameWidth, gameHeight);
+    // With no camera: { left: 0, top: 0, width: projWidth, height: projHeight }.
+    const view = cameraView(w, h, gameWidth, gameHeight, camera);
+
+    // The one world → canvas transform for sprites, effects, SDF, vectors,
+    // baked layers and the mask. No camera: today's scale, unchanged.
+    function applyWorldTransform(c: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D) {
+      if (camera) {
+        c.scale(w / view.width, h / view.height);
+        c.translate(-view.left, -view.top);
+      } else {
+        c.scale(scaleX, scaleY);
+      }
+    }
 
     ctx!.globalCompositeOperation = 'source-over';
     ctx!.globalAlpha = 1;
@@ -384,7 +402,7 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     ctx!.fillRect(0, 0, w, h);
 
     ctx!.save();
-    ctx!.scale(scaleX, scaleY);
+    applyWorldTransform(ctx!);
 
     const hasBaking = bakeState && bakeState.bakedMask !== 0 && layerBatches && layerBatches.length > 0;
 
@@ -402,7 +420,7 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
         if (cache.lastBakeGen !== bakeState!.bakeGen) {
           cache.offCtx.clearRect(0, 0, w, h);
           cache.offCtx.save();
-          cache.offCtx.scale(scaleX, scaleY);
+          applyWorldTransform(cache.offCtx);
           drawBatchRange(cache.offCtx as unknown as CanvasRenderingContext2D, instanceData, batch.start, batch.end, batch.atlasId);
           cache.offCtx.restore();
           cache.lastBakeGen = bakeState!.bakeGen;
@@ -517,9 +535,15 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
             // layer_mask at off + 7 (unused in Canvas2D)
 
             // Transform light position from world to screen coordinates
-            const screenX = lx * scaleX;
-            const screenY = ly * scaleY;
-            const screenRadius = radius * Math.max(scaleX, scaleY);
+            let screenX = lx * scaleX;
+            let screenY = ly * scaleY;
+            let screenRadius = radius * Math.max(scaleX, scaleY);
+            if (camera) {
+              const p = worldToScreen(lx, ly, w, h, gameWidth, gameHeight, camera);
+              screenX = p.x;
+              screenY = p.y;
+              screenRadius = radius * Math.max(w / view.width, h / view.height);
+            }
 
             // Create radial gradient with quadratic falloff approximation
             const grad = ctx!.createRadialGradient(
@@ -551,11 +575,28 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     // --- Canvas2D Visibility Mask ---
     // Approximate fog-of-war by drawing semi-transparent black cells over hidden regions.
     // Applied after world content + lighting but before UI, matching WebGPU behavior.
+    // R-VISIBILITY-MASK (ADR-040): the cells cover the game rectangle
+    // 0..gameWidth x 0..gameHeight. No camera: in canvas pixels as today.
+    // Camera: in world units under the camera transform, clipped to the game
+    // rectangle, so no cell or seam padding darkens a pixel outside it (maskUv: null).
     if (hasVisibility) {
       const { cols: vc, rows: vr, data: vd } = visibilityState;
-      const cellW = (gameWidth / vc) * scaleX;
-      const cellH = (gameHeight / vr) * scaleY;
       ctx!.globalCompositeOperation = 'source-over';
+      let cellW = (gameWidth / vc) * scaleX;
+      let cellH = (gameHeight / vr) * scaleY;
+      let padW = 1; // one canvas pixel, to avoid seams
+      let padH = 1;
+      if (camera) {
+        ctx!.save();
+        applyWorldTransform(ctx!);
+        ctx!.beginPath();
+        ctx!.rect(0, 0, gameWidth, gameHeight);
+        ctx!.clip();
+        cellW = gameWidth / vc;
+        cellH = gameHeight / vr;
+        padW = view.width / w;
+        padH = view.height / h;
+      }
       for (let vy = 0; vy < vr; vy++) {
         for (let vx = 0; vx < vc; vx++) {
           const val = vd[vy * vc + vx];
@@ -563,9 +604,10 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
           const darkness = 1.0 - val / 255;
           ctx!.globalAlpha = darkness;
           ctx!.fillStyle = '#000';
-          ctx!.fillRect(vx * cellW, vy * cellH, cellW + 1, cellH + 1); // +1 to avoid seams
+          ctx!.fillRect(vx * cellW, vy * cellH, cellW + padW, cellH + padH);
         }
       }
+      if (camera) ctx!.restore();
       ctx!.globalAlpha = 1;
     }
 
@@ -573,7 +615,7 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     // Draw UI batches on top of the visibility-composited world content.
     if (hasVisibility && layerBatches && layerBatches.length > 0) {
       ctx!.save();
-      ctx!.scale(scaleX, scaleY);
+      applyWorldTransform(ctx!);
       for (const batch of layerBatches) {
         if (batch.layerId >= UI_LAYER) drawBatch(batch);
       }
@@ -594,5 +636,14 @@ export async function initCanvas2DRenderer(config: Canvas2DRendererConfig): Prom
     canvas.height = height;
   }
 
-  return { backend: 'canvas2d', tier: 'canvas2d', draw, resize };
+  function setCamera(next: Camera | null) {
+    if (next) checkCamera(next);
+    if (!cameraChanged(camera, next)) return;
+    // A copy: a later change to the caller's object must not bypass cameraChanged.
+    camera = next ? { x: next.x, y: next.y, zoom: next.zoom } : null;
+    // Baked layers are cached in screen space; the next draw re-bakes them.
+    layerCaches.clear();
+  }
+
+  return { backend: 'canvas2d', tier: 'canvas2d', draw, resize, setCamera };
 }

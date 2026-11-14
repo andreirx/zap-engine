@@ -1716,3 +1716,66 @@ Error scopes, not an `uncapturederror` listener: a scope is tied to the initiali
 
 ### Current Status
 **Fixed** in `packages/zap-web/src/renderer/webgpu.ts` (`initWebGPURenderer`). No public export, protocol version, instance layout, resource size, format or tier changed.
+
+---
+
+## ADR-040: A Camera for the Renderer (Centre and Zoom, Both Tiers)
+
+**Date:** 2026-11-14
+**Status:** Proposed (HoDA slice HODA-ZE2; uncommitted until the owner reviews it)
+
+### Problem
+The renderer always shows one fixed area: the game area `gameWidth × gameHeight`, extended on its long side to the canvas's aspect (`computeProjection`), with world (0, 0) at the canvas's top-left. A game that needs to pan or zoom a world larger than the screen cannot do it: the projection matrix, the lighting pass, the visibility mask and the baked-layer caches all assume that fixed area. Rust's `Camera2D` exists but does not reach the TypeScript renderer.
+
+### Decision
+- **The type.** `Camera = { x, y, zoom }` in `renderer/camera.ts`: the world point at the canvas's centre, and the zoom. At zoom 1 the canvas shows the area of today (`computeProjection`); at zoom `z` the shown width and height are today's divided by `z`. `cameraView(canvasW, canvasH, gameW, gameH, camera)` gives the shown world rectangle `{ left, top, width, height }`; with no camera it is `{ 0, 0, projWidth, projHeight }`.
+- **The API.** `Renderer.setCamera(camera | null)` on both tiers; `null` (the default) is the projection of today. The renderer keeps the camera across `resize`. The only check is `checkCamera`: a non-finite `x`, `y` or `zoom`, or a `zoom ≤ 0`, throws `RangeError('Camera: …')` naming the field. zap-web clamps nothing: limits, steps, bounds and smoothing are the caller's configuration. `setCamera` stores a copy of the camera.
+- **Pure functions** in `camera.ts`, tested on Node (`camera.test.ts`): `buildProjectionMatrix(…, camera?)` (with no camera the matrix of today, entry for entry), `screenToWorld` / `worldToScreen` (canvas pixels in `canvas.width` units; with no camera `screenToWorld` is the worker's mapping of today), `zoomAbout` (the world point under the pointer stays fixed), `cameraChanged`, `lightUniform`, `maskUv`, `visibilityUniform`. Each camera-mode behaviour is defined once as one of these functions and both tiers transcribe it, so the tiers do not drift further apart. Exported from the package entry: `Camera`, `cameraView`, `screenToWorld`, `worldToScreen`, `zoomAbout`.
+- **WebGPU.** The camera buffer is written only by `updateCamera` (start, `resize`) and `setCamera`, both through `buildProjectionMatrix` with the current camera. Every world pipeline (sprites alpha and additive, effects, SDF, vectors, the normal pass) already reads that buffer at group 0, so all of them follow. The lighting uniform's last two floats, written `0, 0` before, carry the view's `left, top`; `lighting.wgsl` computes `world_pos = proj_size.zw + uv * proj_size.xy`. `molecule.wgsl` declares the same uniform but reads only the ambient and the count.
+- **The visibility mask, rule R-VISIBILITY-MASK.** With no camera each tier keeps its meaning of today. WebGPU samples the mask at the screen `uv` over the whole canvas; Canvas2D draws it over the game rectangle `0…gameWidth × 0…gameHeight`. These already differ when the canvas's aspect differs from the game's: for a 1000 × 500 canvas and a 1024 × 640 game, world x = 512 is mask u = 0.4 on WebGPU and u = 0.5 on Canvas2D. This ADR records the difference and does not change it. With a camera, both tiers use Canvas2D's meaning through the camera: the mask's `cols × rows` cover the world rectangle `0…gameWidth × 0…gameHeight`, so the mask stays on the ground when the camera moves. A canvas pixel whose world point lies outside that rectangle is not darkened. `maskUv` defines it; `visibility.wgsl` transcribes it through a new uniform at binding 4 (`left, top, width, height, gameWidth, gameHeight`; `width = 0` means "no camera"). The shader samples the mask unconditionally and selects the result, because `textureSample` must stay in uniform control flow.
+- **Baked layers.** Their caches are in screen space. A `setCamera` with a camera different from the current one (`cameraChanged`) invalidates every cache: on WebGPU `LayerCompositor.invalidate()`, which `resize` now also calls; on Canvas2D the offscreen caches are dropped. The next draw re-bakes through the new camera. With no camera nothing changes: only `resize` invalidates.
+- **Canvas2D.** With no camera, the code path of today. With a camera, `ctx.scale(scaleX, scaleY)` becomes the camera's transform: scale by canvas pixels per world unit, then translate by `−left, −top`. One local function applies it to the sprites, effects, SDF shapes, vectors, baked layers, the UI pass and the mask cells. The mask cells, padded by one canvas pixel against seams, are clipped to the game rectangle, so the padding of the last row and column cannot darken a pixel outside it. The point lights are placed by `worldToScreen`; their radius is scaled by canvas pixels per world unit.
+
+### Consequences
+- An existing game that never calls `setCamera` draws as before on both tiers: same projection matrix, same lighting uniform, same mask meaning per tier, same cache behaviour.
+- Baking pays off only while the camera is still. A game that moves the camera every frame re-bakes its baked layers every frame. A game that pans continuously should not bake the layers it pans over.
+- Every sprite layer follows the camera, the UI layer (5) included: the renderer has no screen-fixed layer. A game that needs a fixed HUD draws it outside the renderer, or keeps the camera fixed.
+- The tiers still differ with no camera (above); they agree with a camera.
+- zap-web's first TypeScript tests run on Node's own test runner (`npm test`, `node --test packages/zap-web/src/renderer/camera.test.ts`), with no new dependency. The test imports `./camera.ts` with its extension, and `tsconfig.json` gains `allowImportingTsExtensions` (allowed by its `noEmit`). `camera.ts` therefore keeps no value import: Node's type stripping resolves only extension-qualified imports. The test file references `@types/node` with a triple-slash directive, because `tsconfig.json` limits `types` to `@webgpu/types`.
+
+### Not Covered
+- zap-engine's Rust `Camera2D` and the worker do not use this camera yet. The worker's pointer mapping (`engine.worker.ts` `screenToWorld`) still has no camera, and the frame protocol (`PROTOCOL_VERSION`, `INSTANCE_FLOATS`, the header) is unchanged. Joining them is HoDA's slice HODA-ZE3. Until then a game that sets a camera maps its pointer with the exported `screenToWorld`. The worker's fallback for a canvas of size 0 (pointer returned unchanged) is not part of the pure function.
+- Rotation and a camera with different horizontal and vertical zooms.
+- The mask's interpolation mode still differs between tiers: WebGPU samples nearest or linear, Canvas2D always draws whole cells.
+- The module maps (`MAP.md`) are not updated by this change.
+
+---
+
+## ADR-041: A Sprite May Sample the Centred Part of Its Sheet Cell (`cell_span` Between 0 and 1)
+
+**Date:** 2026-11-14
+**Status:** Proposed (HoDA slice HODA-ZE4; uncommitted until the owner reviews it)
+
+### Problem
+A sprite instance samples the whole of its sheet cell: the texture rectangle starts at the cell's corner and is `max(cell_span, 1)` cells wide, in the sprite vertex shader and in the Canvas2D fallback alike. A picture that must cover exactly one area of the scene (a ground tile, a wash) keeps a bleed margin around its content, so that the linear filter at the content's edge reads the content's own edge and never a neighbouring cell. Such a picture cannot be drawn at its content's size: drawn at that size, the margin is squeezed inside the area; drawn larger, it overlaps its neighbours, and the visible boundary between two tiles moves with the draw order.
+
+### Decision
+- **Rule R-SPAN**, one pure function `spanRect(col, row, cellSpan)` → `{ u0, v0, size }` in sheet-cell units (`renderer/sampling.ts`, tested on Node in `sampling.test.ts`):
+  - `cellSpan ≤ 0` or not finite: read as 1, the whole cell. 0 is what a defaulted Rust `RenderInstance` holds.
+  - `0 < cellSpan < 1`: the square of side `cellSpan` centred in the cell: `u0 = col + (1 − cellSpan) / 2`, `v0 = row + (1 − cellSpan) / 2`, `size = cellSpan`. Example: a cell of 80 pixels with 64 pixels of content uses `cellSpan` 0.8 and samples the square from pixel edge 8 to pixel edge 72 of the cell: the 64 content pixels 8 … 71.
+  - `cellSpan ≥ 1`: as before, `cellSpan × cellSpan` cells from the cell's corner.
+- **WebGPU.** `vs_main` in `shaders.wgsl` transcribes the rule; the alpha, additive and normal sprite pipelines share that vertex function. WGSL lets an implementation assume that NaN and infinities do not occur, so "not finite" is tested on the bits (`bitcast<u32>`: all eight exponent bits set), not with `x != x`.
+- **Canvas2D.** `drawInstance` calls `spanRect` and scales the square to pixels: `srcX = u0 × cellW`, `srcY = v0 × cellH`, `srcW = size × cellW`, `srcH = size × cellH`.
+- The Rust `RenderInstance::cell_span` comment states the three ranges. No Rust code changes.
+
+### Compatibility
+Every writer in zap-engine sets `cell_span` to 1.0 or to a manifest's `span`, an unsigned integer whose default is 1 (`assets/manifest.rs`, `assets/registry.rs`); `SpriteComponent::default()` writes 1.0. A defaulted `RenderInstance` holds 0, which still reads as 1. So every value an existing caller writes (0 and the whole numbers from 1) draws exactly as before on both tiers. Two values change meaning, and no writer uses them: a span strictly between 0 and 1 (before: the whole cell) and a non-finite span (before: NaN gave a NaN rectangle on Canvas2D and an implementation-defined one on WebGPU; +∞ gave an infinite one). `PROTOCOL_VERSION` and `INSTANCE_FLOATS` are unchanged.
+
+### Consequences
+- The bleed margin must be at least the filter's footprint. With a magnifying linear filter the footprint reaches half a texel beyond the sampled square, so a margin of one texel is enough; the picture's margin is its own concern, not the renderer's.
+- `sampling.ts` keeps no value import, for the reason given in ADR-040 (Node's type stripping).
+
+### Not Covered
+- A rectangle that is not square, or a crop that is not centred.
+- `SpriteComponent::cell_span`'s comment (`components/sprite.rs`) still names only 1.0 and 2.0; it is outside HODA-ZE4's files.
+- The module maps (`MAP.md`) are not updated by this change.

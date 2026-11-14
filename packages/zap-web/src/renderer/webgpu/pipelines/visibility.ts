@@ -8,11 +8,14 @@ export interface VisibilityPipelineResult {
   bindGroupLayout: GPUBindGroupLayout;
   nearestSampler: GPUSampler;
   linearSampler: GPUSampler;
+  /** VisibilityUniforms (2 × vec4<f32> = 32 bytes), written per draw from camera.ts visibilityUniform. */
+  uniformBuffer: GPUBuffer;
 }
 
 /**
  * Create the visibility mask post-process pipeline.
- * Bind group 0: scene texture, scene sampler, visibility texture, visibility sampler.
+ * Bind group 0: scene texture, scene sampler, visibility texture, visibility sampler,
+ * visibility uniforms (the camera's view and the game size; ADR-040).
  */
 export function createVisibilityPipeline(
   device: GPUDevice,
@@ -26,6 +29,7 @@ export function createVisibilityPipeline(
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: 'float' } },
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: 'filtering' } },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
     ],
   });
 
@@ -63,7 +67,12 @@ export function createVisibilityPipeline(
     minFilter: 'linear',
   });
 
-  return { pipeline, bindGroupLayout, nearestSampler, linearSampler };
+  const uniformBuffer = device.createBuffer({
+    size: 32,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+
+  return { pipeline, bindGroupLayout, nearestSampler, linearSampler, uniformBuffer };
 }
 
 /**
@@ -109,6 +118,7 @@ export function createVisibilityBindGroup(
   sceneSampler: GPUSampler,
   visTextureView: GPUTextureView,
   visSampler: GPUSampler,
+  uniformBuffer: GPUBuffer,
 ): GPUBindGroup {
   return device.createBindGroup({
     layout,
@@ -117,6 +127,7 @@ export function createVisibilityBindGroup(
       { binding: 1, resource: sceneSampler },
       { binding: 2, resource: visTextureView },
       { binding: 3, resource: visSampler },
+      { binding: 4, resource: { buffer: uniformBuffer } },
     ],
   });
 }

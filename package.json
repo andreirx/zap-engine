@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit",
-    "bake-assets": "npx tsx tools/bake-assets.ts"
+    "bake-assets": "npx tsx tools/bake-assets.ts",
+    "test": "node --test packages/zap-web/src/renderer/camera.test.ts packages/zap-web/src/renderer/sampling.test.ts"
   },
   "dependencies": {
     "@zap/web": "file:packages/zap-web"
