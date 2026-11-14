@@ -37,6 +37,10 @@ import {
   HEADER_VISIBILITY_COLS,
   HEADER_VISIBILITY_ROWS,
   HEADER_VISIBILITY_INTERPOLATION,
+  HEADER_CAMERA_X,
+  HEADER_CAMERA_Y,
+  HEADER_CAMERA_WIDTH,
+  HEADER_CAMERA_HEIGHT,
   PROTOCOL_VERSION,
   INSTANCE_FLOATS,
   EFFECTS_VERTEX_FLOATS,
@@ -48,7 +52,8 @@ import {
   ALPHA_EFFECTS_BATCH_FLOATS,
   ProtocolLayout,
 } from './protocol';
-import { computeProjection } from '../renderer/camera';
+import { computeProjection, cameraFromRect, screenToWorld as canvasToWorld, type CameraRect } from '../renderer/camera';
+import { readCameraRect } from './frame-reader';
 
 // Standard WASM export names expected from any game module
 interface GameWasmExports {
@@ -79,6 +84,7 @@ interface GameWasmExports {
   get_sdf_instance_count: () => number;
   get_max_sdf_instances: () => number;
   game_custom_event?: (kind: number, a: number, b: number, c: number) => void;
+  game_wheel?: (dx: number, dy: number, x: number, y: number) => void;
   load_level?: (json: string) => void;
   reload_scripts?: (json: string) => void;
   reload_game_manifest?: (json: string) => void;
@@ -134,6 +140,11 @@ interface GameWasmExports {
   get_visibility_ptr?: () => number;
   get_visibility_byte_count?: () => number;
   get_visibility_data_byte_offset?: () => number;
+  // Render camera exports (NaN when the game has none; ADR-043)
+  get_render_camera_x?: () => number;
+  get_render_camera_y?: () => number;
+  get_render_camera_width?: () => number;
+  get_render_camera_height?: () => number;
 }
 
 const HAS_SAB = typeof SharedArrayBuffer !== 'undefined';
@@ -151,17 +162,22 @@ let canvasWidth = 0;
 let canvasHeight = 0;
 let worldWidth = 0;
 let worldHeight = 0;
+// The camera rectangle of the last header written; null = the game has none (ADR-043).
+let lastCameraRect: CameraRect | null = null;
 
-/** Convert canvas CSS pixel coordinates to world coordinates. */
+/**
+ * Convert canvas CSS pixel coordinates to world coordinates, through the camera
+ * of the last header written. With no camera: x · projWidth / canvasWidth,
+ * y · projHeight / canvasHeight, as before HODA-ZE3 (camera.test.ts 1e, ZE3 2b).
+ */
 function screenToWorld(cssX: number, cssY: number): { x: number; y: number } {
   if (canvasWidth <= 0 || canvasHeight <= 0) {
     return { x: cssX, y: cssY };
   }
-  const { projWidth, projHeight } = computeProjection(canvasWidth, canvasHeight, worldWidth, worldHeight);
-  return {
-    x: cssX * projWidth / canvasWidth,
-    y: cssY * projHeight / canvasHeight,
-  };
+  const camera = lastCameraRect
+    ? cameraFromRect(lastCameraRect, canvasWidth, canvasHeight, worldWidth, worldHeight)
+    : null;
+  return canvasToWorld(cssX, cssY, canvasWidth, canvasHeight, worldWidth, worldHeight, camera);
 }
 
 async function initialize(wasmUrl: string, manifestJson?: string) {
@@ -199,6 +215,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     get_sdf_instance_count: mod.get_sdf_instance_count,
     get_max_sdf_instances: mod.get_max_sdf_instances,
     game_custom_event: mod.game_custom_event,
+    game_wheel: mod.game_wheel,
     game_load_manifest: mod.game_load_manifest,
     // Optional vector exports (feature-gated)
     get_vector_vertices_ptr: mod.get_vector_vertices_ptr,
@@ -232,6 +249,11 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     get_visibility_ptr: mod.get_visibility_ptr,
     get_visibility_byte_count: mod.get_visibility_byte_count,
     get_visibility_data_byte_offset: mod.get_visibility_data_byte_offset,
+    // Render camera exports
+    get_render_camera_x: mod.get_render_camera_x,
+    get_render_camera_y: mod.get_render_camera_y,
+    get_render_camera_width: mod.get_render_camera_width,
+    get_render_camera_height: mod.get_render_camera_height,
     // Game-specific exports for level/script/manifest loading
     load_level: mod.load_level,
     reload_scripts: mod.reload_scripts,
@@ -295,6 +317,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_LAYER_BATCH_OFFSET] = layout.layerBatchDataOffset;
     sharedF32[HEADER_MAX_LIGHTS] = layout.maxLights;
     sharedF32[HEADER_MAX_ALPHA_EFFECTS_VERTICES] = layout.maxAlphaEffectsVertices;
+    sharedF32[HEADER_CAMERA_X] = NaN; // no camera until the first frame says otherwise
 
     self.postMessage({ type: 'ready', sharedBuffer, worldWidth, worldHeight });
   } else {
@@ -315,6 +338,7 @@ async function initialize(wasmUrl: string, manifestJson?: string) {
     sharedF32[HEADER_LAYER_BATCH_OFFSET] = layout.layerBatchDataOffset;
     sharedF32[HEADER_MAX_LIGHTS] = layout.maxLights;
     sharedF32[HEADER_MAX_ALPHA_EFFECTS_VERTICES] = layout.maxAlphaEffectsVertices;
+    sharedF32[HEADER_CAMERA_X] = NaN; // no camera until the first frame says otherwise
 
     self.postMessage({
       type: 'ready',
@@ -385,6 +409,12 @@ function gameLoop() {
     sharedF32[HEADER_WASM_TIME_US] = wasmTimeUs;
     sharedF32[HEADER_ALPHA_EFFECTS_VERTEX_COUNT] = alphaEffectsVertexCount;
     sharedF32[HEADER_ALPHA_EFFECTS_BATCH_COUNT] = alphaEffectsBatchCount;
+    // A game module built without the camera exports has no camera (NaN).
+    sharedF32[HEADER_CAMERA_X] = wasm.get_render_camera_x?.() ?? NaN;
+    sharedF32[HEADER_CAMERA_Y] = wasm.get_render_camera_y?.() ?? NaN;
+    sharedF32[HEADER_CAMERA_WIDTH] = wasm.get_render_camera_width?.() ?? NaN;
+    sharedF32[HEADER_CAMERA_HEIGHT] = wasm.get_render_camera_height?.() ?? NaN;
+    lastCameraRect = readCameraRect(sharedF32);
 
     // Copy instance data
     if (instanceCount > 0) {
@@ -580,6 +610,12 @@ self.onmessage = (e: MessageEvent) => {
     case 'pointer_move': {
       const w = screenToWorld(e.data.x, e.data.y);
       wasm?.game_pointer_move(w.x, w.y);
+      break;
+    }
+
+    case 'wheel': {
+      const w = screenToWorld(e.data.x, e.data.y);
+      wasm?.game_wheel?.(e.data.dx, e.data.dy, w.x, w.y);
       break;
     }
 

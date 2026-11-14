@@ -15,6 +15,9 @@ pub enum InputEvent {
     /// A custom event from the UI layer (React buttons, etc.).
     /// `kind` identifies the event type; `a`, `b`, `c` carry arbitrary data.
     Custom { kind: u32, a: f32, b: f32, c: f32 },
+    /// The wheel turned over world coordinates (x, y). `dx`, `dy` are the
+    /// browser's `WheelEvent.deltaX` / `deltaY`, unscaled (unit set by its `deltaMode`).
+    Wheel { dx: f32, dy: f32, x: f32, y: f32 },
 }
 
 /// A queue of input events.
@@ -92,5 +95,21 @@ mod tests {
             }
             _ => panic!("Expected Custom event"),
         }
+    }
+
+    #[test]
+    fn wheel_keeps_its_place_among_pointer_events() {
+        let mut q = InputQueue::new();
+        q.push(InputEvent::PointerDown { x: 1.0, y: 2.0 });
+        q.push(InputEvent::Wheel { dx: 0.0, dy: 100.0, x: 400.0, y: 300.0 });
+        q.push(InputEvent::PointerUp { x: 3.0, y: 4.0 });
+        let events = q.drain();
+        assert_eq!(events.len(), 3);
+        assert!(matches!(events[0], InputEvent::PointerDown { x, y } if x == 1.0 && y == 2.0));
+        assert!(matches!(
+            events[1],
+            InputEvent::Wheel { dx, dy, x, y } if dx == 0.0 && dy == 100.0 && x == 400.0 && y == 300.0
+        ));
+        assert!(matches!(events[2], InputEvent::PointerUp { x, y } if x == 3.0 && y == 4.0));
     }
 }

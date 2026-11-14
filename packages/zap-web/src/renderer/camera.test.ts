@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
   buildProjectionMatrix,
   cameraChanged,
+  cameraFromRect,
   cameraView,
   checkCamera,
   computeProjection,
@@ -203,4 +204,67 @@ test('1j: cameraChanged', () => {
   assert.equal(cameraChanged(CAM_C, { ...CAM_C, zoom: 3 }), true);
   assert.equal(cameraChanged(null, CAM_C), true);
   assert.equal(cameraChanged(CAM_C, null), true);
+});
+
+// --- HODA-ZE3 (ADR-043): the game's camera rectangle -------------------------
+
+test('ZE3 2a: cameraFromRect fits the rectangle inside canvases of two aspects', () => {
+  const rect = { x: 480, y: 270, width: 960, height: 540 };
+  // 1920 × 1080 game (aspect 1.778) on 1000 × 500 (aspect 2 > 1.778): projection
+  // 1080·2 = 2160 wide, 1080 high; zoom min(2160 / 960, 1080 / 540) = min(2.25, 2) = 2.
+  assert.deepEqual(cameraFromRect(rect, 1000, 500, 1920, 1080), { x: 480, y: 270, zoom: 2 });
+  // The view is 2160 / 2 × 1080 / 2 = 1080 × 540: the rectangle's height exactly, more width.
+  assert.deepEqual(
+    cameraView(1000, 500, 1920, 1080, cameraFromRect(rect, 1000, 500, 1920, 1080)),
+    { left: 480 - 540, top: 0, width: 1080, height: 540 },
+  );
+  // On 1000 × 1000 (aspect 1 < 1.778): projection 1920 wide, 1920 / 1 = 1920 high;
+  // zoom min(1920 / 960, 1920 / 540) = min(2, 3.556) = 2; view 960 × 960, more height.
+  assert.deepEqual(cameraFromRect(rect, 1000, 1000, 1920, 1080), { x: 480, y: 270, zoom: 2 });
+  assert.deepEqual(
+    cameraView(1000, 1000, 1920, 1080, cameraFromRect(rect, 1000, 1000, 1920, 1080)),
+    { left: 0, top: 270 - 480, width: 960, height: 960 },
+  );
+});
+
+test('ZE3 2b: the worker mapping, with no camera and with the camera of the last header', () => {
+  // What engine.worker.ts does: screenToWorld(css point, canvas CSS size, world size,
+  // rect ? cameraFromRect(rect, canvas CSS size, world size) : null).
+  // The probe's numbers: canvas 1200 × 800 CSS pixels, world 800 × 600 (basic-demo).
+  const [cw, ch, gw, gh] = [1200, 800, 800, 600];
+  const { projWidth, projHeight } = computeProjection(cw, ch, gw, gh);
+  // Aspect 1.5 > 1.333: projection 600·1.5 = 900 × 600.
+  assert.deepEqual([projWidth, projHeight], [900, 600]);
+  // No camera: today's formula (engine.worker.ts before HODA-ZE3), x · 900 / 1200, y · 600 / 800.
+  for (const [px, py] of [[600, 400], [0, 0], [137, 733], [1199, 1]]) {
+    assert.deepEqual(screenToWorld(px, py, cw, ch, gw, gh, null), { x: px * projWidth / cw, y: py * projHeight / ch });
+  }
+  assert.deepEqual(screenToWorld(600, 400, cw, ch, gw, gh, null), { x: 450, y: 300 });
+  assert.deepEqual(screenToWorld(0, 0, cw, ch, gw, gh, null), { x: 0, y: 0 });
+  // Camera rectangle {400, 300, 400, 300}: zoom min(900 / 400, 600 / 300) = min(2.25, 2) = 2;
+  // view 450 × 300, left 400 − 225 = 175, top 300 − 150 = 150.
+  const cam = cameraFromRect({ x: 400, y: 300, width: 400, height: 300 }, cw, ch, gw, gh);
+  assert.deepEqual(cam, { x: 400, y: 300, zoom: 2 });
+  // Centre (600, 400): (175 + 600·450 / 1200, 150 + 400·300 / 800) = (400, 300).
+  assert.deepEqual(screenToWorld(600, 400, cw, ch, gw, gh, cam), { x: 400, y: 300 });
+  assert.deepEqual(screenToWorld(0, 0, cw, ch, gw, gh, cam), { x: 175, y: 150 });
+});
+
+test('ZE3 2f: what the guard sees of a degenerate rectangle is the converted centre and zoom', () => {
+  // The probe's canvas and world: projection 900 × 600. setCamera checks only the converted
+  // camera (checkCamera: centre finite, zoom finite and above 0), not the rectangle's dimensions.
+  const [cw, ch, gw, gh] = [1200, 800, 800, 600];
+  const fit = (width: number, height: number, x = 400, y = 300) =>
+    cameraFromRect({ x, y, width, height }, cw, ch, gw, gh);
+  // One dimension 0 drops out of the min (900 / 0 = Infinity): zoom from the other alone, accepted.
+  assert.deepEqual(fit(0, 300), { x: 400, y: 300, zoom: 2 }); // min(Infinity, 600 / 300)
+  assert.deepEqual(fit(400, 0), { x: 400, y: 300, zoom: 2.25 }); // min(900 / 400, Infinity)
+  checkCamera(fit(0, 300));
+  checkCamera(fit(400, 0));
+  // Both 0: zoom Infinity; a negative dimension: zoom below 0; a NaN dimension: zoom NaN;
+  // an infinite dimension: zoom 0; a non-finite centre y. Each is rejected.
+  assert.equal(fit(0, 0).zoom, Infinity);
+  for (const cam of [fit(0, 0), fit(-400, 300), fit(400, NaN), fit(Infinity, 300), fit(400, 300, 400, NaN)]) {
+    assert.throws(() => checkCamera(cam), RangeError);
+  }
 });

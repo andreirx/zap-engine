@@ -18,6 +18,7 @@ import {
   readFrameState,
 } from '../index';
 import type { Renderer, SoundConfig } from '../index';
+import { cameraFromRect } from '../renderer/camera';
 
 /** Game event forwarded from the worker. */
 export interface GameEvent {
@@ -171,6 +172,9 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
     let lastFrameTime = performance.now();
     let frameCount = 0;
     let fpsAccumulator = 0;
+    // The game size the renderer was created with (its projection); set at 'ready'.
+    let rendererGameWidth = 0;
+    let rendererGameHeight = 0;
 
     async function start() {
       const canvas = canvasRef.current;
@@ -237,8 +241,8 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
 
           // Init renderer
           // Use worldWidth/worldHeight from worker if gameWidth/gameHeight not provided
-          const rendererGameWidth = gameWidth ?? e.data.worldWidth ?? 800;
-          const rendererGameHeight = gameHeight ?? e.data.worldHeight ?? 600;
+          rendererGameWidth = gameWidth ?? e.data.worldWidth ?? 800;
+          rendererGameHeight = gameHeight ?? e.data.worldHeight ?? 600;
           try {
             const renderer = await initRenderer({
               canvas,
@@ -313,6 +317,17 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
           y: e.offsetY,
         });
       }
+      function onWheel(e: WheelEvent) {
+        // The wheel goes to the game; the page does not scroll (ADR-043).
+        e.preventDefault();
+        workerRef.current?.postMessage({
+          type: 'wheel',
+          dx: e.deltaX,
+          dy: e.deltaY,
+          x: e.offsetX,
+          y: e.offsetY,
+        });
+      }
       function onKeyDown(e: KeyboardEvent) {
         workerRef.current?.postMessage({
           type: 'key_down',
@@ -329,6 +344,8 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
       canvas.addEventListener('pointerdown', onPointerDown);
       canvas.addEventListener('pointerup', onPointerUp);
       canvas.addEventListener('pointermove', onPointerMove);
+      // Not passive: a passive listener cannot call preventDefault.
+      canvas.addEventListener('wheel', onWheel, { passive: false });
       window.addEventListener('keydown', onKeyDown);
       window.addEventListener('keyup', onKeyUp);
 
@@ -358,6 +375,7 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
         canvas.removeEventListener('pointerdown', onPointerDown);
         canvas.removeEventListener('pointerup', onPointerUp);
         canvas.removeEventListener('pointermove', onPointerMove);
+        canvas.removeEventListener('wheel', onWheel);
         window.removeEventListener('keydown', onKeyDown);
         window.removeEventListener('keyup', onKeyUp);
         resizeObserver.disconnect();
@@ -382,6 +400,14 @@ export function useZapEngine(config: ZapEngineConfig): ZapEngineState {
 
       const frame = readFrameState(buf, layout);
       if (!frame) return null;
+
+      // The game's camera (ADR-043), fitted each frame to the canvas's present
+      // size, so a resize keeps the rectangle in view. setCamera does nothing
+      // when the camera is unchanged; with no game camera it stays null.
+      const canvasNow = canvasRef.current;
+      renderer.setCamera(frame.cameraRect && canvasNow
+        ? cameraFromRect(frame.cameraRect, canvasNow.width, canvasNow.height, rendererGameWidth, rendererGameHeight)
+        : null);
 
       // Renderer returns timing for draw calls and rasterization
       const drawTiming = renderer.draw(

@@ -1392,6 +1392,8 @@ impl DinoLevelEditor {
                     }
                     _ => {}
                 },
+                // The editor does not use the wheel; it ignores it, as before the event existed (ADR-043).
+                InputEvent::Wheel { .. } => {}
             }
         }
     }

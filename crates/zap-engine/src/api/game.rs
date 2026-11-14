@@ -199,7 +199,14 @@ pub struct EngineContext {
 
     // -- Rendering state --
     /// Camera for 2D projection. Games can modify for pan/zoom.
+    /// The browser renderer does not read it; see `render_camera`.
     pub camera: Camera2D,
+    /// The view the browser renderer shows (ADR-043). `None` (the default): the
+    /// renderer's own projection, as before this field existed. `Some(c)`: the world
+    /// rectangle centred at `c.center` (renderer world: origin top-left, Y down)
+    /// of size `c.width` × `c.height`, fitted inside the canvas. Only `center`,
+    /// `width` and `height` are read; `projection_matrix` (Y-up) is not used.
+    pub render_camera: Option<Camera2D>,
     /// Dynamic lighting state — persistent lights and ambient color.
     pub lights: LightState,
     /// Layer baking state for render caching.
@@ -230,6 +237,7 @@ impl EngineContext {
             sounds: Vec::new(),
             events: Vec::new(),
             camera: Camera2D::new(800.0, 600.0),
+            render_camera: None,
             lights: LightState::new(),
             bake: BakeState::new(),
             visibility: None,
@@ -262,6 +270,7 @@ impl EngineContext {
             sounds: Vec::with_capacity(config.max_sounds),
             events: Vec::with_capacity(config.max_events),
             camera: Camera2D::new(config.world_width, config.world_height),
+            render_camera: None,
             lights: LightState::with_capacity(config.max_lights),
             bake: BakeState::new(),
             visibility,
@@ -285,6 +294,7 @@ impl EngineContext {
             sounds: Vec::new(),
             events: Vec::new(),
             camera: Camera2D::new(800.0, 600.0),
+            render_camera: None,
             lights: LightState::new(),
             bake: BakeState::new(),
             visibility: None,
@@ -711,6 +721,14 @@ mod camera_tests {
         let ctx = EngineContext::with_config(&config);
         assert_eq!(ctx.camera.width, 1920.0);
         assert_eq!(ctx.camera.height, 1080.0);
+    }
+
+    #[test]
+    fn render_camera_is_none_by_default() {
+        assert!(EngineContext::new().render_camera.is_none());
+        assert!(EngineContext::with_config(&GameConfig::default()).render_camera.is_none());
+        #[cfg(feature = "physics")]
+        assert!(EngineContext::with_gravity(Vec2::ZERO).render_camera.is_none());
     }
 }
 

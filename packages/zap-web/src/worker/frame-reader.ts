@@ -1,7 +1,12 @@
 // frame-reader.ts — Extracts frame state from SharedArrayBuffer.
 //
-// Decodes: instances, effects, SDF, vectors, layer batches, bake state, lighting.
+// Decodes: instances, effects, SDF, vectors, layer batches, bake state, lighting,
+// the game's camera rectangle.
 // Used by React hook and can be used by non-React consumers.
+//
+// The value import of ./protocol.ts carries its extension: frame-reader.test.ts
+// loads this file with Node's type stripping, which resolves only
+// extension-qualified value imports (ADR-040, ADR-043). Type imports are erased.
 
 import type { ProtocolLayout } from './protocol';
 import {
@@ -29,8 +34,13 @@ import {
   HEADER_VISIBILITY_COLS,
   HEADER_VISIBILITY_ROWS,
   HEADER_VISIBILITY_INTERPOLATION,
-} from './protocol';
+  HEADER_CAMERA_X,
+  HEADER_CAMERA_Y,
+  HEADER_CAMERA_WIDTH,
+  HEADER_CAMERA_HEIGHT,
+} from './protocol.ts';
 import type { LayerBatchDescriptor, AlphaEffectsBatchDescriptor, BakeState, LightingState, VisibilityState } from '../renderer/types';
+import type { CameraRect } from '../renderer/camera';
 
 /** Complete frame state extracted from SharedArrayBuffer. */
 export interface FrameState {
@@ -68,6 +78,23 @@ export interface FrameState {
   visibilityState?: VisibilityState;
   /** WASM tick execution time in microseconds. */
   wasmTimeUs: number;
+  /** The game's camera rectangle, or null when the game has none (ADR-043). */
+  cameraRect: CameraRect | null;
+}
+
+/**
+ * The camera rectangle in a frame header (HEADER_CAMERA_*), or null when its x
+ * is NaN, the value written for a game with no render camera (ADR-043).
+ */
+export function readCameraRect(buf: Float32Array): CameraRect | null {
+  const x = buf[HEADER_CAMERA_X];
+  if (Number.isNaN(x)) return null;
+  return {
+    x,
+    y: buf[HEADER_CAMERA_Y],
+    width: buf[HEADER_CAMERA_WIDTH],
+    height: buf[HEADER_CAMERA_HEIGHT],
+  };
 }
 
 /**
@@ -244,5 +271,6 @@ export function readFrameState(buf: Float32Array, layout: ProtocolLayout): Frame
     alphaEffectsBatches,
     visibilityState,
     wasmTimeUs,
+    cameraRect: readCameraRect(buf),
   };
 }

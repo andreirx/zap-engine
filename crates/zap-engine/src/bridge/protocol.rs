@@ -3,7 +3,7 @@
 ///
 /// Layout (all values in f32 / 4 bytes):
 /// ```text
-/// [Header: 28 floats]
+/// [Header: 38 floats]
 /// [Instances: max_instances × 8 floats]
 /// [Effects: max_effects_vertices × 5 floats]
 /// [Sounds: max_sounds × 1 float]
@@ -20,7 +20,7 @@
 use crate::api::game::GameConfig;
 
 /// Number of floats in the header section.
-pub const HEADER_FLOATS: usize = 36;
+pub const HEADER_FLOATS: usize = 38;
 
 /// Header field indices.
 pub const HEADER_LOCK: usize = 0;
@@ -59,15 +59,21 @@ pub const HEADER_WASM_TIME_US: usize = 27;
 pub const HEADER_MAX_ALPHA_EFFECTS_VERTICES: usize = 28;
 pub const HEADER_ALPHA_EFFECTS_VERTEX_COUNT: usize = 29;
 pub const HEADER_ALPHA_EFFECTS_BATCH_COUNT: usize = 30;
-pub const HEADER_RESERVED_31: usize = 31;
+/// Render camera centre x, in the renderer's Y-down world (NaN = no camera; ADR-043).
+pub const HEADER_CAMERA_X: usize = 31;
 // Phase 14: Visibility mask
 pub const HEADER_VISIBILITY_COLS: usize = 32;
 pub const HEADER_VISIBILITY_ROWS: usize = 33;
 pub const HEADER_VISIBILITY_INTERPOLATION: usize = 34;
-pub const HEADER_RESERVED_35: usize = 35;
+/// Render camera centre y (ADR-043).
+pub const HEADER_CAMERA_Y: usize = 35;
+/// Render camera width in world units (ADR-043).
+pub const HEADER_CAMERA_WIDTH: usize = 36;
+/// Render camera height in world units (ADR-043).
+pub const HEADER_CAMERA_HEIGHT: usize = 37;
 
 /// Protocol version written into the header.
-pub const PROTOCOL_VERSION: f32 = 5.0;
+pub const PROTOCOL_VERSION: f32 = 6.0;
 
 /// Floats per render instance (wire format — never changes).
 pub const INSTANCE_FLOATS: usize = 8;
@@ -429,8 +435,8 @@ mod tests {
     }
 
     #[test]
-    fn header_size_is_36() {
-        assert_eq!(HEADER_FLOATS, 36);
+    fn header_size_is_38() {
+        assert_eq!(HEADER_FLOATS, 38);
         assert_eq!(HEADER_MAX_LAYER_BATCHES, 18);
         assert_eq!(HEADER_LAYER_BATCH_COUNT, 19);
         assert_eq!(HEADER_LAYER_BATCH_OFFSET, 20);
@@ -440,6 +446,10 @@ mod tests {
         assert_eq!(HEADER_MAX_ALPHA_EFFECTS_VERTICES, 28);
         assert_eq!(HEADER_ALPHA_EFFECTS_VERTEX_COUNT, 29);
         assert_eq!(HEADER_ALPHA_EFFECTS_BATCH_COUNT, 30);
+        assert_eq!(HEADER_CAMERA_X, 31);
+        assert_eq!(HEADER_CAMERA_Y, 35);
+        assert_eq!(HEADER_CAMERA_WIDTH, 36);
+        assert_eq!(HEADER_CAMERA_HEIGHT, 37);
     }
 
     #[test]
@@ -492,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn protocol_version_is_5() {
-        assert_eq!(PROTOCOL_VERSION, 5.0);
+    fn protocol_version_is_6() {
+        assert_eq!(PROTOCOL_VERSION, 6.0);
     }
 }

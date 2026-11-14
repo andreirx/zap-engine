@@ -1779,3 +1779,65 @@ Every writer in zap-engine sets `cell_span` to 1.0 or to a manifest's `span`, an
 - A rectangle that is not square, or a crop that is not centred.
 - `SpriteComponent::cell_span`'s comment (`components/sprite.rs`) still names only 1.0 and 2.0; it is outside HODA-ZE4's files.
 - The module maps (`MAP.md`) are not updated by this change.
+
+---
+
+## ADR-042: With Lighting On, the WebGPU Normal Buffer Is Always Cleared to the Flat Normal
+
+**Date:** 2026-11-14
+**Status:** Proposed (HoDA slice HODA-ZE5; uncommitted until the owner reviews it)
+
+### Problem
+On the WebGPU tier the lighting post-process (`lighting.wgsl`) reads a normal for every pixel from the normal buffer: `N = normalize(normal_sample.xyz * 2.0 - 1.0)`, and each point light contributes `… * max(dot(N, light_dir), 0)`. The normal-buffer pass is the only writer of that buffer. It ran only when `hasLighting && hasNormalMaps && normalBufferView`, in both places in `webgpu.ts` (the visibility path and the standard path). With lighting on and no normal map in the manifest the pass did not run. The buffer kept its initial zero, which decodes to the normal (−1, −1, −1). Then `dot(N, light_dir) > 0` only where the pixel lies below and to the right of the light, far enough that the offset outweighs the light's fixed height. A point light lit only that part of its disc: the brightest area was about 11 pixels off on each axis at radius 40, and the pixel under the light got ambient only. The Canvas2D tier has no normal buffer and was correct.
+
+### Decision
+- **Rule R-FLAT-NORMAL**, two pure functions in `renderer/lightingRules.ts`, tested on Node in `lightingRules.test.ts`:
+  - `normalPassRuns(hasLighting, hasNormalBuffer)`: the normal-buffer pass runs whenever lighting is on and the buffer exists. Normal maps are not an input. The pass always clears to the flat normal (0.502, 0.502, 1.0), which decodes to (0, 0, 1).
+  - `drawsSpriteNormals(hasNormalMaps)`: over that clear, the pass draws the sprites' normals only when at least one atlas has a normal map. The SDF shapes' flat normals are drawn in either case, as before.
+- Both normal-buffer passes in `webgpu.ts` call the two functions. Without normal maps the pass receives a sprite-normal draw function that draws nothing, so `encodeNormalPass` (`webgpu/passes/scene.ts`) does not change.
+- No shader, Canvas2D, worker, Rust or protocol change. `PROTOCOL_VERSION` and `INSTANCE_FLOATS` are unchanged.
+
+### Consequences
+- **Visible change, intended:** a game that adds point lights and has no normal map, on WebGPU, now gets a centred, whole light disc. Before, the disc was offset and half-lit. In zap-engine's examples this is `effects-showcase` (lights, no normal map).
+- With a normal map nothing changes: the pass runs under the same condition as before and issues the same commands. With lighting off nothing changes: the pass does not run, as before. A scene with ambient below white and no light does not change either: the shader decodes `N` before the per-light loop (`lighting.wgsl:65`), but `N` reaches the output only through each light's `NdotL` term (`:86-88`), so with no light it has no effect.
+- Canvas2D does not change.
+- Without normal maps, one more render pass (a clear and the SDF normals) runs per frame while lighting is on.
+- `lightingRules.ts` keeps no value import, for the reason given in ADR-040 (Node's type stripping).
+
+### Not Covered
+- The comment on `encodeNormalPass` in `webgpu/passes/scene.ts` still says "when lighting + normal maps active". It is outside HODA-ZE5's files.
+- The module maps (`MAP.md`) are not updated by this change.
+
+---
+
+## ADR-043: The Rust Game Chooses the Renderer's Camera; Wheel Input Reaches the Game
+
+**Date:** 2026-11-14
+**Status:** Proposed (HoDA slice HODA-ZE3; uncommitted until the owner reviews it)
+
+### Problem
+ADR-040 gave the renderer a camera (`setCamera`), but only a TypeScript host can set it. A Rust game that runs in zap-web's worker cannot: `EngineContext::camera` (`Camera2D`, ADR-027's "future integration") never reaches the renderer, and the worker maps every pointer through the fixed projection. The worker also has no wheel input, so a game cannot zoom with the mouse wheel.
+
+`Camera2D` is also ambiguous for this use. `EngineContext::camera` is created as `Camera2D::new(world_width, world_height)`, centred at `[0, 0]`, and its `projection_matrix` documents "Origin at center, Y-up". zap-web's world is Y-down with the origin at the top-left. Deriving a renderer view from `ctx.camera` would therefore change the picture of every game that never touched it.
+
+### Decision
+- **The field.** `EngineContext` gains `pub render_camera: Option<Camera2D>`, `None` in every constructor. `None`: the renderer keeps its own projection (`setCamera(null)`), pointers map as before, whatever `ctx.camera` holds. `Some(c)`: the renderer shows the world rectangle centred at `c.center` (read in zap-web's Y-down world, the coordinates of every instance position) of size `c.width × c.height`. Only `center`, `width` and `height` are read; `projection_matrix` is not used. The mismatch between its Y-up comment and zap-web's world is recorded here and not changed. An `Option`, not a flag beside `camera`, because "no camera" and "a camera" are two states and only the second carries data.
+- **Exports.** `GameRunner::render_camera()` gives the four header floats `[centre x, centre y, width, height]`, all `NaN` for `None`. `export_game!` exports them as `get_render_camera_x`, `_y`, `_width`, `_height`.
+- **Header, protocol 6.** `HEADER_CAMERA_X` = 31 and `HEADER_CAMERA_Y` = 35 (the two reserved slots), `HEADER_CAMERA_WIDTH` = 36, `HEADER_CAMERA_HEIGHT` = 37; `HEADER_FLOATS` 36 → 38; `PROTOCOL_VERSION` 5 → 6; in `bridge/protocol.rs` and `worker/protocol.ts`. The constants `HEADER_RESERVED_31` and `HEADER_RESERVED_35` are removed (no user in zap-engine, zap-squad or HoDA). The worker writes the four floats each frame, and `NaN` into `HEADER_CAMERA_X` when it creates the buffer, so a header not yet written by a frame means "no camera". A game module built before this change has no camera exports; the worker writes `NaN` for it. The postMessage fallback copies the header with the frame, so both transports carry the camera.
+- **Decoding.** `readCameraRect(buf)` in `worker/frame-reader.ts` gives `{ x, y, width, height }`, or `null` when `x` is `NaN`; `readFrameState` returns it as `cameraRect`, and the worker uses the same function for its own mapping. `frame-reader.ts` imports `./protocol.ts` with its extension, so `frame-reader.test.ts` loads it on Node (ADR-040's reason).
+- **Fitting**, `cameraFromRect(rect, canvasW, canvasH, gameW, gameH)` in `renderer/camera.ts`: `{ x: rect.x, y: rect.y, zoom: min(projWidth / rect.width, projHeight / rect.height) }`. The whole rectangle is shown, centred; when the canvas's aspect differs, the canvas shows more along its longer side. `useZapEngine` calls `renderer.setCamera(cameraFromRect(…))`, or `setCamera(null)`, before each `draw`, with the canvas's present size and the game size the renderer was created with; `setCamera` does nothing when the camera did not change (ADR-040), so the baked-layer caches are invalidated only on a change, and a resize refits the rectangle.
+- **Pointers.** The worker maps a pointer with `screenToWorld` (ADR-040) and `cameraFromRect` of the last header it wrote, using the canvas CSS size it keeps and the world size; with no camera, `screenToWorld(…, null)`, which is the formula of before (`camera.test.ts` 1e and ZE3 2b).
+- **Wheel.** `InputEvent::Wheel { dx, dy, x, y }`. `useZapEngine` adds a non-passive `wheel` listener on the canvas that calls `preventDefault` (the page does not scroll) and posts `{ type: 'wheel', dx: deltaX, dy: deltaY, x: offsetX, y: offsetY }`. The worker maps (x, y) as a pointer and calls the optional export `game_wheel(dx, dy, wx, wy)`; `export_game!` defines it and pushes the event. `dx`, `dy` are passed unscaled: their unit is the browser's `deltaMode` (pixels, lines or pages).
+- **Exhaustive matches.** `Wheel` is a new variant of a closed enum. The compiler named one exhaustive `match` without a wildcard arm: `examples/dino-level-editor/src/game.rs` (`handle_input`), which gains `InputEvent::Wheel { .. } => {}` (the editor ignores the wheel, as before). zap-squad's `infrastructure/wasm` and `infrastructure/wasm-canvas` compile unchanged.
+
+### Consequences
+- A game that does not set `render_camera` draws, maps pointers and receives input as before. The only new input it can receive is `Wheel`, which a `match` with a wildcard arm ignores.
+- A host that reads the frame header must accept protocol 6 (HoDA's start check pins its expected version).
+- `useZapEngine` calls `setCamera` every drawn frame. With no camera, or an unchanged one, that is a comparison and nothing else.
+- `setCamera`'s guard (`checkCamera`, ADR-040) checks the converted camera, not the rectangle: the centre must be finite and the zoom finite and above 0. A rectangle with one dimension 0 is accepted, because `projWidth / 0` is `Infinity` and drops out of the `min`; the zoom then comes from the other dimension alone. A rectangle with both dimensions 0, a negative, `NaN` or infinite dimension, or a non-finite `y`, gives a camera the guard rejects: `setCamera` throws `RangeError` inside the render loop (`camera.test.ts` ZE3 2f). zap-web does not clamp a game's camera (ADR-040).
+
+### Not Covered
+- `cameraFromRect`, `CameraRect` and `readCameraRect` are not exported from the package entry (`index.ts` is outside HODA-ZE3's files); a non-React host imports them by path.
+- The hosts that start the worker and a renderer themselves (`examples/basic-demo/main.ts`, `examples/effects-showcase/main.ts`, `examples/zap-engine-template/main.ts`) do not call `setCamera`. A game that sets `render_camera` under one of them has its pointers mapped through the camera (in the worker) but is drawn without it. None of those games sets one; the hosts are outside HODA-ZE3's files.
+- Wheel deltas are not normalised across `deltaMode`.
+- The module maps (`MAP.md`) are not updated by this change.

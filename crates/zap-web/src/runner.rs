@@ -229,6 +229,16 @@ impl<G: Game> GameRunner<G> {
         self.render_buffer.atlas_split
     }
 
+    /// The game's render camera as the four header floats
+    /// `[centre x, centre y, width, height]` (ADR-043); all `NaN` when
+    /// `ctx.render_camera` is `None`.
+    pub fn render_camera(&self) -> [f32; 4] {
+        match &self.ctx.render_camera {
+            Some(c) => [c.center[0], c.center[1], c.width, c.height],
+            None => [f32::NAN; 4],
+        }
+    }
+
     // ---- Capacity accessors (read by TypeScript via wasm_bindgen exports) ----
 
     pub fn max_instances(&self) -> u32 {
@@ -393,5 +403,45 @@ impl<G: Game> GameRunner<G> {
 
     pub fn visibility_data_byte_offset(&self) -> u32 {
         self.layout.visibility_data_byte_offset as u32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zap_engine::Camera2D;
+
+    /// A game that sets `render_camera` in `init` when given one.
+    struct CameraGame {
+        camera: Option<[f32; 4]>,
+    }
+
+    impl Game for CameraGame {
+        fn init(&mut self, ctx: &mut EngineContext) {
+            if let Some([x, y, width, height]) = self.camera {
+                ctx.render_camera = Some(Camera2D {
+                    center: [x, y],
+                    width,
+                    height,
+                    ..Camera2D::new(width, height)
+                });
+            }
+        }
+
+        fn update(&mut self, _ctx: &mut EngineContext, _input: &InputQueue) {}
+    }
+
+    #[test]
+    fn render_camera_is_nan_without_a_camera() {
+        let mut runner = GameRunner::new(CameraGame { camera: None });
+        runner.init();
+        assert!(runner.render_camera().iter().all(|v| v.is_nan()));
+    }
+
+    #[test]
+    fn render_camera_gives_the_games_rectangle() {
+        let mut runner = GameRunner::new(CameraGame { camera: Some([480.0, 270.0, 960.0, 540.0]) });
+        runner.init();
+        assert_eq!(runner.render_camera(), [480.0, 270.0, 960.0, 540.0]);
     }
 }

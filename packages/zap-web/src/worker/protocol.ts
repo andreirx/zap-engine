@@ -5,7 +5,7 @@
 // TypeScript reads them from the header to compute offsets dynamically.
 
 /** Number of floats in the header section. */
-export const HEADER_FLOATS = 36;
+export const HEADER_FLOATS = 38;
 
 /** Header field indices. */
 export const HEADER_LOCK = 0;
@@ -44,15 +44,21 @@ export const HEADER_WASM_TIME_US = 27;
 export const HEADER_MAX_ALPHA_EFFECTS_VERTICES = 28;
 export const HEADER_ALPHA_EFFECTS_VERTEX_COUNT = 29;
 export const HEADER_ALPHA_EFFECTS_BATCH_COUNT = 30;
-export const HEADER_RESERVED_31 = 31;
+/** Render camera centre x, in the renderer's Y-down world (NaN = no camera; ADR-043). */
+export const HEADER_CAMERA_X = 31;
 // Phase 14: Visibility mask
 export const HEADER_VISIBILITY_COLS = 32;
 export const HEADER_VISIBILITY_ROWS = 33;
 export const HEADER_VISIBILITY_INTERPOLATION = 34;
-export const HEADER_RESERVED_35 = 35;
+/** Render camera centre y (ADR-043). */
+export const HEADER_CAMERA_Y = 35;
+/** Render camera width in world units (ADR-043). */
+export const HEADER_CAMERA_WIDTH = 36;
+/** Render camera height in world units (ADR-043). */
+export const HEADER_CAMERA_HEIGHT = 37;
 
 /** Protocol version written into the header. */
-export const PROTOCOL_VERSION = 5.0;
+export const PROTOCOL_VERSION = 6.0;
 
 /** Floats per render instance (wire format — never changes). */
 export const INSTANCE_FLOATS = 8;

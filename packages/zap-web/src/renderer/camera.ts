@@ -97,6 +97,39 @@ export function cameraView(
 }
 
 /**
+ * The world rectangle a game asks the renderer to show (ADR-043): centre
+ * (x, y) in the renderer's world (origin top-left, Y down), size width × height.
+ * The frame header carries it (HEADER_CAMERA_*).
+ */
+export interface CameraRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The Camera that shows `rect` whole and centred (ADR-043): centre (rect.x,
+ * rect.y), zoom min(projWidth / rect.width, projHeight / rect.height). When the
+ * canvas's aspect differs from the rectangle's, the canvas shows more of the
+ * world along its longer side. No check here. setCamera's checkCamera checks
+ * the converted camera only (centre finite, zoom finite and above 0), not the
+ * rectangle: one dimension 0 drops out of the min and is accepted (the zoom
+ * comes from the other); both 0, a negative or NaN dimension, or an infinite
+ * one give a zoom it rejects (camera.test.ts ZE3 2f).
+ */
+export function cameraFromRect(
+  rect: CameraRect,
+  canvasW: number,
+  canvasH: number,
+  gameW: number,
+  gameH: number,
+): Camera {
+  const { projWidth, projHeight } = computeProjection(canvasW, canvasH, gameW, gameH);
+  return { x: rect.x, y: rect.y, zoom: Math.min(projWidth / rect.width, projHeight / rect.height) };
+}
+
+/**
  * Build column-major orthographic projection matrix for WebGPU.
  * Maps cameraView's rectangle to clip space: left → −1, right → +1,
  * top → +1, bottom → −1. With no camera, the matrix of today.

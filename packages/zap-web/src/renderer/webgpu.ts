@@ -7,6 +7,7 @@ import { buildProjectionMatrix, cameraChanged, checkCamera, lightUniform, visibi
 import type { Renderer, LayerBatchDescriptor, BakeState, LightingState, DrawTiming } from './types';
 import type { AssetManifest } from '../assets/manifest';
 import { LayerCompositor } from './compositor';
+import { drawsSpriteNormals, normalPassRuns } from './lightingRules';
 
 // Device and resources
 import { initDevice, resizeContext, GLOW_MULT } from './webgpu/device';
@@ -442,11 +443,12 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
       );
       worldPass.end();
 
-      // Phase 2b: Normal buffer (when lighting + normal maps)
-      if (hasLighting && hasNormalMaps && normalBufferView) {
+      // Phase 2b: Normal buffer, whenever lighting is on (R-FLAT-NORMAL, ADR-042):
+      // cleared to the flat normal; sprite normals drawn only with normal maps.
+      if (normalPassRuns(hasLighting, normalBufferView !== null)) {
         const normalPass = encoder.beginRenderPass({
           colorAttachments: [{
-            view: normalBufferView,
+            view: normalBufferView!,
             clearValue: { r: 0.502, g: 0.502, b: 1.0, a: 1.0 },
             loadOp: 'clear',
             storeOp: 'store',
@@ -458,7 +460,8 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
           sdfBindGroup: bindGroups.sdfBindGroup,
           sdfLightBindGroup: bindGroups.sdfLightBindGroup,
         };
-        encodeNormalPass(normalPass, drawNormalBatchInstances, instanceCount, atlasSplit, layerBatches, sceneSdf, normalPassConfig, [0, 4]);
+        const drawSpriteNormals = drawsSpriteNormals(hasNormalMaps) ? drawNormalBatchInstances : () => {};
+        encodeNormalPass(normalPass, drawSpriteNormals, instanceCount, atlasSplit, layerBatches, sceneSdf, normalPassConfig, [0, 4]);
         normalPass.end();
       }
 
@@ -550,11 +553,12 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
 
       pass.end();
 
-      // Normal buffer render (when lighting + normal maps active)
-      if (hasLighting && hasNormalMaps && normalBufferView) {
+      // Normal buffer, whenever lighting is on (R-FLAT-NORMAL, ADR-042):
+      // cleared to the flat normal; sprite normals drawn only with normal maps.
+      if (normalPassRuns(hasLighting, normalBufferView !== null)) {
         const normalPass = encoder.beginRenderPass({
           colorAttachments: [{
-            view: normalBufferView,
+            view: normalBufferView!,
             clearValue: { r: 0.502, g: 0.502, b: 1.0, a: 1.0 },
             loadOp: 'clear',
             storeOp: 'store',
@@ -566,7 +570,8 @@ export async function initWebGPURenderer(config: WebGPURendererConfig): Promise<
           sdfBindGroup: bindGroups.sdfBindGroup,
           sdfLightBindGroup: bindGroups.sdfLightBindGroup,
         };
-        encodeNormalPass(normalPass, drawNormalBatchInstances, instanceCount, atlasSplit, layerBatches, sceneSdf, normalPassConfig);
+        const drawSpriteNormals = drawsSpriteNormals(hasNormalMaps) ? drawNormalBatchInstances : () => {};
+        encodeNormalPass(normalPass, drawSpriteNormals, instanceCount, atlasSplit, layerBatches, sceneSdf, normalPassConfig);
         normalPass.end();
       }
 

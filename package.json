@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "check": "tsc --noEmit",
     "bake-assets": "npx tsx tools/bake-assets.ts",
-    "test": "node --test packages/zap-web/src/renderer/camera.test.ts packages/zap-web/src/renderer/sampling.test.ts"
+    "test": "node --test packages/zap-web/src/renderer/camera.test.ts packages/zap-web/src/renderer/sampling.test.ts packages/zap-web/src/renderer/lightingRules.test.ts packages/zap-web/src/worker/frame-reader.test.ts"
   },
   "dependencies": {
     "@zap/web": "file:packages/zap-web"

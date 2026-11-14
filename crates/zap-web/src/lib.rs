@@ -102,6 +102,12 @@ macro_rules! export_game {
             with_runner(|r| r.push_input(InputEvent::Custom { kind, a, b, c }));
         }
 
+        /// Wheel turned over canvas point mapped to world (x, y); dx, dy unscaled (ADR-043).
+        #[wasm_bindgen]
+        pub fn game_wheel(dx: f32, dy: f32, x: f32, y: f32) {
+            with_runner(|r| r.push_input(InputEvent::Wheel { dx, dy, x, y }));
+        }
+
         #[wasm_bindgen]
         pub fn game_load_manifest(json: &str) {
             with_runner(|r| r.load_manifest(json));
@@ -162,6 +168,28 @@ macro_rules! export_game {
         #[wasm_bindgen]
         pub fn get_atlas_split() -> u32 {
             with_runner(|r| r.atlas_split())
+        }
+
+        // ---- Render camera accessors (NaN when the game has none; ADR-043) ----
+
+        #[wasm_bindgen]
+        pub fn get_render_camera_x() -> f32 {
+            with_runner(|r| r.render_camera()[0])
+        }
+
+        #[wasm_bindgen]
+        pub fn get_render_camera_y() -> f32 {
+            with_runner(|r| r.render_camera()[1])
+        }
+
+        #[wasm_bindgen]
+        pub fn get_render_camera_width() -> f32 {
+            with_runner(|r| r.render_camera()[2])
+        }
+
+        #[wasm_bindgen]
+        pub fn get_render_camera_height() -> f32 {
+            with_runner(|r| r.render_camera()[3])
         }
 
         // ---- Capacity accessors ----
